@@ -6,8 +6,19 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `make coverage` target (Makefile.ci) running bats under kcov instrumentation
+  inside `kcov/kcov` image. Refs #1.
+- CI `coverage` job uploading kcov XML to Codecov on push-to-main only.
+  Refs #1.
+- Codecov badge on all four README variants.
+
 ### Changed
 
+- `Makefile` renamed to `Makefile.ci` (no top-level `Makefile`), aligning
+  with `ycpss91255-docker/base` convention. All `make` invocations now
+  require `-f Makefile.ci`. Refs #1.
 - `actions/checkout` bumped from `@v4` to `@v6` in `ci.yaml` to align with
   `ycpss91255-docker/base`. Refs #1.
 

@@ -1,0 +1,54 @@
+SHELL := /bin/bash
+
+# Aligns with ycpss91255-docker/base: same prebuilt test-tools image
+# (alpine + shellcheck + bats + hadolint + bats-{support,assert,mock}).
+# Override with TEST_TOOLS_IMAGE=... for local rebuild flows.
+TEST_TOOLS_IMAGE ?= ghcr.io/ycpss91255-docker/test-tools:latest
+
+# Coverage uses kcov's own image (Debian-based, ships kcov). bats is
+# apt-installed at runtime inside the container -- a one-time ~15s tax per
+# run; acceptable given coverage is a slow / release-time signal anyway.
+# Override with COVERAGE_IMAGE=... if you want to pin a tag.
+COVERAGE_IMAGE ?= kcov/kcov:latest
+
+SCRIPTS := init.sh add-runner.sh remove-runner.sh status.sh update.sh lib/common.sh
+
+DOCKER_RUN := docker run --rm -v "$$PWD:/source" -w /source $(TEST_TOOLS_IMAGE)
+
+# Coverage container needs seccomp=unconfined for kcov's ptrace, and
+# writable /source so coverage/ output lands on the host.
+KCOV_RUN := docker run --rm \
+	--security-opt seccomp=unconfined \
+	-v "$$PWD:/source" -w /source \
+	$(COVERAGE_IMAGE)
+
+.PHONY: help pull lint test check coverage lint-host test-host
+
+help: ## Show available targets
+	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*##"}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+
+pull: ## Pull both test-tools and coverage images
+	docker pull $(TEST_TOOLS_IMAGE)
+	docker pull $(COVERAGE_IMAGE)
+
+lint: ## ShellCheck inside test-tools container
+	$(DOCKER_RUN) shellcheck -x $(SCRIPTS)
+
+test: ## Bats smoke tests inside test-tools container
+	$(DOCKER_RUN) bats test/smoke/
+
+check: lint test ## lint + test (no coverage)
+
+coverage: ## Bats with kcov coverage -> ./coverage/ (slow; CI / release)
+	rm -rf coverage
+	$(KCOV_RUN) bash -c '\
+		apt-get update -qq && apt-get install -qq -y bats >/dev/null && \
+		kcov --include-path=. /source/coverage /usr/bin/bats test/smoke/'
+	@echo "coverage report: ./coverage/index.html"
+
+lint-host: ## ShellCheck on host (requires shellcheck installed locally)
+	shellcheck -x $(SCRIPTS)
+
+test-host: ## Bats on host (requires bats installed locally)
+	bats test/smoke/

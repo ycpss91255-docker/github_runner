@@ -5,6 +5,7 @@
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/github_runner/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/github_runner)
 
 **[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
@@ -61,25 +62,31 @@ ADR-0012 原始切分与后续 refinement）。
 
 测试在 `ghcr.io/ycpss91255-docker/test-tools` image 内执行（alpine +
 bats + shellcheck + hadolint，跟 `ycpss91255-docker/base` 用同一个 image），
-本机跑跟 CI 跑共用完全相同的工具版本。
+覆盖率在 `kcov/kcov` 内跑（Debian，内含 `kcov`；`bats` runtime apt 装）。
+本机跟 CI 共用相同 image。
+
+Makefile 改名 `Makefile.ci`（无 top-level `Makefile`）对齐 base repo 惯例 —
+都用 `-f Makefile.ci` 调用：
 
 ```bash
-make pull    # 拉 test-tools image（首次）
-make lint    # shellcheck（在 docker 内）
-make test    # bats smoke tests（在 docker 内）
-make check   # 两者
-make help    # 列出 targets
+make -f Makefile.ci pull       # 拉 test-tools + kcov image（首次）
+make -f Makefile.ci lint       # shellcheck（在 docker 内）
+make -f Makefile.ci test       # bats smoke tests（在 docker 内）
+make -f Makefile.ci check      # lint + test（不含 coverage）
+make -f Makefile.ci coverage   # bats + kcov 覆盖率 → ./coverage/
+make -f Makefile.ci help       # 列 targets
 ```
 
 若想直接在 host 跑（需本机已装 `shellcheck` / `bats`）：
 
 ```bash
-make lint-host
-make test-host
+make -f Makefile.ci lint-host
+make -f Makefile.ci test-host
 ```
 
-CI 透过 `.github/workflows/ci.yaml` 用同一个 image 跑 `make lint` +
-`make test`。
+CI 每次 push / PR 跑 `lint` + `test`，**push 到 main 才跑 `coverage`**
+（kcov 比纯 bats 慢 2-5×，留给 release-quality signal 用），Codecov
+上传走 `CODECOV_TOKEN` repo secret。
 
 ## 先决条件
 
