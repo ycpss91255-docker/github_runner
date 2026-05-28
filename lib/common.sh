@@ -4,7 +4,16 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034
 
-readonly RUNNER_HOME="${HOME}/github_runner"
+# RUNNER_HOME holds the tarball cache (.bin/) and per-target runner install
+# dirs (<org>/_org/, <owner>/<repo>/). It defaults to <repo_root>/runners/
+# (i.e. alongside this checkout) so a single clone owns all runner state
+# without polluting $HOME. Override with RUNNER_HOME=... before invoking
+# any script to install runners elsewhere.
+if [[ -z "${RUNNER_HOME:-}" ]]; then
+  RUNNER_HOME="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/runners"
+fi
+readonly RUNNER_HOME
+
 readonly RUNNER_VERSION="${RUNNER_VERSION:-2.319.1}"
 readonly RUNNER_TARBALL="actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
 

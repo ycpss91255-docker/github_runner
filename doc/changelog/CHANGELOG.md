@@ -6,6 +6,30 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed (BREAKING for existing installs)
+
+- Default `RUNNER_HOME` moved from `${HOME}/github_runner` to
+  `<repo_root>/runners/` (alongside the repo checkout). Single clone now
+  owns all runner state; no separate `~/github_runner` directory needed.
+  Override via `RUNNER_HOME=...` env var before invoking any script.
+  `.gitignore` covers `/runners/` and `/coverage/`.
+
+  **Migration for existing runners installed at `~/github_runner/`**:
+  before pulling this change, deregister with the old `RUNNER_HOME`
+  pointing at the old location:
+
+  ```bash
+  RUNNER_HOME=~/github_runner ./remove-runner.sh org ycpss91255-docker
+  RUNNER_HOME=~/github_runner ./remove-runner.sh org ycpss91255-research
+  ```
+
+  Then pull, and re-register with the new default location:
+
+  ```bash
+  ./init.sh ycpss91255-docker
+  ./add-runner.sh org ycpss91255-research
+  ```
+
 ### Added
 
 - `make coverage` target (Makefile.ci) running bats under kcov instrumentation

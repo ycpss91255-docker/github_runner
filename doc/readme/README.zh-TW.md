@@ -33,8 +33,12 @@ ADR-0012 原始切分與後續 refinement）。
 
 ## 目錄結構
 
+預設所有 runner state 都住在 `<repo_root>/runners/`（跟此 checkout 同位，
+已 gitignored）。一份 clone 擁有所有狀態，不需要額外的 `~/github_runner`
+目錄：
+
 ```
-~/github_runner/                                       # 本機安裝位置
+<repo_root>/runners/                                   # 預設 RUNNER_HOME
 ├── .bin/
 │   └── actions-runner-linux-x64-<version>.tar.gz      # 快取的 tarball
 ├── ycpss91255-docker/
@@ -45,6 +49,9 @@ ADR-0012 原始切分與後續 refinement）。
 
 `_org` 代表「該 org 的 org-level runner」。Repo-level runner 會放在
 `<org>/<repo>/`。
+
+要改安裝位置，在跑任一 script 前 export `RUNNER_HOME`（例如
+`RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`）。
 
 ## Scripts
 

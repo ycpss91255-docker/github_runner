@@ -3,12 +3,12 @@
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../../remove-runner.sh"
-  FAKE_HOME=$(mktemp -d)
-  export HOME="${FAKE_HOME}"
+  FAKE_RH=$(mktemp -d)
+  export RUNNER_HOME="${FAKE_RH}"
 }
 
 teardown() {
-  rm -rf "${FAKE_HOME}"
+  rm -rf "${FAKE_RH}"
 }
 
 @test "remove-runner.sh with no args exits non-zero" {

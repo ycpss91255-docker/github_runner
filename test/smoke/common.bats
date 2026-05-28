@@ -3,6 +3,9 @@
 
 setup() {
   LIB="${BATS_TEST_DIRNAME}/../../lib/common.sh"
+  # Pin RUNNER_HOME so TARGET_DIR is predictable regardless of where the
+  # repo is checked out (default is <repo_root>/runners/).
+  export RUNNER_HOME="/tmp/gh-runner-test-home"
 }
 
 @test "resolve_target org sets org-scoped variables" {
@@ -10,7 +13,7 @@ setup() {
   source "${LIB}"
   resolve_target org myorg
   [ "${TARGET_URL}" = "https://github.com/myorg" ]
-  [ "${TARGET_DIR}" = "${HOME}/github_runner/myorg/_org" ]
+  [ "${TARGET_DIR}" = "${RUNNER_HOME}/myorg/_org" ]
   [ "${TARGET_API_TOKEN_PATH}" = "/orgs/myorg/actions/runners/registration-token" ]
   [ "${TARGET_API_REMOVE_PATH}" = "/orgs/myorg/actions/runners/remove-token" ]
   [[ "${TARGET_NAME}" == *"-myorg-org" ]]
@@ -21,7 +24,7 @@ setup() {
   source "${LIB}"
   resolve_target repo owner myrepo
   [ "${TARGET_URL}" = "https://github.com/owner/myrepo" ]
-  [ "${TARGET_DIR}" = "${HOME}/github_runner/owner/myrepo" ]
+  [ "${TARGET_DIR}" = "${RUNNER_HOME}/owner/myrepo" ]
   [ "${TARGET_API_TOKEN_PATH}" = "/repos/owner/myrepo/actions/runners/registration-token" ]
   [ "${TARGET_API_REMOVE_PATH}" = "/repos/owner/myrepo/actions/runners/remove-token" ]
   [[ "${TARGET_NAME}" == *"-owner-myrepo" ]]
