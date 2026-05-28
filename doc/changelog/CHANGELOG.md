@@ -6,6 +6,11 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `actions/checkout` bumped from `@v4` to `@v6` in `ci.yaml` to align with
+  `ycpss91255-docker/base`. Refs #1.
+
 ### Added
 
 - Apache-2.0 `LICENSE`.
