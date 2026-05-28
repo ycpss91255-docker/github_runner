@@ -15,9 +15,7 @@ jobs:
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: shellcheck
-        run: |
-          docker run --rm -v "${PWD}:/source" -w /source "${TEST_TOOLS_IMAGE}" \
-            shellcheck -x init.sh add-runner.sh remove-runner.sh status.sh update.sh lib/common.sh
+        run: make -f Makefile.ci lint
 
   bats:
     runs-on: ubuntu-latest
@@ -26,6 +24,21 @@ jobs:
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: bats smoke
-        run: |
-          docker run --rm -v "${PWD}:/source" -w /source "${TEST_TOOLS_IMAGE}" \
-            bats test/smoke/
+        run: make -f Makefile.ci test
+
+  coverage:
+    # Main-push only. kcov instrumentation is 2-5x slower than plain bats
+    # (per base/self-test.yaml comment), so PRs run lint + test only and
+    # main push picks up the coverage signal for Codecov.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: run kcov coverage
+        run: make -f Makefile.ci coverage
+      - name: upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          directory: ./coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true

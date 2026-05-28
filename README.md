@@ -5,6 +5,7 @@
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/github_runner/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/github_runner)
 
 **[English](README.md)** | **[繁體中文](doc/readme/README.zh-TW.md)** | **[简体中文](doc/readme/README.zh-CN.md)** | **[日本語](doc/readme/README.ja.md)**
 
@@ -62,26 +63,33 @@ All scripts are idempotent.
 
 Tests run inside the `ghcr.io/ycpss91255-docker/test-tools` image (alpine +
 bats + shellcheck + hadolint, same image used by `ycpss91255-docker/base`).
-Local and CI runs share the exact tool versions.
+Coverage runs inside `kcov/kcov` (Debian, ships `kcov`; `bats` is
+apt-installed at run time). Local and CI runs share the same images.
+
+The Makefile is named `Makefile.ci` (no top-level `Makefile`) to match the
+base repo convention -- always invoke with `-f Makefile.ci`:
 
 ```bash
-make pull    # pull the test-tools image (once)
-make lint    # shellcheck on all scripts (in docker)
-make test    # bats smoke tests (in docker)
-make check   # both
-make help    # list targets
+make -f Makefile.ci pull       # pull test-tools + kcov images (once)
+make -f Makefile.ci lint       # shellcheck on all scripts (in docker)
+make -f Makefile.ci test       # bats smoke tests (in docker)
+make -f Makefile.ci check      # lint + test (no coverage)
+make -f Makefile.ci coverage   # bats with kcov coverage -> ./coverage/
+make -f Makefile.ci help       # list targets
 ```
 
 If you prefer to run on the host (requires `shellcheck` / `bats` installed
 locally):
 
 ```bash
-make lint-host
-make test-host
+make -f Makefile.ci lint-host
+make -f Makefile.ci test-host
 ```
 
-CI mirrors `make lint` + `make test` via the same image in
-`.github/workflows/ci.yaml`.
+CI mirrors `make -f Makefile.ci lint` + `test` on every push / PR and
+`coverage` on push-to-main only (kcov is 2-5x slower than plain bats, so
+coverage is reserved for release-quality signal). Codecov upload uses the
+`CODECOV_TOKEN` repo secret.
 
 ## Prerequisites
 

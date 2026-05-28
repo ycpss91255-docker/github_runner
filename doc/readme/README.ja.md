@@ -5,6 +5,7 @@
 ![Testing](https://img.shields.io/badge/Testing-Bats-orange?style=flat-square)
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](../../LICENSE)
+[![codecov](https://codecov.io/gh/ycpss91255-docker/github_runner/branch/main/graph/badge.svg)](https://codecov.io/gh/ycpss91255-docker/github_runner)
 
 **[English](../../README.md)** | **[繁體中文](README.zh-TW.md)** | **[简体中文](README.zh-CN.md)** | **[日本語](README.ja.md)**
 
@@ -61,26 +62,33 @@ org 境界の解釈については ADR-0012 を参照）。
 
 テストは `ghcr.io/ycpss91255-docker/test-tools` イメージ内で実行します
 （alpine + bats + shellcheck + hadolint、`ycpss91255-docker/base` と
-同じイメージ）。ローカル実行と CI 実行で完全に同じツールバージョンを
-共有します。
+同じイメージ）。カバレッジは `kcov/kcov` イメージ内で実行します
+（Debian、`kcov` 同梱；`bats` は実行時に apt インストール）。ローカルと
+CI で同じイメージを共有します。
+
+Makefile は `Makefile.ci` にリネーム（top-level の `Makefile` なし）。
+base リポジトリの慣例に合わせて常に `-f Makefile.ci` 経由で呼び出します。
 
 ```bash
-make pull    # test-tools イメージを pull（初回）
-make lint    # shellcheck（docker 内）
-make test    # bats smoke tests（docker 内）
-make check   # 両方
-make help    # ターゲット一覧
+make -f Makefile.ci pull       # test-tools + kcov イメージを pull（初回）
+make -f Makefile.ci lint       # shellcheck（docker 内）
+make -f Makefile.ci test       # bats smoke tests（docker 内）
+make -f Makefile.ci check      # lint + test（coverage を含まない）
+make -f Makefile.ci coverage   # bats + kcov カバレッジ → ./coverage/
+make -f Makefile.ci help       # ターゲット一覧
 ```
 
 ホスト直接実行（`shellcheck` / `bats` のローカルインストールが必要）：
 
 ```bash
-make lint-host
-make test-host
+make -f Makefile.ci lint-host
+make -f Makefile.ci test-host
 ```
 
-CI は `.github/workflows/ci.yaml` 経由で同じイメージで `make lint` +
-`make test` を実行します。
+CI は push / PR ごとに `lint` + `test` を実行し、**main への push 時のみ
+`coverage` を実行** します（kcov はプレーンな bats より 2-5 倍遅いため、
+リリース品質のシグナルとして留保）。Codecov アップロードは
+`CODECOV_TOKEN` の repo secret 経由です。
 
 ## 前提条件
 
