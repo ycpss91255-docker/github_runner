@@ -6,6 +6,10 @@
 ![ShellCheck](https://img.shields.io/badge/ShellCheck-Compliant-brightgreen?style=flat-square)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
 
+**[English](README.md)** | **[繁體中文](doc/readme/README.zh-TW.md)** | **[简体中文](doc/readme/README.zh-CN.md)** | **[日本語](doc/readme/README.ja.md)**
+
+---
+
 Self-hosted GitHub Actions runner provisioning for `ycpss91255-research` and
 `ycpss91255-docker` orgs. Implements [ADR-0012] in the consuming workspace
 repo.
