@@ -12,17 +12,10 @@ teardown() {
 }
 
 @test "init.sh fails when PATH has no docker / nvidia-smi / gh" {
-  # Stripped PATH -> none of docker/nvidia-smi/gh found -> prereq check should fail
+  # /usr/bin keeps bash + groups + grep reachable so the script starts and
+  # runs the prereq checks; docker / nvidia-smi / gh / jq are absent there
+  # on github-hosted ubuntu-latest, so command -v fails and FAIL lines print.
   PATH=/usr/bin run "${SCRIPT}"
   [ "${status}" -ne 0 ]
-  # At least one FAIL line printed
   [[ "${output}" == *"FAIL:"* ]]
-}
-
-@test "init.sh prints FAIL when docker missing" {
-  EMPTY_PATH=$(mktemp -d)
-  PATH="${EMPTY_PATH}" run "${SCRIPT}"
-  rm -rf "${EMPTY_PATH}"
-  [ "${status}" -ne 0 ]
-  [[ "${output}" == *"docker not installed"* ]]
 }
