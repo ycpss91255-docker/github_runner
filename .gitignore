@@ -1,0 +1,5 @@
+# Per-user Claude Code workspace state (project-level config and skills).
+# These live alongside the repo for local development convenience but are
+# not part of the github_runner tooling and should not be tracked here.
+.claude/
+skills-lock.json

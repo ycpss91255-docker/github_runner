@@ -35,6 +35,16 @@ live at `<org>/<repo>/` instead.
 
 All scripts are idempotent.
 
+## Testing
+
+```bash
+make lint    # shellcheck on all scripts
+make test    # bats smoke tests
+make check   # both
+```
+
+CI runs both on every push / PR via `.github/workflows/ci.yaml`.
+
 ## Prerequisites
 
 - Linux x64 (tested: Ubuntu 22.04)

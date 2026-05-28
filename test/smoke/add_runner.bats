@@ -1,0 +1,43 @@
+#!/usr/bin/env bats
+# Smoke tests for add-runner.sh argument parsing and idempotency.
+
+setup() {
+  SCRIPT="${BATS_TEST_DIRNAME}/../../add-runner.sh"
+  FAKE_HOME=$(mktemp -d)
+  export HOME="${FAKE_HOME}"
+}
+
+teardown() {
+  rm -rf "${FAKE_HOME}"
+}
+
+@test "add-runner.sh with no args exits non-zero" {
+  run "${SCRIPT}"
+  [ "${status}" -ne 0 ]
+}
+
+@test "add-runner.sh with unknown scope exits non-zero" {
+  run "${SCRIPT}" foo bar
+  [ "${status}" -ne 0 ]
+}
+
+@test "add-runner.sh org without org name exits non-zero" {
+  run "${SCRIPT}" org
+  [ "${status}" -ne 0 ]
+}
+
+@test "add-runner.sh idempotent: existing .runner file -> exit 0 with already-configured message" {
+  mkdir -p "${FAKE_HOME}/github_runner/testorg/_org"
+  touch "${FAKE_HOME}/github_runner/testorg/_org/.runner"
+
+  run "${SCRIPT}" org testorg
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"already configured"* ]]
+}
+
+@test "add-runner.sh fresh run without tarball cache exits non-zero" {
+  # No .runner exists -> proceeds to tarball check -> fails because no cache
+  run "${SCRIPT}" org someorg
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"tarball missing"* ]]
+}
