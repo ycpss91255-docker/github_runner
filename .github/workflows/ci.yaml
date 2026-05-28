@@ -1,22 +1,31 @@
 name: ci
+
 on:
   push:
   pull_request:
+
+env:
+  TEST_TOOLS_IMAGE: ghcr.io/ycpss91255-docker/test-tools:latest
+
 jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: pull test-tools
+        run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: shellcheck
-        run: shellcheck -x init.sh add-runner.sh remove-runner.sh status.sh update.sh lib/common.sh
+        run: |
+          docker run --rm -v "${PWD}:/source" -w /source "${TEST_TOOLS_IMAGE}" \
+            shellcheck -x init.sh add-runner.sh remove-runner.sh status.sh update.sh lib/common.sh
 
   bats:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: install bats
-        run: sudo apt-get update && sudo apt-get install -y bats
+      - name: pull test-tools
+        run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: bats smoke
-        run: bats test/smoke/
+        run: |
+          docker run --rm -v "${PWD}:/source" -w /source "${TEST_TOOLS_IMAGE}" \
+            bats test/smoke/

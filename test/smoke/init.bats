@@ -12,10 +12,11 @@ teardown() {
 }
 
 @test "init.sh fails when PATH has no docker / nvidia-smi / gh" {
-  # /usr/bin keeps bash + groups + grep reachable so the script starts and
-  # runs the prereq checks; docker / nvidia-smi / gh / jq are absent there
-  # on github-hosted ubuntu-latest, so command -v fails and FAIL lines print.
-  PATH=/usr/bin run "${SCRIPT}"
+  # /bin + /usr/bin keeps bash (alpine) and groups / grep (both alpine and
+  # ubuntu) reachable so the script starts and runs the prereq checks.
+  # docker / nvidia-smi / gh / jq are absent in the test-tools alpine
+  # container so command -v fails and FAIL lines print.
+  PATH=/bin:/usr/bin run "${SCRIPT}"
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"FAIL:"* ]]
 }
