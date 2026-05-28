@@ -33,8 +33,12 @@ org 境界の解釈については ADR-0012 を参照）。
 
 ## ディレクトリ構成
 
+デフォルトではすべての runner state は `<repo_root>/runners/` 配下
+（このチェックアウトの隣、gitignore 済み）に置かれます。1 つの clone で
+すべての状態を所有し、別途 `~/github_runner` ディレクトリは不要です。
+
 ```
-~/github_runner/                                       # ローカルインストール位置
+<repo_root>/runners/                                   # デフォルト RUNNER_HOME
 ├── .bin/
 │   └── actions-runner-linux-x64-<version>.tar.gz      # キャッシュ済み tarball
 ├── ycpss91255-docker/
@@ -45,6 +49,9 @@ org 境界の解釈については ADR-0012 を参照）。
 
 `_org` は「その org の org-level runner」を意味します。Repo-level runner は
 `<org>/<repo>/` に配置されます。
+
+インストール先を変更したい場合は、スクリプトを実行する前に `RUNNER_HOME`
+を export してください（例：`RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`）。
 
 ## スクリプト
 

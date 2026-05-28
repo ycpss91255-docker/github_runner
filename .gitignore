@@ -3,3 +3,13 @@
 # not part of the github_runner tooling and should not be tracked here.
 .claude/
 skills-lock.json
+
+# Runner install state. Default RUNNER_HOME (see lib/common.sh) is
+# <repo_root>/runners/, containing .bin/<runner-tarball> and per-target
+# install dirs like ycpss91255-docker/_org/, ycpss91255-research/_org/.
+# Override with RUNNER_HOME=... env var to put state elsewhere; this
+# pattern still keeps the repo clean for the default layout.
+/runners/
+
+# Coverage report produced by `make -f Makefile.ci coverage`.
+/coverage/

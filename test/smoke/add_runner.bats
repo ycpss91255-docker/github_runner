@@ -3,12 +3,12 @@
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../../add-runner.sh"
-  FAKE_HOME=$(mktemp -d)
-  export HOME="${FAKE_HOME}"
+  FAKE_RH=$(mktemp -d)
+  export RUNNER_HOME="${FAKE_RH}"
 }
 
 teardown() {
-  rm -rf "${FAKE_HOME}"
+  rm -rf "${FAKE_RH}"
 }
 
 @test "add-runner.sh with no args exits non-zero" {
@@ -27,8 +27,8 @@ teardown() {
 }
 
 @test "add-runner.sh idempotent: existing .runner file -> exit 0 with already-configured message" {
-  mkdir -p "${FAKE_HOME}/github_runner/testorg/_org"
-  touch "${FAKE_HOME}/github_runner/testorg/_org/.runner"
+  mkdir -p "${RUNNER_HOME}/testorg/_org"
+  touch "${RUNNER_HOME}/testorg/_org/.runner"
 
   run "${SCRIPT}" org testorg
   [ "${status}" -eq 0 ]

@@ -34,8 +34,12 @@ and its later refinement).
 
 ## Layout
 
+By default, all runner state lives in `<repo_root>/runners/` (alongside this
+checkout, gitignored). One clone owns all the state -- no separate
+`~/github_runner` directory:
+
 ```
-~/github_runner/                                       # local install location
+<repo_root>/runners/                                   # default RUNNER_HOME
 ├── .bin/
 │   └── actions-runner-linux-x64-<version>.tar.gz      # cached tarball
 ├── ycpss91255-docker/
@@ -46,6 +50,9 @@ and its later refinement).
 
 `_org` denotes "the org-level runner for this org". Repo-level runners would
 live at `<org>/<repo>/` instead.
+
+Override the install location by exporting `RUNNER_HOME` before invoking
+any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`).
 
 ## Scripts
 
