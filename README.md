@@ -27,7 +27,7 @@ live at `<org>/<repo>/` instead.
 
 | Script | Purpose |
 |---|---|
-| `init.sh` | Verify host prerequisites; cache runner tarball into `~/github_runner/.bin/`. Does NOT register any runner |
+| `init.sh` | Verify host prerequisites; cache runner tarball into `~/github_runner/.bin/`. If given an org arg, also registers the first runner for that org |
 | `add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>` |
 | `remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
 | `status.sh` | List all registered runners with local + GitHub-side state |
@@ -48,17 +48,24 @@ All scripts are idempotent.
 
 ## Quick start
 
-`init.sh` only prepares the host. To get one or more runners online you also
-need `add-runner.sh` per target org. Today that is two orgs:
+`init.sh <org>` prepares the host AND registers the first runner. Additional
+runners are added with `add-runner.sh`:
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
-./init.sh
 gh auth login --scopes admin:org   # if not already
-./add-runner.sh org ycpss91255-docker
-./add-runner.sh org ycpss91255-research
+
+./init.sh ycpss91255-docker             # prep + first runner (for -docker org)
+./add-runner.sh org ycpss91255-research # second runner (for -research org)
 ./status.sh
+```
+
+If you want prep-only without registering (e.g. CI lint, or you'll register
+later):
+
+```bash
+./init.sh   # no org arg = bootstrap only
 ```
 
 Expected output of `./status.sh`:
@@ -95,8 +102,7 @@ After machine loss / reformat:
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
-./init.sh
-./add-runner.sh org ycpss91255-docker
+./init.sh ycpss91255-docker
 ./add-runner.sh org ycpss91255-research
 ```
 

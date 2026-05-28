@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
-# One-shot host bootstrap: verify prereqs and cache the runner tarball.
+# One-shot host bootstrap: verify prereqs, cache the runner tarball,
+# and (optionally) register the first runner.
+#
+# Usage:
+#   ./init.sh <org>     -- bootstrap + register first org-level runner
+#   ./init.sh           -- bootstrap only (no runner registered)
+#
+# After init, register additional runners with:
+#   ./add-runner.sh org <another-org>
+#   ./add-runner.sh repo <owner> <repo>
 set -euo pipefail
 
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+source "${SCRIPT_DIR}/lib/common.sh"
 
 check_prereqs() {
   local errors=0
@@ -34,4 +44,10 @@ cache_tarball() {
 
 check_prereqs
 cache_tarball
-echo "init complete. Next: ./add-runner.sh org <org-name>"
+
+if [[ $# -gt 0 ]]; then
+  echo "==> bootstrapping first runner for org: $1"
+  "${SCRIPT_DIR}/add-runner.sh" org "$1"
+else
+  echo "init complete. Next: ./add-runner.sh org <org-name>"
+fi

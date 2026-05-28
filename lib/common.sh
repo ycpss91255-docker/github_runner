@@ -1,5 +1,8 @@
-# Shared constants and helpers for runner-setup scripts.
+# Shared constants and helpers for github_runner scripts.
+# This file is sourced by init.sh / add-runner.sh / remove-runner.sh / status.sh
+# / update.sh -- variables that look unused here are consumed in those scripts.
 # shellcheck shell=bash
+# shellcheck disable=SC2034
 
 readonly RUNNER_HOME="${HOME}/github_runner"
 readonly RUNNER_VERSION="${RUNNER_VERSION:-2.319.1}"
