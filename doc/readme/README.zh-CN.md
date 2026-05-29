@@ -84,6 +84,7 @@ ADR-0012 原始切分与后续 refinement）。
 | `scripts/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在则下载，再覆盖所有 registered runner 的 binary。保留 config |
 | `scripts/uninstall.sh` | `scripts/init.sh` 的对等：把此 checkout 注册过的 runner 全部拆掉 + 删 tarball cache。预设 prompt 确认，`--yes` 跳过，`--dry-run` 预览。**不**动 org runner-group flag、**不**删 checkout 本身（详见 #11） |
 | `scripts/cleanup.sh` | 清掉 GitHub 自动升级循环留下的占空间残料：陈旧 `bin.X` / `externals.X` 版本目录、`${RUNNER_HOME}/.bin/` 内的旧版 tarball、`_work/_update*` 残留。可安全排程，**不**动 registration state、log、进行中的 job 目录。预设 prompt 确认，`--yes` 跳过，`--dry-run` 预览 |
+| `scripts/schedule-cleanup.sh` | 安装／移除 user crontab 内的排程，定时自动跑 `cleanup.sh`（daily / weekly / monthly 可选；时段、星期几互动选择）。不带参数进互动模式，也可用 `--every` / `--at` / `--day` 一行带完。`--status` 看目前排程，`--uninstall` 移除。输出 append 到 `${RUNNER_HOME}/.cleanup.log`，`flock` 防并发重跑 |
 
 所有 script 均为 idempotent。
 
