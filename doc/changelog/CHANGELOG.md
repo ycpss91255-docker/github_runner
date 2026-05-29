@@ -8,6 +8,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Apache-2.0 `LICENSE`.
+- `doc/changelog/CHANGELOG.md` initialized.
+- `make coverage` target (`Makefile.ci`) running bats under kcov
+  instrumentation inside `kcov/kcov` image. Refs #1.
+- CI `coverage` job uploading kcov XML to Codecov on push-to-main only.
+  Codecov badge added to all four README variants. Refs #1.
 - `lib/common.sh`: `enable_public_repos_dispatch(org)` helper flips the
   Default runner group's `allows_public_repositories=true`. Required so
   workflows in public repos can dispatch to org-level self-hosted runners
@@ -15,13 +21,27 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   jobs in queued state). Refs #6.
 - `add-runner.sh`: after registering an `org`-scoped runner, calls
   `enable_public_repos_dispatch` so the configuration is one-step rather
-  than a follow-up workaround.
+  than a follow-up workaround. Refs #6.
 - `status.sh`: new `PUBLIC-DISPATCH` column shows the runner group flag
   per org (`public-ok` / `public-BLOCKED` / `n/a`) so configuration drift
-  is visible at a glance.
+  is visible at a glance. Refs #6.
 - README + 4-language variants document the two-knob security model
-  (outside-collaborator approval gate + `allows_public_repositories`) and
-  why flipping the latter on is safe when the former is set.
+  (outside-collaborator approval gate + `allows_public_repositories`)
+  and why flipping the latter on is safe when the former is set. Refs #6.
+
+### Changed
+
+- `Makefile` targets now run `shellcheck` / `bats` inside the
+  `ghcr.io/ycpss91255-docker/test-tools:latest` image (aligns with
+  `ycpss91255-docker/base`). `lint-host` / `test-host` retained for
+  host-side runs that do not require docker.
+- CI workflow (`.github/workflows/ci.yaml`) updated to use the same
+  test-tools image so local and CI runs share the exact tool versions.
+- `actions/checkout` bumped from `@v4` to `@v6` in `ci.yaml` to align
+  with `ycpss91255-docker/base`. Refs #1.
+- `Makefile` renamed to `Makefile.ci` (no top-level `Makefile`), aligning
+  with `ycpss91255-docker/base` convention. All `make` invocations now
+  require `-f Makefile.ci`. Refs #1.
 
 ### Changed (BREAKING for existing installs)
 
@@ -46,33 +66,6 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ./init.sh ycpss91255-docker
   ./add-runner.sh org ycpss91255-research
   ```
-
-### Added
-
-- `make coverage` target (Makefile.ci) running bats under kcov instrumentation
-  inside `kcov/kcov` image. Refs #1.
-- CI `coverage` job uploading kcov XML to Codecov on push-to-main only.
-  Refs #1.
-- Codecov badge on all four README variants.
-
-### Changed
-
-- `Makefile` renamed to `Makefile.ci` (no top-level `Makefile`), aligning
-  with `ycpss91255-docker/base` convention. All `make` invocations now
-  require `-f Makefile.ci`. Refs #1.
-- `actions/checkout` bumped from `@v4` to `@v6` in `ci.yaml` to align with
-  `ycpss91255-docker/base`. Refs #1.
-
-### Added
-
-- Apache-2.0 `LICENSE`.
-- `Makefile` targets switched to running `shellcheck` / `bats` inside the
-  `ghcr.io/ycpss91255-docker/test-tools:latest` image (aligns with
-  `ycpss91255-docker/base`). `lint-host` / `test-host` retained for host-side
-  runs that do not require docker.
-- CI workflow (`.github/workflows/ci.yaml`) updated to use the same
-  test-tools image so local and CI runs share the exact tool versions.
-- `doc/changelog/CHANGELOG.md` initialized.
 
 ## [0.1.0] - 2026-05-28
 

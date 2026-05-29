@@ -11,6 +11,38 @@
 
 ---
 
+## 目录
+
+- [TL;DR](#tldr)
+- [概览](#概览)
+- [目录结构](#目录结构)
+- [Scripts](#scripts)
+- [测试](#测试)
+- [安全性说明](#安全性说明)
+- [先决条件](#先决条件)
+- [快速开始](#快速开始)
+- [验证 runner](#验证-runner)
+- [升级 runner 二进制](#升级-runner-二进制)
+- [重建 SOP](#重建-sop)
+- [参考资料](#参考资料)
+- [授权](#授权)
+
+## TL;DR
+
+```bash
+git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
+cd ~/github_runner
+gh auth login --scopes admin:org        # 若尚未登录
+
+./init.sh ycpss91255-docker             # 准备 host + 注册第一个 runner
+./add-runner.sh org ycpss91255-research # 注册第二个 runner
+./status.sh                             # 本地 + GitHub 端状态
+```
+
+Runner state 预设安装在 `<repo_root>/runners/`；要改位置用 `RUNNER_HOME=...`。
+
+## 概览
+
 为 `ycpss91255-research` 与 `ycpss91255-docker` 两个 org 提供 self-hosted
 GitHub Actions runner 的安装部署工具。实作 [ADR-0012]（位于上层 workspace
 repo）的 tooling 部分。
@@ -18,18 +50,6 @@ repo）的 tooling 部分。
 Repo 放在 `ycpss91255-docker` 是因为 runner 部署属于 host 环境 /
 infrastructure 范畴（依使用者对 docker-vs-research org 边界的解读，详见
 ADR-0012 原始切分与后续 refinement）。
-
-## 目录
-
-- [快速开始](#快速开始)
-- [目录结构](#目录结构)
-- [Scripts](#scripts)
-- [先决条件](#先决条件)
-- [测试](#测试)
-- [验证 runner](#验证-runner)
-- [升级 runner 二进制](#升级-runner-二进制)
-- [重建 SOP](#重建-sop)
-- [参考资料](#参考资料)
 
 ## 目录结构
 
@@ -57,7 +77,7 @@ ADR-0012 原始切分与后续 refinement）。
 
 | Script | 用途 |
 |---|---|
-| `init.sh` | 检查 host 先决条件；下载并缓存 runner tarball 至 `~/github_runner/.bin/`。若带 org 参数，会同时注册该 org 的第一个 runner |
+| `init.sh` | 检查 host 先决条件；下载并缓存 runner tarball 至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。若带 org 参数，会同时注册该 org 的第一个 runner |
 | `add-runner.sh` | 注册新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。`org` scope 会把 Default runner group 的 `allows_public_repositories=true` 打开，让 public repo 的 workflow 能 dispatch（详见下方安全性说明） |
 | `remove-runner.sh` | 取消注册 + uninstall systemd service + 删目录 |
 | `status.sh` | 列出所有 registered runner 的本地与 GitHub 端状态 |

@@ -11,6 +11,39 @@
 
 ---
 
+## 目次
+
+- [TL;DR](#tldr)
+- [概要](#概要)
+- [ディレクトリ構成](#ディレクトリ構成)
+- [スクリプト](#スクリプト)
+- [テスト](#テスト)
+- [セキュリティモデル](#セキュリティモデル)
+- [前提条件](#前提条件)
+- [クイックスタート](#クイックスタート)
+- [runner の検証](#runner-の検証)
+- [runner バイナリのアップグレード](#runner-バイナリのアップグレード)
+- [再構築 SOP](#再構築-sop)
+- [参考資料](#参考資料)
+- [ライセンス](#ライセンス)
+
+## TL;DR
+
+```bash
+git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
+cd ~/github_runner
+gh auth login --scopes admin:org        # 未ログインの場合
+
+./init.sh ycpss91255-docker             # ホスト準備 + 最初の runner を登録
+./add-runner.sh org ycpss91255-research # 2 つ目の runner を登録
+./status.sh                             # ローカル + GitHub 側の状態
+```
+
+runner state はデフォルトで `<repo_root>/runners/` に置かれます。変更は
+`RUNNER_HOME=...` で上書きします。
+
+## 概要
+
 `ycpss91255-research` および `ycpss91255-docker` の 2 つの org 向けに、
 self-hosted GitHub Actions runner をプロビジョニングするツールです。
 上位 workspace repo の [ADR-0012] の tooling セクションを実装しています。
@@ -18,18 +51,6 @@ self-hosted GitHub Actions runner をプロビジョニングするツールで�
 このリポジトリが `ycpss91255-docker` に属するのは、runner のプロビジョニ
 ングがホスト環境 / インフラ層に該当するためです（docker と research の
 org 境界の解釈については ADR-0012 を参照）。
-
-## 目次
-
-- [クイックスタート](#クイックスタート)
-- [ディレクトリ構成](#ディレクトリ構成)
-- [スクリプト](#スクリプト)
-- [前提条件](#前提条件)
-- [テスト](#テスト)
-- [runner の検証](#runner-の検証)
-- [runner バイナリのアップグレード](#runner-バイナリのアップグレード)
-- [再構築 SOP](#再構築-sop)
-- [参考資料](#参考資料)
 
 ## ディレクトリ構成
 
@@ -57,7 +78,7 @@ org 境界の解釈については ADR-0012 を参照）。
 
 | Script | 用途 |
 |---|---|
-| `init.sh` | ホストの前提条件チェック、runner tarball を `~/github_runner/.bin/` にキャッシュ。org 引数を渡せば最初の runner も同時に登録 |
+| `init.sh` | ホストの前提条件チェック、runner tarball を `<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。org 引数を渡せば最初の runner も同時に登録 |
 | `add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
 | `remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
 | `status.sh` | 登録済み runner のローカル + GitHub 側の状態を一覧表示 |
