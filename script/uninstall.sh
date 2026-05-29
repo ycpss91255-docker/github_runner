@@ -56,26 +56,21 @@ parse_args() {
   done
 }
 
-# Emit one TAB-separated line per registered runner:
+# Emit one TAB-separated line per registered runner, reusing the contract
+# from lib/common.sh::list_runners but dropping fields uninstall doesn't
+# need (name + runner_dir) so the rest of this script keeps its current
+# read-and-dispatch shape:
 #   org\t<org-name>
 #   repo\t<owner>\t<repo>
-# Uses nullglob so a missing RUNNER_HOME just produces no output.
 enumerate_targets() {
-  shopt -s nullglob
-  local org_dir scope_dir org scope
-  for org_dir in "${RUNNER_HOME}"/*/; do
-    org=$(basename "${org_dir}")
-    [[ ${org} == ".bin" ]] && continue
-    for scope_dir in "${org_dir}"*/; do
-      scope=$(basename "${scope_dir}")
-      [[ -f "${scope_dir}/.runner" ]] || continue
-      if [[ ${scope} == "_org" ]]; then
-        printf 'org\t%s\n' "${org}"
-      else
-        printf 'repo\t%s\t%s\n' "${org}" "${scope}"
-      fi
-    done
-  done
+  local scope org scope_id
+  while IFS=$'\t' read -r scope org _ _ scope_id; do
+    if [[ ${scope} == "org" ]]; then
+      printf 'org\t%s\n' "${org}"
+    else
+      printf 'repo\t%s\t%s\n' "${org}" "${scope_id}"
+    fi
+  done < <(list_runners)
 }
 
 # Pretty-print one target line. $1 = scope, $2 = arg1, $3 = arg2 (optional).

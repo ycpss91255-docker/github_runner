@@ -63,6 +63,65 @@ find_cached_tarball() {
   printf '%s\n' "${candidates[@]}" | sort -V | tail -1
 }
 
+# Enumerate every configured runner under RUNNER_HOME. Emits one
+# TAB-separated row per runner. Org-scoped rows have 4 fields; repo-scoped
+# rows append a 5th:
+#
+#   org-scoped:   scope \t org   \t name \t runner_dir
+#   repo-scoped:  scope \t owner \t name \t runner_dir \t repo
+#
+# The variable-arity shape exists so callers can `IFS=$'\t' read -r scope
+# org name runner_dir scope_id`; bash collapses adjacent tabs when IFS is
+# whitespace, so a fixed-arity row with an empty middle field would lose
+# alignment. Trailing-optional avoids that.
+#
+# Fields:
+#   scope      -- "org" or "repo"
+#   org        -- org name (for org scope) or owner name (for repo scope)
+#   name       -- agentName read from the .runner JSON marker file
+#   runner_dir -- absolute path to the actions/runner state dir
+#   scope_id   -- (repo scope only) the repo name
+#
+# Contract:
+#   - "Configured" means a runner_dir has a `.runner` file. Dirs without
+#     it are silently skipped (matches every existing caller's intent).
+#   - The top-level `.bin/` cache dir is skipped.
+#   - Missing RUNNER_HOME -> 0 rows, return 0 (caller owns the UX).
+#   - Output is streamable; pipe through grep/awk if a subset is needed.
+list_runners() {
+  shopt -s nullglob
+  local org_dir org scope_dir scope_id scope name
+  for org_dir in "${RUNNER_HOME}"/*/; do
+    org=$(basename "${org_dir}")
+    [[ ${org} == ".bin" ]] && continue
+    for scope_dir in "${org_dir}"*/; do
+      [[ -f "${scope_dir}.runner" ]] || continue
+      scope_id=$(basename "${scope_dir}")
+      if [[ ${scope_id} == "_org" ]]; then
+        scope="org"
+        scope_id=""
+      else
+        scope="repo"
+      fi
+      # actions/runner writes a UTF-8 BOM + pretty-printed JSON to
+      # .runner. agentName lives on its own line; a bash-only regex
+      # extractor avoids depending on jq (which keeps list_runners
+      # testable in jq-less containers). Falls back to "?" so an empty
+      # / corrupt .runner does not break consumers that IFS-split rows.
+      name=$(sed -n 's/.*"agentName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+             "${scope_dir}.runner" | head -1)
+      [[ -z ${name} ]] && name="?"
+      if [[ -z ${scope_id} ]]; then
+        printf '%s\t%s\t%s\t%s\n' \
+          "${scope}" "${org}" "${name}" "${scope_dir%/}"
+      else
+        printf '%s\t%s\t%s\t%s\t%s\n' \
+          "${scope}" "${org}" "${name}" "${scope_dir%/}" "${scope_id}"
+      fi
+    done
+  done
+}
+
 # Flip the Default runner group's allows_public_repositories flag on, so
 # workflows in public repos within the org can actually dispatch to the
 # newly-registered self-hosted runner. GitHub's 2024+ default is false,

@@ -82,39 +82,40 @@ active_runner_version() {
 # `<short-label>` is a human one-liner used in the plan output.
 enumerate_items() {
   shopt -s nullglob
-  local org_dir scope_dir org ver variant cand sub work_update work_update_sh
+  local scope org runner_dir scope_label ver variant cand sub
+  local work_update work_update_sh
 
-  for org_dir in "${RUNNER_HOME}"/*/; do
-    org=$(basename "${org_dir}")
-    [[ ${org} == ".bin" ]] && continue
-    for scope_dir in "${org_dir}"*/; do
-      [[ -f "${scope_dir}/.runner" ]] || continue
-      ver=$(active_runner_version "${scope_dir%/}")
-      for variant in bin externals; do
-        for cand in "${scope_dir}${variant}".*; do
-          [[ -d "${cand}" ]] || continue
-          sub=$(basename "${cand}" | sed -n "s/^${variant}\\.\\(.*\\)$/\\1/p")
-          [[ -z ${sub} ]] && continue
-          if [[ -n ${ver} && ${sub} == "${ver}" ]]; then
-            continue
-          fi
-          printf '%s\t%s %s/%s -> %s.%s\n' \
-            "${cand%/}" "stale" "${org}" "$(basename "${scope_dir}")" \
-            "${variant}" "${sub}"
-        done
+  while IFS=$'\t' read -r scope org _ runner_dir _; do
+    # Re-derive the on-disk label (_org for org-scoped, repo name for
+    # repo-scoped) so prune messages stay identical to the previous form.
+    scope_label=$(basename "${runner_dir}")
+    ver=$(active_runner_version "${runner_dir}")
+    for variant in bin externals; do
+      for cand in "${runner_dir}/${variant}".*; do
+        [[ -d "${cand}" ]] || continue
+        sub=$(basename "${cand}" | sed -n "s/^${variant}\\.\\(.*\\)$/\\1/p")
+        [[ -z ${sub} ]] && continue
+        if [[ -n ${ver} && ${sub} == "${ver}" ]]; then
+          continue
+        fi
+        printf '%s\t%s %s/%s -> %s.%s\n' \
+          "${cand%/}" "stale" "${org}" "${scope_label}" \
+          "${variant}" "${sub}"
       done
-      work_update="${scope_dir}_work/_update"
-      work_update_sh="${scope_dir}_work/_update.sh"
-      if [[ -d ${work_update} ]]; then
-        printf '%s\t%s\n' "${work_update}" \
-          "self-update remnant ${org}/$(basename "${scope_dir}")/_work/_update/"
-      fi
-      if [[ -f ${work_update_sh} ]]; then
-        printf '%s\t%s\n' "${work_update_sh}" \
-          "self-update remnant ${org}/$(basename "${scope_dir}")/_work/_update.sh"
-      fi
     done
-  done
+    work_update="${runner_dir}/_work/_update"
+    work_update_sh="${runner_dir}/_work/_update.sh"
+    if [[ -d ${work_update} ]]; then
+      printf '%s\t%s\n' "${work_update}" \
+        "self-update remnant ${org}/${scope_label}/_work/_update/"
+    fi
+    if [[ -f ${work_update_sh} ]]; then
+      printf '%s\t%s\n' "${work_update_sh}" \
+        "self-update remnant ${org}/${scope_label}/_work/_update.sh"
+    fi
+  done < <(list_runners)
+  # Silence shellcheck: scope is consumed positionally by `read`.
+  : "${scope:-}"
 
   # Tarball cache: keep the highest-version, drop the rest.
   if [[ -d "${RUNNER_HOME}/.bin" ]]; then

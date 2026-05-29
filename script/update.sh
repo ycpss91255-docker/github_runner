@@ -21,17 +21,15 @@ main() {
       "https://github.com/actions/runner/releases/download/v${version}/${tarball}"
   fi
 
-  shopt -s nullglob
   local runner_dir
-  for runner_dir in "${RUNNER_HOME}"/*/*/; do
-    [[ -f "${runner_dir}/.runner" ]] || continue
+  while IFS=$'\t' read -r _ _ _ runner_dir _; do
     echo "==> updating ${runner_dir} -> ${version}"
     pushd "${runner_dir}" >/dev/null
     sudo ./svc.sh stop || true
     tar -xzf "${tarball_path}" --skip-old-files
     sudo ./svc.sh start
     popd >/dev/null
-  done
+  done < <(list_runners)
   echo "update complete. next job each runner picks up will report ${version}."
 }
 
