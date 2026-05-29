@@ -43,13 +43,14 @@ Runner state 预设安装在 `<repo_root>/runners/`；要改位置用 `RUNNER_HO
 
 ## 概览
 
-为 `ycpss91255-research` 与 `ycpss91255-docker` 两个 org 提供 self-hosted
-GitHub Actions runner 的安装部署工具。实作 [ADR-0012]（位于上层 workspace
-repo）的 tooling 部分。
+部署、管理与拆除 self-hosted GitHub Actions runner 的工具:注册 / 移除
+org-level 或 repo-level runner、安装成 systemd service、cache 与升级 runner
+binary、回报本地与 GitHub 端状态、清理自动升级残料。一份 clone 拥有
+`<repo_root>/runners/` 底下所有 runner state,所有 script 均为 idempotent。
 
-Repo 放在 `ycpss91255-docker` 是因为 runner 部署属于 host 环境 /
-infrastructure 范畴（依使用者对 docker-vs-research org 边界的解读，详见
-ADR-0012 原始切分与后续 refinement）。
+这些 script 是通用的 — 任何 org 或 repo 都能传入。作者自己跑在
+`ycpss91255-research` 与 `ycpss91255-docker` 两个 org 上(实作上层 workspace
+repo 的 [ADR-0012]);这些名称在全文只是具体范例,并未写死绑定。
 
 ## 目录结构
 

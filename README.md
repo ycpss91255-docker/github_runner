@@ -44,14 +44,16 @@ Runner state installs under `<repo_root>/runners/` by default; override with
 
 ## Overview
 
-Self-hosted GitHub Actions runner provisioning for `ycpss91255-research` and
-`ycpss91255-docker` orgs. Implements [ADR-0012] in the consuming workspace
-repo.
+Tooling to provision, manage, and tear down self-hosted GitHub Actions
+runners: register or remove org- and repo-level runners, install them as
+systemd services, cache and upgrade the runner binary, report local +
+GitHub-side state, and prune auto-update leftovers. One clone owns all runner
+state under `<repo_root>/runners/`, and every script is idempotent.
 
-Repo lives in `ycpss91255-docker` because runner provisioning is part of the
-host environment / infrastructure layer (per the user's interpretation of
-the docker-vs-research org boundary, see ADR-0012 for the original split
-and its later refinement).
+The scripts are general-purpose -- pass any org or repo. The author runs it for
+the `ycpss91255-research` and `ycpss91255-docker` orgs (implementing [ADR-0012]
+in the consuming workspace repo); those names appear throughout only as
+concrete examples, nothing is hard-coded to them.
 
 ## Layout
 

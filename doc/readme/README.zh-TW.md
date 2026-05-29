@@ -14,7 +14,7 @@
 ## 目錄
 
 - [TL;DR](#tldr)
-- [概覽](#概覽)
+- [概述](#概述)
 - [目錄結構](#目錄結構)
 - [Scripts](#scripts)
 - [測試](#測試)
@@ -41,15 +41,16 @@ gh auth login --scopes admin:org        # 若尚未登入
 
 Runner state 預設安裝在 `<repo_root>/runners/`；要改位置用 `RUNNER_HOME=...`。
 
-## 概覽
+## 概述
 
-為 `ycpss91255-research` 與 `ycpss91255-docker` 兩個 org 提供 self-hosted
-GitHub Actions runner 的安裝佈署工具。實作 [ADR-0012]（位於上層 workspace
-repo）的 tooling section。
+佈署、管理與拆除 self-hosted GitHub Actions runner 的工具:註冊 / 移除
+org-level 或 repo-level runner、安裝成 systemd service、cache 與升級 runner
+binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 clone 擁有
+`<repo_root>/runners/` 底下所有 runner state,所有 script 皆為 idempotent。
 
-Repo 放在 `ycpss91255-docker` 是因為 runner 佈署屬於 host 環境 /
-infrastructure 範疇（依使用者對 docker-vs-research org 邊界的解讀，詳見
-ADR-0012 原始切分與後續 refinement）。
+這些 script 是通用的 — 任何 org 或 repo 都能傳入。作者自己跑在
+`ycpss91255-research` 與 `ycpss91255-docker` 兩個 org 上(實作上層 workspace
+repo 的 [ADR-0012]);這些名稱在全文只是具體範例,並未寫死綁定。
 
 ## 目錄結構
 

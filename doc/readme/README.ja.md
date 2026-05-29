@@ -44,13 +44,17 @@ runner state はデフォルトで `<repo_root>/runners/` に置かれます。�
 
 ## 概要
 
-`ycpss91255-research` および `ycpss91255-docker` の 2 つの org 向けに、
-self-hosted GitHub Actions runner をプロビジョニングするツールです。
-上位 workspace repo の [ADR-0012] の tooling セクションを実装しています。
+self-hosted GitHub Actions runner をプロビジョニング・管理・撤去するツール
+です。org / repo レベルの runner の登録・削除、systemd service としての
+インストール、runner バイナリのキャッシュとアップグレード、ローカル +
+GitHub 側の状態のレポート、自動アップグレードの残骸のクリーンアップを行い
+ます。1 つの clone が `<repo_root>/runners/` 配下のすべての runner state を
+所有し、すべてのスクリプトは idempotent です。
 
-このリポジトリが `ycpss91255-docker` に属するのは、runner のプロビジョニ
-ングがホスト環境 / インフラ層に該当するためです（docker と research の
-org 境界の解釈については ADR-0012 を参照）。
+スクリプトは汎用的で、任意の org / repo を渡せます。作者は
+`ycpss91255-research` と `ycpss91255-docker` の 2 org で運用しています
+（上位 workspace repo の [ADR-0012] を実装）。これらの名前は全文を通じて
+具体例にすぎず、ハードコードされていません。
 
 ## ディレクトリ構成
 
