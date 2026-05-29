@@ -27,4 +27,5 @@ teardown() {
   [[ "${output}" == *"SCOPE"* ]]
   [[ "${output}" == *"LOCAL-SVC"* ]]
   [[ "${output}" == *"GITHUB"* ]]
+  [[ "${output}" == *"PUBLIC-DISPATCH"* ]]
 }

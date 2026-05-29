@@ -58,7 +58,7 @@ org 境界の解釈については ADR-0012 を参照）。
 | Script | 用途 |
 |---|---|
 | `init.sh` | ホストの前提条件チェック、runner tarball を `~/github_runner/.bin/` にキャッシュ。org 引数を渡せば最初の runner も同時に登録 |
-| `add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>` |
+| `add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
 | `remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
 | `status.sh` | 登録済み runner のローカル + GitHub 側の状態を一覧表示 |
 | `update.sh` | すべての runner の binary をアップグレード（config は保持） |
@@ -96,6 +96,32 @@ CI は push / PR ごとに `lint` + `test` を実行し、**main への push 時
 `coverage` を実行** します（kcov はプレーンな bats より 2-5 倍遅いため、
 リリース品質のシグナルとして留保）。Codecov アップロードは
 `CODECOV_TOKEN` の repo secret 経由です。
+
+## セキュリティモデル
+
+Self-hosted runner 上での public リポジトリの workflow ディスパッチに
+ついて、GitHub には揃えるべき 2 つのスイッチがあります：
+
+1. **外部コントリビューター approval gate**（org Settings → Actions →
+   General → 「Require approval for all external contributors」）。
+   ADR-0011 Public repo security に従って設定。fork PR が runner 上で
+   任意のコードを実行することを、maintainer が「Approve and run」を
+   クリックするまでブロックします。
+2. **Runner group `allows_public_repositories` フラグ**（各 org の
+   Default group）。GitHub の 2024 年以降のデフォルトは `false` で、
+   runner が `online` + idle に見えても public リポジトリの workflow
+   が永遠に queued のままになります。`add-runner.sh org <org>` はこれを
+   `true` に切り替え、maintainer がトリガーする正当なディスパッチを
+   通します。
+
+両方の保護を同時に有効化することで GitHub のデフォルト保護と等価になり
+ます：外部コントリビューターは承認なしでは実行できず、maintainer と
+信頼できるコラボレーターは実行できます。片方だけ閉じると、knob 2 オフ
+で public リポジトリのジョブが再びストランドし、knob 1 オフで fork PR
+の穴が再び開きます。元の分析は #6 を参照。
+
+`status.sh` は `PUBLIC-DISPATCH` カラムを表示し、各 org の knob 2 状態
+を可視化することで設定の静かなドリフトを防ぎます。
 
 ## 前提条件
 

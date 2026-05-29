@@ -59,8 +59,8 @@ setup_colors() {
 
 state_color() {
   case $1 in
-    running|online) printf '%s' "${C_GREEN}" ;;
-    stopped|offline) printf '%s' "${C_RED}" ;;
+    running|online|public-ok) printf '%s' "${C_GREEN}" ;;
+    stopped|offline|public-BLOCKED) printf '%s' "${C_RED}" ;;
     *) printf '%s' "${C_YELLOW}" ;;
   esac
 }
@@ -96,22 +96,39 @@ collect_rows() {
         svc_state="running"
       fi
 
-      local gh_state
+      local gh_state public_state
       if [[ ${scope} == "_org" ]]; then
         gh_state=$(gh api "/orgs/${org}/actions/runners" \
           --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
           || echo "n/a")
+        # Check Default runner-group public-repo dispatch flag. Without this
+        # flag set true, public-repo workflows silently stay queued even
+        # when the runner is online + idle (see lib/common.sh enable_public_
+        # repos_dispatch comment + #6). Surfaces as a column here so the
+        # mismatch is visible at a glance.
+        local flag
+        flag=$(gh api "/orgs/${org}/actions/runner-groups/1" \
+          --jq '.allows_public_repositories' 2>/dev/null || echo "")
+        case ${flag} in
+          true)  public_state="public-ok" ;;
+          false) public_state="public-BLOCKED" ;;
+          *)     public_state="n/a" ;;
+        esac
       else
         gh_state=$(gh api "/repos/${org}/${scope}/actions/runners" \
           --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
           || echo "n/a")
+        # Repo-scoped runners don't have a runner-group flag; the
+        # public/private decision is per-repo visibility.
+        public_state="-"
       fi
       [[ -z ${gh_state} ]] && gh_state="not-found"
 
       local scope_label="${scope}"
       [[ ${scope} == "_org" ]] && scope_label="org"
 
-      printf '%s\t%s\t%s\t%s\n' "${name}" "${scope_label}" "${svc_state}" "${gh_state}"
+      printf '%s\t%s\t%s\t%s\t%s\n' \
+        "${name}" "${scope_label}" "${svc_state}" "${gh_state}" "${public_state}"
     done
   done
 }
@@ -123,19 +140,19 @@ render_header() {
 
 render_table() {
   local rows=$1 prev=$2
-  printf '%s%-40s %-10s %-10s %-10s%s\n' "${C_BOLD}" \
-    "NAME" "SCOPE" "LOCAL-SVC" "GITHUB" "${C_RESET}"
-  printf '%-40s %-10s %-10s %-10s\n' \
-    "----" "-----" "---------" "------"
+  printf '%s%-40s %-10s %-10s %-10s %-16s%s\n' "${C_BOLD}" \
+    "NAME" "SCOPE" "LOCAL-SVC" "GITHUB" "PUBLIC-DISPATCH" "${C_RESET}"
+  printf '%-40s %-10s %-10s %-10s %-16s\n' \
+    "----" "-----" "---------" "------" "---------------"
 
   if [[ -z ${rows} ]]; then
     printf '%s(no runners found in %s)%s\n' "${C_DIM}" "${RUNNER_HOME}" "${C_RESET}"
     return
   fi
 
-  local name scope svc gh line changed hl rst
-  while IFS=$'\t' read -r name scope svc gh; do
-    line="${name}"$'\t'"${scope}"$'\t'"${svc}"$'\t'"${gh}"
+  local name scope svc gh public line changed hl rst
+  while IFS=$'\t' read -r name scope svc gh public; do
+    line="${name}"$'\t'"${scope}"$'\t'"${svc}"$'\t'"${gh}"$'\t'"${public}"
     changed=0
     if (( WATCH )) && [[ -n ${prev} ]] && ! grep -qxF -- "${line}" <<<"${prev}"; then
       changed=1
@@ -145,7 +162,8 @@ render_table() {
 
     printf '%s%-40s %-10s ' "${hl}" "${name}" "${scope}"
     print_state 10 "${svc}"; printf ' '
-    print_state 10 "${gh}"
+    print_state 10 "${gh}"; printf ' '
+    print_state 16 "${public}"
     printf '%s\n' "${rst}"
   done <<<"${rows}"
 }
