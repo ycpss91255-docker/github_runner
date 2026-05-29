@@ -17,6 +17,25 @@ readonly RUNNER_HOME
 readonly RUNNER_VERSION="${RUNNER_VERSION:-2.319.1}"
 readonly RUNNER_TARBALL="actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
 
+# Flip the Default runner group's allows_public_repositories flag on, so
+# workflows in public repos within the org can actually dispatch to the
+# newly-registered self-hosted runner. GitHub's 2024+ default is false,
+# which silently strands public-repo jobs in queued state (the runner is
+# online and idle, but never receives JobRequest). We rely on the
+# org-level "Require approval for all outside collaborators" gate (set per
+# ADR-0011 Public repo security) for the security boundary the GitHub
+# default would otherwise enforce.
+#
+# Idempotent: PATCH succeeds whether the flag is already true or not.
+# Safe to call after every add-runner.sh invocation.
+enable_public_repos_dispatch() {
+  local org=$1
+  gh api -X PATCH \
+    "/orgs/${org}/actions/runner-groups/1" \
+    -F allows_public_repositories=true \
+    --jq '.allows_public_repositories' >/dev/null
+}
+
 # Populates TARGET_URL, TARGET_DIR, TARGET_NAME, TARGET_API_TOKEN_PATH,
 # TARGET_API_REMOVE_PATH from positional args.
 # Usage:

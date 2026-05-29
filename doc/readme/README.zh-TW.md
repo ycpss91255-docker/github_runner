@@ -58,7 +58,7 @@ ADR-0012 原始切分與後續 refinement）。
 | Script | 用途 |
 |---|---|
 | `init.sh` | 檢查 host 先決條件；下載並 cache runner tarball 到 `~/github_runner/.bin/`。若帶 org 參數，會同時註冊該 org 的第一個 runner |
-| `add-runner.sh` | 註冊新 runner。用法：`org <org>` 或 `repo <owner> <repo>` |
+| `add-runner.sh` | 註冊新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。`org` scope 會把 Default runner group 的 `allows_public_repositories=true` 打開，讓 public repo 的 workflow 能 dispatch（詳見下方安全性說明） |
 | `remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
 | `status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態 |
 | `update.sh` | 升級所有 runner 的 binary，保留 config |
@@ -94,6 +94,29 @@ make -f Makefile.ci test-host
 CI 每次 push / PR 跑 `lint` + `test`，**push 到 main 才跑 `coverage`**
 （kcov 比純 bats 慢 2-5×，留給 release-quality signal 用），Codecov
 上傳走 `CODECOV_TOKEN` repo secret。
+
+## 安全性說明
+
+Public repo 的 workflow 在 self-hosted runner 上 dispatch，GitHub 有兩個
+開關需同時對齊：
+
+1. **外部貢獻者 approval gate**（org Settings → Actions → General →
+   「Require approval for all external contributors」）。依 ADR-0011 Public
+   repo security 設定。擋住 fork PR 在 runner 上任意執行 code，直到
+   maintainer 按「Approve and run」。
+2. **Runner group `allows_public_repositories` flag**（各 org 的 Default
+   group）。GitHub 2024 起預設 `false`，會把 public repo 的 workflow
+   永遠卡在 queued 狀態 — runner 顯示 `online` + idle 但實際不接 job。
+   `add-runner.sh org <org>` 會把它打開成 `true`，maintainer 觸發的
+   dispatch 才會通。
+
+兩個保護同時開 = 跟 GitHub 預設保護等價：外部貢獻者沒被 approve 不能跑，
+maintainer 跟受信任 collaborator 可跑。只關一個的話：knob 2 關
+→ public repo 工作再次卡死；knob 1 關 → fork PR 漏洞再開。原始分析詳見
+#6。
+
+`status.sh` 多了一欄 `PUBLIC-DISPATCH` 顯示每個 org 的 knob 2 狀態，
+避免設定靜默偏移。
 
 ## 先決條件
 

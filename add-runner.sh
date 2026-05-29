@@ -39,6 +39,13 @@ main() {
   sudo ./svc.sh start
   popd >/dev/null
 
+  # Unstick public-repo workflow dispatch (see lib/common.sh comment + #6).
+  # Only meaningful for org-scoped runners; repo-scoped runners do not have
+  # a runner-group flag.
+  if [[ ${1:-} == "org" ]]; then
+    enable_public_repos_dispatch "$2"
+  fi
+
   echo "registered: ${TARGET_NAME} at ${TARGET_DIR}"
 }
 

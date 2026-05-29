@@ -59,7 +59,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`).
 | Script | Purpose |
 |---|---|
 | `init.sh` | Verify host prerequisites; cache runner tarball into `~/github_runner/.bin/`. If given an org arg, also registers the first runner for that org |
-| `add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>` |
+| `add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
 | `remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
 | `status.sh` | List all registered runners with local + GitHub-side state |
 | `update.sh` | Upgrade runner binary across all runners; preserves config |
@@ -97,6 +97,30 @@ CI mirrors `make -f Makefile.ci lint` + `test` on every push / PR and
 `coverage` on push-to-main only (kcov is 2-5x slower than plain bats, so
 coverage is reserved for release-quality signal). Codecov upload uses the
 `CODECOV_TOKEN` repo secret.
+
+## Security model
+
+Public-repo dispatch on self-hosted runners has two GitHub knobs that
+matter and must agree:
+
+1. **Outside-collaborator approval gate** (org Settings -> Actions ->
+   General -> "Require approval for all external contributors"). Set per
+   ADR-0011 Public repo security. Blocks fork PRs from running arbitrary
+   code on the runner until the maintainer clicks "Approve and run".
+2. **Runner group `allows_public_repositories` flag** (Default group on
+   each org). GitHub's 2024+ default is `false`, which silently keeps
+   public-repo workflows queued forever even though the runner shows
+   `online` + idle. `add-runner.sh org <org>` flips this to `true` so
+   legitimate maintainer-triggered dispatches go through.
+
+Both protections together are equivalent to the GitHub default: outside
+contributors cannot run code on the runner without approval, but the
+maintainer and trusted collaborators can. Closing one without the other
+either re-strands public-repo jobs (knob 2 off) or re-opens the fork-PR
+hole (knob 1 off). See #6 for the original analysis.
+
+`status.sh` surfaces a `PUBLIC-DISPATCH` column showing whether knob 2 is
+set on each org so the configuration cannot drift silently.
 
 ## Prerequisites
 

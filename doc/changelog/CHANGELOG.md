@@ -6,6 +6,23 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `lib/common.sh`: `enable_public_repos_dispatch(org)` helper flips the
+  Default runner group's `allows_public_repositories=true`. Required so
+  workflows in public repos can dispatch to org-level self-hosted runners
+  (GitHub's 2024+ default is `false`, which silently strands public-repo
+  jobs in queued state). Refs #6.
+- `add-runner.sh`: after registering an `org`-scoped runner, calls
+  `enable_public_repos_dispatch` so the configuration is one-step rather
+  than a follow-up workaround.
+- `status.sh`: new `PUBLIC-DISPATCH` column shows the runner group flag
+  per org (`public-ok` / `public-BLOCKED` / `n/a`) so configuration drift
+  is visible at a glance.
+- README + 4-language variants document the two-knob security model
+  (outside-collaborator approval gate + `allows_public_repositories`) and
+  why flipping the latter on is safe when the former is set.
+
 ### Changed (BREAKING for existing installs)
 
 - Default `RUNNER_HOME` moved from `${HOME}/github_runner` to
