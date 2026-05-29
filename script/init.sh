@@ -3,12 +3,12 @@
 # and (optionally) register the first runner.
 #
 # Usage:
-#   ./scripts/init.sh <org>     -- bootstrap + register first org-level runner
-#   ./scripts/init.sh           -- bootstrap only (no runner registered)
+#   ./script/init.sh <org>     -- bootstrap + register first org-level runner
+#   ./script/init.sh           -- bootstrap only (no runner registered)
 #
 # After init, register additional runners with:
-#   ./scripts/add-runner.sh org <another-org>
-#   ./scripts/add-runner.sh repo <owner> <repo>
+#   ./script/add-runner.sh org <another-org>
+#   ./script/add-runner.sh repo <owner> <repo>
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
@@ -52,5 +52,5 @@ if [[ $# -gt 0 ]]; then
   echo "==> bootstrapping first runner for org: $1"
   "${SCRIPT_DIR}/add-runner.sh" org "$1"
 else
-  echo "init complete. Next: ./scripts/add-runner.sh org <org-name>"
+  echo "init complete. Next: ./script/add-runner.sh org <org-name>"
 fi

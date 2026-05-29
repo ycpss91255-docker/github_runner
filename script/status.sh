@@ -173,7 +173,7 @@ main() {
   setup_colors
 
   if [[ ! -d ${RUNNER_HOME} ]]; then
-    echo "no ${RUNNER_HOME} directory. run ./scripts/init.sh first."
+    echo "no ${RUNNER_HOME} directory. run ./script/init.sh first."
     exit 0
   fi
 

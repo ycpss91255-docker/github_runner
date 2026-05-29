@@ -2,7 +2,7 @@
 # Smoke tests for status.sh.
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/status.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../../script/status.sh"
   FAKE_RH=$(mktemp -d)
   # Point RUNNER_HOME at a non-existent subdir so the "missing dir" branch
   # fires; tests that want an empty dir create RUNNER_HOME explicitly.
@@ -16,7 +16,7 @@ teardown() {
 @test "status.sh missing RUNNER_HOME directory -> exits 0 with message" {
   run "${SCRIPT}"
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"./scripts/init.sh"* ]]
+  [[ "${output}" == *"./script/init.sh"* ]]
 }
 
 @test "status.sh empty RUNNER_HOME -> headers only" {

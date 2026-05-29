@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Upgrade runner binary across all registered runners. Preserves config.
 # Usage:
-#   ./scripts/update.sh                      # resolves and pulls latest released
-#   RUNNER_VERSION=2.334.0 ./scripts/update.sh  # pin a specific version
+#   ./script/update.sh                      # resolves and pulls latest released
+#   RUNNER_VERSION=2.334.0 ./script/update.sh  # pin a specific version
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh

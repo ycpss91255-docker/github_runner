@@ -22,10 +22,10 @@
 #   - `update.finished` marker
 #
 # Usage:
-#   ./scripts/cleanup.sh              # prompt before deleting
-#   ./scripts/cleanup.sh --yes        # skip prompt (required for non-TTY runs)
-#   ./scripts/cleanup.sh --dry-run    # print the plan, do nothing
-#   ./scripts/cleanup.sh -h | --help  # show help
+#   ./script/cleanup.sh              # prompt before deleting
+#   ./script/cleanup.sh --yes        # skip prompt (required for non-TTY runs)
+#   ./script/cleanup.sh --dry-run    # print the plan, do nothing
+#   ./script/cleanup.sh -h | --help  # show help
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"

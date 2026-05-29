@@ -2,7 +2,7 @@
 # Smoke tests for init.sh prereq checking.
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/init.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../../script/init.sh"
   FAKE_HOME=$(mktemp -d)
   export HOME="${FAKE_HOME}"
 }

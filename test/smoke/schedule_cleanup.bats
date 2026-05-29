@@ -4,7 +4,7 @@
 # hermetic and do not touch the running user's crontab.
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/schedule-cleanup.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../../script/schedule-cleanup.sh"
   FAKE_RH=$(mktemp -d)
   export RUNNER_HOME="${FAKE_RH}"
 
@@ -56,7 +56,7 @@ teardown() {
   # Sat is 6, Sun is 0 -- the prefix encodes that as DOW 0.
   grep -q '^30 3 \* \* 0 ' "${FAKE_CRON}"
   grep -q 'flock -n .*\.cleanup\.lock' "${FAKE_CRON}"
-  grep -q 'scripts/cleanup\.sh --yes' "${FAKE_CRON}"
+  grep -q 'script/cleanup\.sh --yes' "${FAKE_CRON}"
   grep -q '# github_runner cleanup' "${FAKE_CRON}"
 }
 
@@ -154,11 +154,11 @@ EOF
   # Point CLEANUP_BIN at a non-executable file by temporarily neutering
   # the real cleanup.sh script's permission bit inside a scratch checkout.
   STAGE=$(mktemp -d)
-  cp -r "${BATS_TEST_DIRNAME}/../../scripts" "${STAGE}/"
+  cp -r "${BATS_TEST_DIRNAME}/../../script" "${STAGE}/"
   cp -r "${BATS_TEST_DIRNAME}/../../lib" "${STAGE}/"
-  chmod -x "${STAGE}/scripts/cleanup.sh"
+  chmod -x "${STAGE}/script/cleanup.sh"
 
-  run "${STAGE}/scripts/schedule-cleanup.sh" --install --every daily --at 03:30
+  run "${STAGE}/script/schedule-cleanup.sh" --install --every daily --at 03:30
   [ "${status}" -eq 2 ]
   [[ "${output}" == *"not executable"* ]]
 

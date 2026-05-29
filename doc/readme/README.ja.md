@@ -34,9 +34,9 @@ git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
 gh auth login --scopes admin:org        # 未ログインの場合
 
-./scripts/init.sh ycpss91255-docker             # ホスト準備 + 最初の runner を登録
-./scripts/add-runner.sh org ycpss91255-research # 2 つ目の runner を登録
-./scripts/status.sh                             # ローカル + GitHub 側の状態
+./script/init.sh ycpss91255-docker             # ホスト準備 + 最初の runner を登録
+./script/add-runner.sh org ycpss91255-research # 2 つ目の runner を登録
+./script/status.sh                             # ローカル + GitHub 側の状態
 ```
 
 runner state はデフォルトで `<repo_root>/runners/` に置かれます。変更は
@@ -76,20 +76,20 @@ GitHub 側の状態のレポート、自動アップグレードの残骸のク�
 `<org>/<repo>/` に配置されます。
 
 インストール先を変更したい場合は、スクリプトを実行する前に `RUNNER_HOME`
-を export してください（例：`RUNNER_HOME=/var/lib/gh-runners ./scripts/init.sh ...`）。
+を export してください（例：`RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`）。
 
 ## スクリプト
 
 | Script | 用途 |
 |---|---|
-| `scripts/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（オフライン時は同梱の pinned fallback）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
-| `scripts/add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
-| `scripts/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
-| `scripts/status.sh` | 登録済み runner のローカル + GitHub 側の状態を一覧表示 |
-| `scripts/update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`）を解決し、キャッシュになければダウンロード、その後すべての登録済み runner の binary を上書き。config は保持 |
-| `scripts/uninstall.sh` | `scripts/init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
-| `scripts/cleanup.sh` | GitHub の自動更新サイクルで溜まるディスク食いの残骸を掃除：古い `bin.X` / `externals.X` バージョンディレクトリ、`${RUNNER_HOME}/.bin/` 内の古いキャッシュ tarball、`_work/_update*` の残り物。スケジュール実行しても安全 — 登録 state、ログ、進行中の job ディレクトリには **触れません**。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー |
-| `scripts/schedule-cleanup.sh` | user crontab に `cleanup.sh` の定期実行エントリをインストール／削除する（daily / weekly / monthly から選択、時刻と曜日もインタラクティブに指定可）。引数なしでインタラクティブモード、`--every` / `--at` / `--day` を渡せば一発で完了。`--status` で現在のエントリを表示、`--uninstall` で削除。出力は `${RUNNER_HOME}/.cleanup.log` に append、`flock` で重複実行をブロック |
+| `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（オフライン時は同梱の pinned fallback）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
+| `script/add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
+| `script/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
+| `script/status.sh` | 登録済み runner のローカル + GitHub 側の状態を一覧表示 |
+| `script/update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`）を解決し、キャッシュになければダウンロード、その後すべての登録済み runner の binary を上書き。config は保持 |
+| `script/uninstall.sh` | `script/init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
+| `script/cleanup.sh` | GitHub の自動更新サイクルで溜まるディスク食いの残骸を掃除：古い `bin.X` / `externals.X` バージョンディレクトリ、`${RUNNER_HOME}/.bin/` 内の古いキャッシュ tarball、`_work/_update*` の残り物。スケジュール実行しても安全 — 登録 state、ログ、進行中の job ディレクトリには **触れません**。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー |
+| `script/schedule-cleanup.sh` | user crontab に `cleanup.sh` の定期実行エントリをインストール／削除する（daily / weekly / monthly から選択、時刻と曜日もインタラクティブに指定可）。引数なしでインタラクティブモード、`--every` / `--at` / `--day` を渡せば一発で完了。`--status` で現在のエントリを表示、`--uninstall` で削除。出力は `${RUNNER_HOME}/.cleanup.log` に append、`flock` で重複実行をブロック |
 
 すべてのスクリプトは idempotent です。
 
@@ -138,7 +138,7 @@ Self-hosted runner 上での public リポジトリの workflow ディスパッ�
 2. **Runner group `allows_public_repositories` フラグ**（各 org の
    Default group）。GitHub の 2024 年以降のデフォルトは `false` で、
    runner が `online` + idle に見えても public リポジトリの workflow
-   が永遠に queued のままになります。`scripts/add-runner.sh org <org>` はこれを
+   が永遠に queued のままになります。`script/add-runner.sh org <org>` はこれを
    `true` に切り替え、maintainer がトリガーする正当なディスパッチを
    通します。
 
@@ -148,7 +148,7 @@ Self-hosted runner 上での public リポジトリの workflow ディスパッ�
 で public リポジトリのジョブが再びストランドし、knob 1 オフで fork PR
 の穴が再び開きます。元の分析は #6 を参照。
 
-`scripts/status.sh` は `PUBLIC-DISPATCH` カラムを表示し、各 org の knob 2 状態
+`script/status.sh` は `PUBLIC-DISPATCH` カラムを表示し、各 org の knob 2 状態
 を可視化することで設定の静かなドリフトを防ぎます。
 
 ## 前提条件
@@ -160,31 +160,31 @@ Self-hosted runner 上での public リポジトリの workflow ディスパッ�
 - 現在のユーザーが `docker` group に所属
 - `curl`、`jq`、`sudo` がインストール済み
 
-`scripts/init.sh` は上記すべてをチェックし、いずれかが失敗すると non-zero で
+`script/init.sh` は上記すべてをチェックし、いずれかが失敗すると non-zero で
 exit します。
 
 ## クイックスタート
 
-`scripts/init.sh <org>` はホスト準備と同時に最初の runner を登録します。追加の
-runner は `scripts/add-runner.sh` で登録：
+`script/init.sh <org>` はホスト準備と同時に最初の runner を登録します。追加の
+runner は `script/add-runner.sh` で登録：
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
 gh auth login --scopes admin:org   # 未認証の場合
 
-./scripts/init.sh ycpss91255-docker             # 準備 + 最初の runner（-docker org）
-./scripts/add-runner.sh org ycpss91255-research # 2 つ目の runner（-research org）
-./scripts/status.sh
+./script/init.sh ycpss91255-docker             # 準備 + 最初の runner（-docker org）
+./script/add-runner.sh org ycpss91255-research # 2 つ目の runner（-research org）
+./script/status.sh
 ```
 
 準備のみ、登録を後回しにする場合（CI lint や後で登録する場合）：
 
 ```bash
-./scripts/init.sh   # org 引数なし = bootstrap のみ
+./script/init.sh   # org 引数なし = bootstrap のみ
 ```
 
-`./scripts/status.sh` の想定出力：
+`./script/status.sh` の想定出力：
 
 ```
 NAME                                     SCOPE      LOCAL-SVC  GITHUB
@@ -197,14 +197,14 @@ NAME                                     SCOPE      LOCAL-SVC  GITHUB
 End-to-end 検証には、runner と同じ org のリポジトリ内にある canary
 workflow が必要です（GitHub の org-level runner は同 org の workflow
 からのみ呼び出せます）。canary の配置は設計中 — 上位 issue / ADR-0012
-の現在の決定を参照してください。即時のサニティチェック：`./scripts/status.sh`
-の GitHub 側 `online` フラグ、および `scripts/init.sh` が `docker run --gpus
+の現在の決定を参照してください。即時のサニティチェック：`./script/status.sh`
+の GitHub 側 `online` フラグ、および `script/init.sh` が `docker run --gpus
 all nvidia-smi` のホスト動作をすでに検証済みです。
 
 ## runner バイナリのアップグレード
 
 ```bash
-RUNNER_VERSION=<new-version> ./scripts/update.sh
+RUNNER_VERSION=<new-version> ./script/update.sh
 ```
 
 各 runner の service を停止 → バイナリを置き換え → 再起動。config と
@@ -217,8 +217,8 @@ credentials は保持されます。
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
-./scripts/init.sh ycpss91255-docker
-./scripts/add-runner.sh org ycpss91255-research
+./script/init.sh ycpss91255-docker
+./script/add-runner.sh org ycpss91255-research
 ```
 
 未記録のマシン状態はありません。登録トークンは `gh api` で都度取得する

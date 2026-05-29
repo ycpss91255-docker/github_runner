@@ -3,10 +3,10 @@
 # Counterpart to init.sh. See #11 for the design discussion.
 #
 # Usage:
-#   ./scripts/uninstall.sh                  # prompt before any destructive action
-#   ./scripts/uninstall.sh --yes            # skip the prompt (required for non-TTY runs)
-#   ./scripts/uninstall.sh --dry-run        # print the plan, do nothing
-#   ./scripts/uninstall.sh -h | --help      # show help
+#   ./script/uninstall.sh                  # prompt before any destructive action
+#   ./script/uninstall.sh --yes            # skip the prompt (required for non-TTY runs)
+#   ./script/uninstall.sh --dry-run        # print the plan, do nothing
+#   ./script/uninstall.sh -h | --help      # show help
 #
 # Deliberate non-actions (mirror #11 design):
 #   - Does NOT change org-level runner-group flags. The

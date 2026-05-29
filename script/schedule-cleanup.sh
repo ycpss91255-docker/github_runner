@@ -5,14 +5,14 @@
 # can rewrite or remove it idempotently without touching unrelated lines.
 #
 # Usage:
-#   ./scripts/schedule-cleanup.sh                       # interactive
-#   ./scripts/schedule-cleanup.sh --install              # interactive (same)
-#   ./scripts/schedule-cleanup.sh --install --every weekly --at 03:30 --day Sun
-#   ./scripts/schedule-cleanup.sh --install --every daily --at 04:00
-#   ./scripts/schedule-cleanup.sh --install --every monthly --at 05:00
-#   ./scripts/schedule-cleanup.sh --status               # show installed entry
-#   ./scripts/schedule-cleanup.sh --uninstall            # remove entry
-#   ./scripts/schedule-cleanup.sh -h | --help
+#   ./script/schedule-cleanup.sh                       # interactive
+#   ./script/schedule-cleanup.sh --install              # interactive (same)
+#   ./script/schedule-cleanup.sh --install --every weekly --at 03:30 --day Sun
+#   ./script/schedule-cleanup.sh --install --every daily --at 04:00
+#   ./script/schedule-cleanup.sh --install --every monthly --at 05:00
+#   ./script/schedule-cleanup.sh --status               # show installed entry
+#   ./script/schedule-cleanup.sh --uninstall            # remove entry
+#   ./script/schedule-cleanup.sh -h | --help
 #
 # Notes:
 #   - The cron command uses `flock -n` against ${RUNNER_HOME}/.cleanup.lock

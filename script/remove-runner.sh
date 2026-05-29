@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Deregister + uninstall service + remove directory. Idempotent.
 # Usage:
-#   ./scripts/remove-runner.sh org <org>
-#   ./scripts/remove-runner.sh repo <owner> <repo>
+#   ./script/remove-runner.sh org <org>
+#   ./script/remove-runner.sh repo <owner> <repo>
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh
