@@ -34,9 +34,9 @@ git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
 gh auth login --scopes admin:org        # 若尚未登入
 
-./init.sh ycpss91255-docker             # 準備 host + 註冊第一個 runner
-./add-runner.sh org ycpss91255-research # 註冊第二個 runner
-./status.sh                             # 本地 + GitHub 端狀態
+./scripts/init.sh ycpss91255-docker             # 準備 host + 註冊第一個 runner
+./scripts/add-runner.sh org ycpss91255-research # 註冊第二個 runner
+./scripts/status.sh                             # 本地 + GitHub 端狀態
 ```
 
 Runner state 預設安裝在 `<repo_root>/runners/`；要改位置用 `RUNNER_HOME=...`。
@@ -71,18 +71,19 @@ ADR-0012 原始切分與後續 refinement）。
 `<org>/<repo>/`。
 
 要改安裝位置，在跑任一 script 前 export `RUNNER_HOME`（例如
-`RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`）。
+`RUNNER_HOME=/var/lib/gh-runners ./scripts/init.sh ...`）。
 
 ## Scripts
 
 | Script | 用途 |
 |---|---|
-| `init.sh` | 檢查 host 先決條件；透過 GitHub API 解析 actions/runner 最新 release（離線時退回內建 pinned fallback），下載並 cache 至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆蓋。若帶 org 參數，會同時註冊該 org 的第一個 runner |
-| `add-runner.sh` | 註冊新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。`org` scope 會把 Default runner group 的 `allows_public_repositories=true` 打開，讓 public repo 的 workflow 能 dispatch（詳見下方安全性說明） |
-| `remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
-| `status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態 |
-| `update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在則下載，再覆蓋所有 registered runner 的 binary。保留 config |
-| `uninstall.sh` | `init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
+| `scripts/init.sh` | 檢查 host 先決條件；透過 GitHub API 解析 actions/runner 最新 release（離線時退回內建 pinned fallback），下載並 cache 至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆蓋。若帶 org 參數，會同時註冊該 org 的第一個 runner |
+| `scripts/add-runner.sh` | 註冊新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。`org` scope 會把 Default runner group 的 `allows_public_repositories=true` 打開，讓 public repo 的 workflow 能 dispatch（詳見下方安全性說明） |
+| `scripts/remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
+| `scripts/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態 |
+| `scripts/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在則下載，再覆蓋所有 registered runner 的 binary。保留 config |
+| `scripts/uninstall.sh` | `scripts/init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
+| `scripts/cleanup.sh` | 清掉 GitHub 自動升級循環留下的占空間殘料：陳舊 `bin.X` / `externals.X` 版本目錄、`${RUNNER_HOME}/.bin/` 內的舊版 tarball、`_work/_update*` 殘留。可安全排程，**不**動 registration state、log、進行中的 job 目錄。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽 |
 
 所有 script 皆為 idempotent。
 
@@ -128,7 +129,7 @@ Public repo 的 workflow 在 self-hosted runner 上 dispatch，GitHub 有兩個
 2. **Runner group `allows_public_repositories` flag**（各 org 的 Default
    group）。GitHub 2024 起預設 `false`，會把 public repo 的 workflow
    永遠卡在 queued 狀態 — runner 顯示 `online` + idle 但實際不接 job。
-   `add-runner.sh org <org>` 會把它打開成 `true`，maintainer 觸發的
+   `scripts/add-runner.sh org <org>` 會把它打開成 `true`，maintainer 觸發的
    dispatch 才會通。
 
 兩個保護同時開 = 跟 GitHub 預設保護等價：外部貢獻者沒被 approve 不能跑，
@@ -136,7 +137,7 @@ maintainer 跟受信任 collaborator 可跑。只關一個的話：knob 2 關
 → public repo 工作再次卡死；knob 1 關 → fork PR 漏洞再開。原始分析詳見
 #6。
 
-`status.sh` 多了一欄 `PUBLIC-DISPATCH` 顯示每個 org 的 knob 2 狀態，
+`scripts/status.sh` 多了一欄 `PUBLIC-DISPATCH` 顯示每個 org 的 knob 2 狀態，
 避免設定靜默偏移。
 
 ## 先決條件
@@ -148,30 +149,30 @@ maintainer 跟受信任 collaborator 可跑。只關一個的話：knob 2 關
 - 當前使用者在 `docker` group 內
 - 安裝 `curl`, `jq`, `sudo`
 
-`init.sh` 會跑完上述所有檢查，任何一項失敗即 exit non-zero。
+`scripts/init.sh` 會跑完上述所有檢查，任何一項失敗即 exit non-zero。
 
 ## 快速開始
 
-`init.sh <org>` 會準備好 host 並同時註冊第一個 runner。其他 runner 用
-`add-runner.sh` 新增：
+`scripts/init.sh <org>` 會準備好 host 並同時註冊第一個 runner。其他 runner 用
+`scripts/add-runner.sh` 新增：
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
 gh auth login --scopes admin:org   # 若尚未登入
 
-./init.sh ycpss91255-docker             # 準備 + 第一個 runner（-docker org）
-./add-runner.sh org ycpss91255-research # 第二個 runner（-research org）
-./status.sh
+./scripts/init.sh ycpss91255-docker             # 準備 + 第一個 runner（-docker org）
+./scripts/add-runner.sh org ycpss91255-research # 第二個 runner（-research org）
+./scripts/status.sh
 ```
 
 若只想準備環境、暫不註冊（例如 CI lint，或之後再註冊）：
 
 ```bash
-./init.sh   # 不帶 org 參數 = 只 bootstrap
+./scripts/init.sh   # 不帶 org 參數 = 只 bootstrap
 ```
 
-`./status.sh` 預期輸出：
+`./scripts/status.sh` 預期輸出：
 
 ```
 NAME                                     SCOPE      LOCAL-SVC  GITHUB
@@ -183,14 +184,14 @@ NAME                                     SCOPE      LOCAL-SVC  GITHUB
 
 End-to-end 驗證需要一個 canary workflow 放在跟 runner 同 org 的 repo 內
 （GitHub org-level runner 只接受同 org 的 workflow）。Canary 放置位置仍在
-設計中 — 詳見上層 issue / ADR-0012 當前決定。立即的健康檢查：`./status.sh`
-顯示 GitHub 端的 `online` flag，且 `init.sh` 已驗證過
+設計中 — 詳見上層 issue / ADR-0012 當前決定。立即的健康檢查：`./scripts/status.sh`
+顯示 GitHub 端的 `online` flag，且 `scripts/init.sh` 已驗證過
 `docker run --gpus all nvidia-smi` 在 host 上能跑。
 
 ## 升級 runner 二進位
 
 ```bash
-RUNNER_VERSION=<new-version> ./update.sh
+RUNNER_VERSION=<new-version> ./scripts/update.sh
 ```
 
 停每個 runner 的 service、覆蓋 binary、重啟。config 跟 credentials 保留。
@@ -202,8 +203,8 @@ RUNNER_VERSION=<new-version> ./update.sh
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
-./init.sh ycpss91255-docker
-./add-runner.sh org ycpss91255-research
+./scripts/init.sh ycpss91255-docker
+./scripts/add-runner.sh org ycpss91255-research
 ```
 
 沒有未記錄的機器狀態。註冊 token 透過 `gh api` 重新申請，舊機器上的 runner

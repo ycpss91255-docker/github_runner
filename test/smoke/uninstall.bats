@@ -5,7 +5,7 @@
 # criteria); here we cover the deterministic safe surface.
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../../uninstall.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/uninstall.sh"
   FAKE_RH=$(mktemp -d)
   export RUNNER_HOME="${FAKE_RH}"
 }

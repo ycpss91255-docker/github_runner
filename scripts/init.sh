@@ -3,17 +3,17 @@
 # and (optionally) register the first runner.
 #
 # Usage:
-#   ./init.sh <org>     -- bootstrap + register first org-level runner
-#   ./init.sh           -- bootstrap only (no runner registered)
+#   ./scripts/init.sh <org>     -- bootstrap + register first org-level runner
+#   ./scripts/init.sh           -- bootstrap only (no runner registered)
 #
 # After init, register additional runners with:
-#   ./add-runner.sh org <another-org>
-#   ./add-runner.sh repo <owner> <repo>
+#   ./scripts/add-runner.sh org <another-org>
+#   ./scripts/add-runner.sh repo <owner> <repo>
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-# shellcheck source=lib/common.sh
-source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=SCRIPTDIR/../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
 
 check_prereqs() {
   local errors=0
@@ -52,5 +52,5 @@ if [[ $# -gt 0 ]]; then
   echo "==> bootstrapping first runner for org: $1"
   "${SCRIPT_DIR}/add-runner.sh" org "$1"
 else
-  echo "init complete. Next: ./add-runner.sh org <org-name>"
+  echo "init complete. Next: ./scripts/add-runner.sh org <org-name>"
 fi

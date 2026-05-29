@@ -34,9 +34,9 @@ git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
 gh auth login --scopes admin:org        # if not already
 
-./init.sh ycpss91255-docker             # prep host + register first runner
-./add-runner.sh org ycpss91255-research # register second runner
-./status.sh                             # local + GitHub-side state
+./scripts/init.sh ycpss91255-docker             # prep host + register first runner
+./scripts/add-runner.sh org ycpss91255-research # register second runner
+./scripts/status.sh                             # local + GitHub-side state
 ```
 
 Runner state installs under `<repo_root>/runners/` by default; override with
@@ -73,18 +73,19 @@ checkout, gitignored). One clone owns all the state -- no separate
 live at `<org>/<repo>/` instead.
 
 Override the install location by exporting `RUNNER_HOME` before invoking
-any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`).
+any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./scripts/init.sh ...`).
 
 ## Scripts
 
 | Script | Purpose |
 |---|---|
-| `init.sh` | Verify host prerequisites; cache runner tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
-| `add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
-| `remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
-| `status.sh` | List all registered runners with local + GitHub-side state |
-| `update.sh` | Upgrade runner binary across all runners; preserves config |
-| `uninstall.sh` | Counterpart to `init.sh`: tear down every runner registered through this checkout + remove the cached tarball. Prompts by default; `--yes` skips, `--dry-run` previews. Does NOT change org runner-group flags or remove the checkout itself (see #11) |
+| `scripts/init.sh` | Verify host prerequisites; cache runner tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
+| `scripts/add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
+| `scripts/remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
+| `scripts/status.sh` | List all registered runners with local + GitHub-side state |
+| `scripts/update.sh` | Upgrade runner binary across all runners; preserves config |
+| `scripts/uninstall.sh` | Counterpart to `scripts/init.sh`: tear down every runner registered through this checkout + remove the cached tarball. Prompts by default; `--yes` skips, `--dry-run` previews. Does NOT change org runner-group flags or remove the checkout itself (see #11) |
+| `scripts/cleanup.sh` | Prune disk-heavy leftovers from GitHub's auto-update cycle: stale `bin.X` / `externals.X` version dirs, older cached tarballs in `${RUNNER_HOME}/.bin/`, and `_work/_update*` remnants. Safe to schedule; never touches registration state, logs, or in-flight job dirs. Prompts by default; `--yes` skips, `--dry-run` previews |
 
 All scripts are idempotent.
 
@@ -132,7 +133,7 @@ matter and must agree:
 2. **Runner group `allows_public_repositories` flag** (Default group on
    each org). GitHub's 2024+ default is `false`, which silently keeps
    public-repo workflows queued forever even though the runner shows
-   `online` + idle. `add-runner.sh org <org>` flips this to `true` so
+   `online` + idle. `scripts/add-runner.sh org <org>` flips this to `true` so
    legitimate maintainer-triggered dispatches go through.
 
 Both protections together are equivalent to the GitHub default: outside
@@ -141,7 +142,7 @@ maintainer and trusted collaborators can. Closing one without the other
 either re-strands public-repo jobs (knob 2 off) or re-opens the fork-PR
 hole (knob 1 off). See #6 for the original analysis.
 
-`status.sh` surfaces a `PUBLIC-DISPATCH` column showing whether knob 2 is
+`scripts/status.sh` surfaces a `PUBLIC-DISPATCH` column showing whether knob 2 is
 set on each org so the configuration cannot drift silently.
 
 ## Prerequisites
@@ -153,31 +154,31 @@ set on each org so the configuration cannot drift silently.
 - Current user in `docker` group
 - `curl`, `jq`, `sudo`
 
-`init.sh` runs all of these checks and exits non-zero on failure.
+`scripts/init.sh` runs all of these checks and exits non-zero on failure.
 
 ## Quick start
 
-`init.sh <org>` prepares the host AND registers the first runner. Additional
-runners are added with `add-runner.sh`:
+`scripts/init.sh <org>` prepares the host AND registers the first runner. Additional
+runners are added with `scripts/add-runner.sh`:
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
 gh auth login --scopes admin:org   # if not already
 
-./init.sh ycpss91255-docker             # prep + first runner (for -docker org)
-./add-runner.sh org ycpss91255-research # second runner (for -research org)
-./status.sh
+./scripts/init.sh ycpss91255-docker             # prep + first runner (for -docker org)
+./scripts/add-runner.sh org ycpss91255-research # second runner (for -research org)
+./scripts/status.sh
 ```
 
 If you want prep-only without registering (e.g. CI lint, or you'll register
 later):
 
 ```bash
-./init.sh   # no org arg = bootstrap only
+./scripts/init.sh   # no org arg = bootstrap only
 ```
 
-Expected output of `./status.sh`:
+Expected output of `./scripts/status.sh`:
 
 ```
 NAME                                     SCOPE      LOCAL-SVC  GITHUB
@@ -191,14 +192,14 @@ End-to-end verification needs a canary workflow inside a repo that lives
 in the same org as the runner (GitHub org-level runners only accept
 workflows from their own org). Canary placement is still under design --
 see the parent issue / ADR-0012 for the current decision. For an
-immediate sanity check, `./status.sh` shows the GitHub-side `online` flag,
-and `init.sh` already verifies `docker run --gpus all nvidia-smi` works
+immediate sanity check, `./scripts/status.sh` shows the GitHub-side `online` flag,
+and `scripts/init.sh` already verifies `docker run --gpus all nvidia-smi` works
 on the host.
 
 ## Upgrading the runner binary
 
 ```bash
-RUNNER_VERSION=<new-version> ./update.sh
+RUNNER_VERSION=<new-version> ./scripts/update.sh
 ```
 
 Stops each runner service, replaces binary, restarts. Config and credentials
@@ -211,8 +212,8 @@ After machine loss / reformat:
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
 cd ~/github_runner
-./init.sh ycpss91255-docker
-./add-runner.sh org ycpss91255-research
+./scripts/init.sh ycpss91255-docker
+./scripts/add-runner.sh org ycpss91255-research
 ```
 
 No undocumented machine state. Registration tokens are fetched fresh via

@@ -2,7 +2,7 @@
 # Smoke tests for add-runner.sh argument parsing and idempotency.
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../../add-runner.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/add-runner.sh"
   FAKE_RH=$(mktemp -d)
   export RUNNER_HOME="${FAKE_RH}"
 }

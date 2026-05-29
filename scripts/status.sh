@@ -3,8 +3,8 @@
 # Use --watch for periodic refresh with row-level diff highlighting.
 set -euo pipefail
 
-# shellcheck source=lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+# shellcheck source=SCRIPTDIR/../lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 WATCH=0
 INTERVAL=5
@@ -173,7 +173,7 @@ main() {
   setup_colors
 
   if [[ ! -d ${RUNNER_HOME} ]]; then
-    echo "no ${RUNNER_HOME} directory. run ./init.sh first."
+    echo "no ${RUNNER_HOME} directory. run ./scripts/init.sh first."
     exit 0
   fi
 

@@ -1,7 +1,7 @@
 # Shared constants and helpers for github_runner scripts.
-# This file is sourced by init.sh / add-runner.sh / remove-runner.sh / status.sh
-# / update.sh / uninstall.sh -- variables that look unused here are consumed
-# in those scripts.
+# This file is sourced by every script under scripts/ (init, add-runner,
+# remove-runner, status, update, uninstall, cleanup) -- variables that look
+# unused here are consumed in those scripts.
 # shellcheck shell=bash
 # shellcheck disable=SC2034
 

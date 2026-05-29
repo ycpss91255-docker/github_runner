@@ -3,10 +3,10 @@
 # Counterpart to init.sh. See #11 for the design discussion.
 #
 # Usage:
-#   ./uninstall.sh                  # prompt before any destructive action
-#   ./uninstall.sh --yes            # skip the prompt (required for non-TTY runs)
-#   ./uninstall.sh --dry-run        # print the plan, do nothing
-#   ./uninstall.sh -h | --help      # show help
+#   ./scripts/uninstall.sh                  # prompt before any destructive action
+#   ./scripts/uninstall.sh --yes            # skip the prompt (required for non-TTY runs)
+#   ./scripts/uninstall.sh --dry-run        # print the plan, do nothing
+#   ./scripts/uninstall.sh -h | --help      # show help
 #
 # Deliberate non-actions (mirror #11 design):
 #   - Does NOT change org-level runner-group flags. The
@@ -19,8 +19,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-# shellcheck source=lib/common.sh
-source "${SCRIPT_DIR}/lib/common.sh"
+# shellcheck source=SCRIPTDIR/../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
 
 DRY_RUN=0
 YES=0
