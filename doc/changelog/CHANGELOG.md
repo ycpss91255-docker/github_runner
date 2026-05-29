@@ -16,6 +16,15 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `scripts/schedule-cleanup.sh`: install / inspect / remove a user-crontab
+  entry that runs `cleanup.sh` on a schedule (daily / weekly / monthly,
+  time and day-of-week selectable). Interactive prompts by default; same
+  flags also accepted non-interactively (`--every`, `--at`, `--day`,
+  `--status`, `--uninstall`). Cron command wraps `cleanup.sh --yes` in
+  `flock -n ${RUNNER_HOME}/.cleanup.lock` so overlapping fires exit
+  silently, and appends output to `${RUNNER_HOME}/.cleanup.log`. A
+  marker comment (`# github_runner cleanup`) tags the entry so install
+  / uninstall stay idempotent without touching unrelated crontab lines.
 - `scripts/cleanup.sh`: prune stale artifacts left behind by GitHub's
   auto-update cycle -- old `bin.X` / `externals.X` version dirs (each
   pair ~600 MB), older cached tarballs under `${RUNNER_HOME}/.bin/`
