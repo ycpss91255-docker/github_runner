@@ -11,17 +11,10 @@
 
 ---
 
-Self-hosted GitHub Actions runner provisioning for `ycpss91255-research` and
-`ycpss91255-docker` orgs. Implements [ADR-0012] in the consuming workspace
-repo.
-
-Repo lives in `ycpss91255-docker` because runner provisioning is part of the
-host environment / infrastructure layer (per the user's interpretation of
-the docker-vs-research org boundary, see ADR-0012 for the original split
-and its later refinement).
-
 ## Table of Contents
 
+- [TL;DR](#tldr)
+- [Overview](#overview)
 - [Layout](#layout)
 - [Scripts](#scripts)
 - [Testing](#testing)
@@ -33,6 +26,32 @@ and its later refinement).
 - [Rebuild SOP](#rebuild-sop)
 - [References](#references)
 - [License](#license)
+
+## TL;DR
+
+```bash
+git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
+cd ~/github_runner
+gh auth login --scopes admin:org        # if not already
+
+./init.sh ycpss91255-docker             # prep host + register first runner
+./add-runner.sh org ycpss91255-research # register second runner
+./status.sh                             # local + GitHub-side state
+```
+
+Runner state installs under `<repo_root>/runners/` by default; override with
+`RUNNER_HOME=...`.
+
+## Overview
+
+Self-hosted GitHub Actions runner provisioning for `ycpss91255-research` and
+`ycpss91255-docker` orgs. Implements [ADR-0012] in the consuming workspace
+repo.
+
+Repo lives in `ycpss91255-docker` because runner provisioning is part of the
+host environment / infrastructure layer (per the user's interpretation of
+the docker-vs-research org boundary, see ADR-0012 for the original split
+and its later refinement).
 
 ## Layout
 
@@ -60,7 +79,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`).
 
 | Script | Purpose |
 |---|---|
-| `init.sh` | Verify host prerequisites; cache runner tarball into `~/github_runner/.bin/`. If given an org arg, also registers the first runner for that org |
+| `init.sh` | Verify host prerequisites; cache runner tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
 | `add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
 | `remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
 | `status.sh` | List all registered runners with local + GitHub-side state |
