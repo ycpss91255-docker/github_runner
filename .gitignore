@@ -15,5 +15,19 @@ skills-lock.json
 # and symlinks src/runners -> ../runners).
 /runners
 
+# Runner-generated artifacts, ignored anywhere in the tree as a defensive
+# safety net for when RUNNER_HOME is overridden to a path inside this
+# checkout (the /runners pattern above covers the normal default layout).
+# Without this block, an in-checkout RUNNER_HOME would leak the runner's
+# registration secrets (.credentials, .credentials_rsaparams) into the
+# repo's untracked set, where one careless `git add .` could commit them.
+# See #9 for the original analysis.
+_diag/
+_work/
+*.log
+.credentials
+.credentials_rsaparams
+.runner
+
 # Coverage report produced by `make -f Makefile.ci coverage`.
 /coverage/
