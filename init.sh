@@ -31,15 +31,18 @@ check_prereqs() {
 }
 
 cache_tarball() {
-  local path="${RUNNER_HOME}/.bin/${RUNNER_TARBALL}"
+  local version tarball path
+  version=$(resolve_runner_version)
+  tarball="actions-runner-linux-x64-${version}.tar.gz"
+  path="${RUNNER_HOME}/.bin/${tarball}"
   if [[ -f ${path} ]]; then
     echo "tarball cached: ${path}"
     return
   fi
   mkdir -p "${RUNNER_HOME}/.bin"
-  echo "downloading ${RUNNER_TARBALL}..."
+  echo "downloading ${tarball}..."
   curl -fL -o "${path}" \
-    "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/${RUNNER_TARBALL}"
+    "https://github.com/actions/runner/releases/download/v${version}/${tarball}"
 }
 
 check_prereqs

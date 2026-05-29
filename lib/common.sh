@@ -1,6 +1,7 @@
 # Shared constants and helpers for github_runner scripts.
 # This file is sourced by init.sh / add-runner.sh / remove-runner.sh / status.sh
-# / update.sh -- variables that look unused here are consumed in those scripts.
+# / update.sh / uninstall.sh -- variables that look unused here are consumed
+# in those scripts.
 # shellcheck shell=bash
 # shellcheck disable=SC2034
 
@@ -14,8 +15,53 @@ if [[ -z "${RUNNER_HOME:-}" ]]; then
 fi
 readonly RUNNER_HOME
 
-readonly RUNNER_VERSION="${RUNNER_VERSION:-2.319.1}"
-readonly RUNNER_TARBALL="actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
+# Static fallback used when dynamic resolution fails (offline, gh missing /
+# unauthenticated, GitHub rate-limited). Bump opportunistically when fresh
+# installs in those degraded states should not start months behind. GitHub
+# self-hosted runners always self-update on connect, so this is only the
+# bootstrap version, not the runtime one. Refs #10.
+readonly RUNNER_VERSION_FALLBACK="2.334.0"
+
+# Resolve the actions/runner version to download:
+#   1. If $RUNNER_VERSION is set, honour it verbatim (caller knows best).
+#   2. Otherwise ask GitHub for the latest released tag.
+#   3. If gh is missing / unauthenticated / network-unreachable / the
+#      response is empty for any other reason, fall back to
+#      $RUNNER_VERSION_FALLBACK.
+#
+# Output: bare version string (no leading 'v'), e.g. "2.334.0".
+resolve_runner_version() {
+  if [[ -n "${RUNNER_VERSION:-}" ]]; then
+    echo "${RUNNER_VERSION}"
+    return
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "${RUNNER_VERSION_FALLBACK}"
+    return
+  fi
+  local resolved
+  resolved=$(gh api /repos/actions/runner/releases/latest --jq .tag_name 2>/dev/null \
+             | sed 's/^v//' || true)
+  if [[ -z ${resolved} ]]; then
+    echo "${RUNNER_VERSION_FALLBACK}"
+    return
+  fi
+  echo "${resolved}"
+}
+
+# Return the path to the highest-version cached tarball under
+# ${RUNNER_HOME}/.bin/, or empty if none. Multiple tarballs may coexist
+# (e.g. after an update.sh bump that kept the prior one); add-runner.sh
+# uses the highest so newly-registered runners do not start behind.
+find_cached_tarball() {
+  shopt -s nullglob
+  local candidates=("${RUNNER_HOME}/.bin/"actions-runner-linux-x64-*.tar.gz)
+  shopt -u nullglob
+  if (( ${#candidates[@]} == 0 )); then
+    return
+  fi
+  printf '%s\n' "${candidates[@]}" | sort -V | tail -1
+}
 
 # Flip the Default runner group's allows_public_repositories flag on, so
 # workflows in public repos within the org can actually dispatch to the

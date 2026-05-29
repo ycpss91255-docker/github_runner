@@ -78,11 +78,11 @@ org 境界の解釈については ADR-0012 を参照）。
 
 | Script | 用途 |
 |---|---|
-| `init.sh` | ホストの前提条件チェック、runner tarball を `<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。org 引数を渡せば最初の runner も同時に登録 |
+| `init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（オフライン時は同梱の pinned fallback）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
 | `add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
 | `remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
 | `status.sh` | 登録済み runner のローカル + GitHub 側の状態を一覧表示 |
-| `update.sh` | すべての runner の binary をアップグレード（config は保持） |
+| `update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`）を解決し、キャッシュになければダウンロード、その後すべての登録済み runner の binary を上書き。config は保持 |
 | `uninstall.sh` | `init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
 
 すべてのスクリプトは idempotent です。

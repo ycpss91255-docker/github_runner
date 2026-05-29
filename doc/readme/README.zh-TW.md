@@ -77,11 +77,11 @@ ADR-0012 原始切分與後續 refinement）。
 
 | Script | 用途 |
 |---|---|
-| `init.sh` | 檢查 host 先決條件；下載並 cache runner tarball 到 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。若帶 org 參數，會同時註冊該 org 的第一個 runner |
+| `init.sh` | 檢查 host 先決條件；透過 GitHub API 解析 actions/runner 最新 release（離線時退回內建 pinned fallback），下載並 cache 至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆蓋。若帶 org 參數，會同時註冊該 org 的第一個 runner |
 | `add-runner.sh` | 註冊新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。`org` scope 會把 Default runner group 的 `allows_public_repositories=true` 打開，讓 public repo 的 workflow 能 dispatch（詳見下方安全性說明） |
 | `remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
 | `status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態 |
-| `update.sh` | 升級所有 runner 的 binary，保留 config |
+| `update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在則下載，再覆蓋所有 registered runner 的 binary。保留 config |
 | `uninstall.sh` | `init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
 
 所有 script 皆為 idempotent。

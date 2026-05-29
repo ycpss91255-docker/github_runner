@@ -8,6 +8,17 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `lib/common.sh`: `resolve_runner_version()` queries GitHub for the
+  latest released actions/runner tag at install time, falling back to a
+  pinned safe version (bumped from `2.319.1` to `2.334.0`) when offline
+  / `gh` missing / API rate-limited. `RUNNER_VERSION=...` env override
+  still wins. Refs #10.
+- `lib/common.sh`: `find_cached_tarball()` returns the highest-version
+  tarball in `${RUNNER_HOME}/.bin/`, so `add-runner.sh` extracts the
+  freshest cached release rather than a version pinned at source.
+  Refs #10.
+- Bats tests for both new helpers (env override, gh-missing fallback,
+  empty cache, multi-version cache picks the highest).
 - `uninstall.sh`: counterpart to `init.sh`. Enumerates every runner
   registered through this checkout, calls `remove-runner.sh` per target,
   and clears the cached tarball under `${RUNNER_HOME}/.bin/`. Prompts by
@@ -42,6 +53,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `init.sh`, `add-runner.sh`, `update.sh` now use the dynamic helpers
+  above; `RUNNER_TARBALL` constant in `lib/common.sh` removed (was
+  version-pinned and stale every release). Behaviour unchanged when
+  `RUNNER_VERSION` is set; otherwise these scripts now pick up the
+  latest release automatically instead of starting on `2.319.1` and
+  immediately self-updating on first connect. Refs #10.
 - `Makefile` targets now run `shellcheck` / `bats` inside the
   `ghcr.io/ycpss91255-docker/test-tools:latest` image (aligns with
   `ycpss91255-docker/base`). `lint-host` / `test-host` retained for
