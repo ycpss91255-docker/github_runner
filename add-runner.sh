@@ -17,7 +17,9 @@ main() {
     exit 0
   fi
 
-  if [[ ! -f "${RUNNER_HOME}/.bin/${RUNNER_TARBALL}" ]]; then
+  local tarball_path
+  tarball_path=$(find_cached_tarball)
+  if [[ -z ${tarball_path} ]]; then
     echo "tarball missing. run ./init.sh first." >&2
     exit 1
   fi
@@ -26,7 +28,7 @@ main() {
   token=$(gh api -X POST "${TARGET_API_TOKEN_PATH}" --jq .token)
 
   mkdir -p "${TARGET_DIR}"
-  tar -xzf "${RUNNER_HOME}/.bin/${RUNNER_TARBALL}" -C "${TARGET_DIR}"
+  tar -xzf "${tarball_path}" -C "${TARGET_DIR}"
 
   pushd "${TARGET_DIR}" >/dev/null
   ./config.sh --unattended \
