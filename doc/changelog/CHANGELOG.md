@@ -16,6 +16,16 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `lib/common.sh`: `list_runners` enumerates every configured runner under
+  `${RUNNER_HOME}` as a TAB-separated stream
+  (`scope · org · name · runner_dir · scope_id`, scope_id optional). Walk
+  semantics (skip `.bin/`, require `.runner`, silent on missing
+  `RUNNER_HOME`) match what every existing caller already did inline.
+  `script/status.sh`, `script/uninstall.sh`, `script/cleanup.sh`, and
+  `script/update.sh` now consume the helper instead of re-implementing
+  the walk. Layout knowledge concentrates in `lib/common.sh`. Bats
+  coverage: 7 new cases in `common.bats`, suite goes from 54 to 61.
+
 - `script/schedule-cleanup.sh`: install / inspect / remove a user-crontab
   entry that runs `cleanup.sh` on a schedule (daily / weekly / monthly,
   time and day-of-week selectable). Interactive prompts by default; same

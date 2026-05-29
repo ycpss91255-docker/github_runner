@@ -74,63 +74,47 @@ print_state() {
 }
 
 collect_rows() {
-  shopt -s nullglob
-  local org_dir scope_dir runner_dir
-  for org_dir in "${RUNNER_HOME}"/*/; do
-    local org
-    org=$(basename "${org_dir}")
-    [[ ${org} == ".bin" ]] && continue
+  local scope org name scope_id
+  # runner_dir (4th field) is unused here; the underscore discards it
+  # while keeping positional alignment with list_runners' contract.
+  while IFS=$'\t' read -r scope org name _ scope_id; do
+    local svc_state="stopped"
+    if systemctl list-units --type=service --no-legend 2>/dev/null \
+         | grep -q "actions.runner.*${name}"; then
+      svc_state="running"
+    fi
 
-    for scope_dir in "${org_dir}"*/; do
-      local scope
-      scope=$(basename "${scope_dir}")
-      runner_dir="${scope_dir}"
-      [[ -f "${runner_dir}/.runner" ]] || continue
+    local gh_state public_state
+    if [[ ${scope} == "org" ]]; then
+      gh_state=$(gh api "/orgs/${org}/actions/runners" \
+        --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
+        || echo "n/a")
+      # Check Default runner-group public-repo dispatch flag. Without this
+      # flag set true, public-repo workflows silently stay queued even
+      # when the runner is online + idle (see lib/common.sh enable_public_
+      # repos_dispatch comment + #6). Surfaces as a column here so the
+      # mismatch is visible at a glance.
+      local flag
+      flag=$(gh api "/orgs/${org}/actions/runner-groups/1" \
+        --jq '.allows_public_repositories' 2>/dev/null || echo "")
+      case ${flag} in
+        true)  public_state="public-ok" ;;
+        false) public_state="public-BLOCKED" ;;
+        *)     public_state="n/a" ;;
+      esac
+    else
+      gh_state=$(gh api "/repos/${org}/${scope_id}/actions/runners" \
+        --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
+        || echo "n/a")
+      # Repo-scoped runners don't have a runner-group flag; the
+      # public/private decision is per-repo visibility.
+      public_state="-"
+    fi
+    [[ -z ${gh_state} ]] && gh_state="not-found"
 
-      local name
-      name=$(jq -r .agentName "${runner_dir}/.runner" 2>/dev/null || echo "?")
-
-      local svc_state="stopped"
-      if systemctl list-units --type=service --no-legend 2>/dev/null \
-           | grep -q "actions.runner.*${name}"; then
-        svc_state="running"
-      fi
-
-      local gh_state public_state
-      if [[ ${scope} == "_org" ]]; then
-        gh_state=$(gh api "/orgs/${org}/actions/runners" \
-          --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
-          || echo "n/a")
-        # Check Default runner-group public-repo dispatch flag. Without this
-        # flag set true, public-repo workflows silently stay queued even
-        # when the runner is online + idle (see lib/common.sh enable_public_
-        # repos_dispatch comment + #6). Surfaces as a column here so the
-        # mismatch is visible at a glance.
-        local flag
-        flag=$(gh api "/orgs/${org}/actions/runner-groups/1" \
-          --jq '.allows_public_repositories' 2>/dev/null || echo "")
-        case ${flag} in
-          true)  public_state="public-ok" ;;
-          false) public_state="public-BLOCKED" ;;
-          *)     public_state="n/a" ;;
-        esac
-      else
-        gh_state=$(gh api "/repos/${org}/${scope}/actions/runners" \
-          --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
-          || echo "n/a")
-        # Repo-scoped runners don't have a runner-group flag; the
-        # public/private decision is per-repo visibility.
-        public_state="-"
-      fi
-      [[ -z ${gh_state} ]] && gh_state="not-found"
-
-      local scope_label="${scope}"
-      [[ ${scope} == "_org" ]] && scope_label="org"
-
-      printf '%s\t%s\t%s\t%s\t%s\n' \
-        "${name}" "${scope_label}" "${svc_state}" "${gh_state}" "${public_state}"
-    done
-  done
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "${name}" "${scope}" "${svc_state}" "${gh_state}" "${public_state}"
+  done < <(list_runners)
 }
 
 render_header() {

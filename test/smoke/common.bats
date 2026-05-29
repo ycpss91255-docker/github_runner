@@ -90,3 +90,97 @@ setup() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"2.334.0.tar.gz" ]]
 }
+
+# list_runners: enumerate every configured runner under RUNNER_HOME as one
+# TAB-separated row per runner:
+#   scope \t org \t scope_id \t name \t runner_dir
+# scope is "org" or "repo"; scope_id is empty for org-scoped and the repo
+# name for repo-scoped. See lib/common.sh for the full contract.
+
+@test "list_runners returns nothing when RUNNER_HOME does not exist" {
+  TMP=$(mktemp -d)
+  rmdir "${TMP}"  # Guarantee the dir is absent.
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+}
+
+@test "list_runners returns nothing when RUNNER_HOME exists but is empty" {
+  TMP=$(mktemp -d)
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+}
+
+@test "list_runners emits one org-scoped row for a configured org runner" {
+  TMP=$(mktemp -d)
+  mkdir -p "${TMP}/myorg/_org"
+  printf '{"agentName":"runner-A"}\n' > "${TMP}/myorg/_org/.runner"
+
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  # org rows have 4 fields; scope_id (5th) is absent.
+  IFS=$'\t' read -r scope org name dir scope_id <<<"${output}"
+  [ "${scope}" = "org" ]
+  [ "${org}" = "myorg" ]
+  [ "${name}" = "runner-A" ]
+  [[ "${dir}" == */myorg/_org ]]
+  [ -z "${scope_id}" ]
+}
+
+@test "list_runners silently skips runner_dirs without a .runner marker" {
+  TMP=$(mktemp -d)
+  # Half-configured: bin/ and externals/ exist, but config.sh never wrote
+  # .runner. Every existing caller treats this as "not registered".
+  mkdir -p "${TMP}/myorg/_org/bin.2.334.0" "${TMP}/myorg/_org/externals.2.334.0"
+
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+}
+
+@test "list_runners emits a repo-scoped row with scope_id = repo name" {
+  TMP=$(mktemp -d)
+  mkdir -p "${TMP}/owner-a/repo-x"
+  printf '{"agentName":"runner-B"}\n' > "${TMP}/owner-a/repo-x/.runner"
+
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  IFS=$'\t' read -r scope org name dir scope_id <<<"${output}"
+  [ "${scope}" = "repo" ]
+  [ "${org}" = "owner-a" ]
+  [ "${name}" = "runner-B" ]
+  [[ "${dir}" == */owner-a/repo-x ]]
+  [ "${scope_id}" = "repo-x" ]
+}
+
+@test "list_runners skips the top-level .bin tarball cache dir" {
+  TMP=$(mktemp -d)
+  mkdir -p "${TMP}/.bin"
+  touch "${TMP}/.bin/actions-runner-linux-x64-2.334.0.tar.gz"
+
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
+}
+
+@test "list_runners walks multiple orgs and emits one row per registered runner" {
+  TMP=$(mktemp -d)
+  mkdir -p "${TMP}/org-a/_org" "${TMP}/org-b/_org" "${TMP}/.bin"
+  printf '{"agentName":"r1"}\n' > "${TMP}/org-a/_org/.runner"
+  printf '{"agentName":"r2"}\n' > "${TMP}/org-b/_org/.runner"
+  touch "${TMP}/.bin/actions-runner-linux-x64-2.334.0.tar.gz"
+
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  # Two rows, alphabetical (glob order is lexicographic on most fs).
+  [ "$(echo "${output}" | wc -l)" -eq 2 ]
+  echo "${output}" | grep -q $'^org\torg-a\tr1\t'
+  echo "${output}" | grep -q $'^org\torg-b\tr2\t'
+}
