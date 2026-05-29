@@ -6,8 +6,23 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- All entry-point scripts (`init.sh`, `add-runner.sh`, `remove-runner.sh`,
+  `status.sh`, `update.sh`, `uninstall.sh`) moved from the repo root into
+  `scripts/`. Invocation paths change to `./scripts/<name>.sh ...`;
+  `RUNNER_HOME` resolution and shared `lib/common.sh` are unchanged. CI,
+  Makefile.ci, all 4 README locales and bats tests follow.
+
 ### Added
 
+- `scripts/cleanup.sh`: prune stale artifacts left behind by GitHub's
+  auto-update cycle -- old `bin.X` / `externals.X` version dirs (each
+  pair ~600 MB), older cached tarballs under `${RUNNER_HOME}/.bin/`
+  (keeps the highest-version), and `_work/_update*` remnants. Mirrors
+  `uninstall.sh` UX: `--dry-run` previews, `--yes` skips the prompt
+  (required non-TTY). Never touches `.runner` / `.credentials*` / logs /
+  in-flight job dirs, so safe to schedule.
 - `lib/common.sh`: `resolve_runner_version()` queries GitHub for the
   latest released actions/runner tag at install time, falling back to a
   pinned safe version (bumped from `2.319.1` to `2.334.0`) when offline

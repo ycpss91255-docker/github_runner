@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Upgrade runner binary across all registered runners. Preserves config.
 # Usage:
-#   ./update.sh                      # resolves and pulls latest released
-#   RUNNER_VERSION=2.334.0 ./update.sh  # pin a specific version
+#   ./scripts/update.sh                      # resolves and pulls latest released
+#   RUNNER_VERSION=2.334.0 ./scripts/update.sh  # pin a specific version
 set -euo pipefail
 
-# shellcheck source=lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+# shellcheck source=SCRIPTDIR/../lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 main() {
   local version tarball tarball_path

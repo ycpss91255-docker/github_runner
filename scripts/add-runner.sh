@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # Register a new self-hosted runner (org or repo level). Idempotent.
 # Usage:
-#   ./add-runner.sh org <org>
-#   ./add-runner.sh repo <owner> <repo>
+#   ./scripts/add-runner.sh org <org>
+#   ./scripts/add-runner.sh repo <owner> <repo>
 set -euo pipefail
 
-# shellcheck source=lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+# shellcheck source=SCRIPTDIR/../lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 main() {
   resolve_target "$@"
 
   if [[ -f "${TARGET_DIR}/.runner" ]]; then
     echo "runner at ${TARGET_DIR} already configured."
-    echo "use ./remove-runner.sh first if you want to re-register."
+    echo "use ./scripts/remove-runner.sh first if you want to re-register."
     exit 0
   fi
 
   local tarball_path
   tarball_path=$(find_cached_tarball)
   if [[ -z ${tarball_path} ]]; then
-    echo "tarball missing. run ./init.sh first." >&2
+    echo "tarball missing. run ./scripts/init.sh first." >&2
     exit 1
   fi
 

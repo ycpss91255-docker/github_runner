@@ -2,7 +2,7 @@
 # Smoke tests for remove-runner.sh.
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../../remove-runner.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/remove-runner.sh"
   FAKE_RH=$(mktemp -d)
   export RUNNER_HOME="${FAKE_RH}"
 }

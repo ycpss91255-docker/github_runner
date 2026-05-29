@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Deregister + uninstall service + remove directory. Idempotent.
 # Usage:
-#   ./remove-runner.sh org <org>
-#   ./remove-runner.sh repo <owner> <repo>
+#   ./scripts/remove-runner.sh org <org>
+#   ./scripts/remove-runner.sh repo <owner> <repo>
 set -euo pipefail
 
-# shellcheck source=lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/lib/common.sh"
+# shellcheck source=SCRIPTDIR/../lib/common.sh
+source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
 main() {
   resolve_target "$@"
