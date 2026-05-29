@@ -22,15 +22,17 @@ and its later refinement).
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
 - [Layout](#layout)
 - [Scripts](#scripts)
-- [Prerequisites](#prerequisites)
 - [Testing](#testing)
+- [Security model](#security-model)
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
 - [Verifying a runner](#verifying-a-runner)
 - [Upgrading the runner binary](#upgrading-the-runner-binary)
 - [Rebuild SOP](#rebuild-sop)
 - [References](#references)
+- [License](#license)
 
 ## Layout
 
