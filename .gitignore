@@ -9,7 +9,11 @@ skills-lock.json
 # install dirs like ycpss91255-docker/_org/, ycpss91255-research/_org/.
 # Override with RUNNER_HOME=... env var to put state elsewhere; this
 # pattern still keeps the repo clean for the default layout.
-/runners/
+#
+# No trailing slash: matches both the real directory and a symlink (e.g.
+# when the user restructures the parent layout into src/ + ../runners/
+# and symlinks src/runners -> ../runners).
+/runners
 
 # Coverage report produced by `make -f Makefile.ci coverage`.
 /coverage/

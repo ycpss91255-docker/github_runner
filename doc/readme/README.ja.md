@@ -83,6 +83,7 @@ org 境界の解釈については ADR-0012 を参照）。
 | `remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
 | `status.sh` | 登録済み runner のローカル + GitHub 側の状態を一覧表示 |
 | `update.sh` | すべての runner の binary をアップグレード（config は保持） |
+| `uninstall.sh` | `init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
 
 すべてのスクリプトは idempotent です。
 

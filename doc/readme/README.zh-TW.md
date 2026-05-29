@@ -82,6 +82,7 @@ ADR-0012 原始切分與後續 refinement）。
 | `remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
 | `status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態 |
 | `update.sh` | 升級所有 runner 的 binary，保留 config |
+| `uninstall.sh` | `init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
 
 所有 script 皆為 idempotent。
 

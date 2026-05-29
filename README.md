@@ -84,6 +84,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./init.sh ...`).
 | `remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
 | `status.sh` | List all registered runners with local + GitHub-side state |
 | `update.sh` | Upgrade runner binary across all runners; preserves config |
+| `uninstall.sh` | Counterpart to `init.sh`: tear down every runner registered through this checkout + remove the cached tarball. Prompts by default; `--yes` skips, `--dry-run` previews. Does NOT change org runner-group flags or remove the checkout itself (see #11) |
 
 All scripts are idempotent.
 
