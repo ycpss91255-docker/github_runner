@@ -10,13 +10,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - All entry-point scripts (`init.sh`, `add-runner.sh`, `remove-runner.sh`,
   `status.sh`, `update.sh`, `uninstall.sh`) moved from the repo root into
-  `scripts/`. Invocation paths change to `./scripts/<name>.sh ...`;
+  `script/`. Invocation paths change to `./script/<name>.sh ...`;
   `RUNNER_HOME` resolution and shared `lib/common.sh` are unchanged. CI,
   Makefile.ci, all 4 README locales and bats tests follow.
 
 ### Added
 
-- `scripts/schedule-cleanup.sh`: install / inspect / remove a user-crontab
+- `script/schedule-cleanup.sh`: install / inspect / remove a user-crontab
   entry that runs `cleanup.sh` on a schedule (daily / weekly / monthly,
   time and day-of-week selectable). Interactive prompts by default; same
   flags also accepted non-interactively (`--every`, `--at`, `--day`,
@@ -25,7 +25,7 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   silently, and appends output to `${RUNNER_HOME}/.cleanup.log`. A
   marker comment (`# github_runner cleanup`) tags the entry so install
   / uninstall stay idempotent without touching unrelated crontab lines.
-- `scripts/cleanup.sh`: prune stale artifacts left behind by GitHub's
+- `script/cleanup.sh`: prune stale artifacts left behind by GitHub's
   auto-update cycle -- old `bin.X` / `externals.X` version dirs (each
   pair ~600 MB), older cached tarballs under `${RUNNER_HOME}/.bin/`
   (keeps the highest-version), and `_work/_update*` remnants. Mirrors

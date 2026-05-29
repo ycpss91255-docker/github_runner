@@ -5,7 +5,7 @@
 # the files stay in place.
 
 setup() {
-  SCRIPT="${BATS_TEST_DIRNAME}/../../scripts/cleanup.sh"
+  SCRIPT="${BATS_TEST_DIRNAME}/../../script/cleanup.sh"
   FAKE_RH=$(mktemp -d)
   export RUNNER_HOME="${FAKE_RH}"
 }
