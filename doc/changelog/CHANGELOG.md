@@ -8,6 +8,17 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `uninstall.sh`: counterpart to `init.sh`. Enumerates every runner
+  registered through this checkout, calls `remove-runner.sh` per target,
+  and clears the cached tarball under `${RUNNER_HOME}/.bin/`. Prompts by
+  default; `--yes` skips for non-interactive runs, `--dry-run` previews
+  without touching state. Deliberately does NOT alter org runner-group
+  flags (see Security model + #6) or remove the github_runner checkout
+  itself. Closes #11.
+- `.gitignore`: `/runners` (no trailing slash) so a symlink at
+  `<repo_root>/runners` -- used when the user splits the parent dir into
+  `src/` (this checkout) and a sibling `../runners/` install -- stays
+  ignored. The directory case is still covered.
 - Apache-2.0 `LICENSE`.
 - `doc/changelog/CHANGELOG.md` initialized.
 - `make coverage` target (`Makefile.ci`) running bats under kcov
