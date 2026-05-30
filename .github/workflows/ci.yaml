@@ -9,7 +9,7 @@ env:
 
 jobs:
   shellcheck:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: pull test-tools
@@ -18,7 +18,7 @@ jobs:
         run: make -f Makefile.ci lint
 
   bats:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: pull test-tools
@@ -31,7 +31,7 @@ jobs:
     # (per base/self-test.yaml comment), so PRs run lint + test only and
     # main push picks up the coverage signal for Codecov.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - name: run kcov coverage
@@ -42,3 +42,29 @@ jobs:
           directory: ./coverage
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+
+  ci-rollup:
+    # Single aggregator that branch protection requires, mirroring base's
+    # self-test.yaml ci-rollup. shellcheck + bats join this `needs:` list
+    # so branch protection tracks one stable check name regardless of how
+    # the sub-jobs are renamed or split later. `coverage` is intentionally
+    # excluded: it is a main-push-only metric, not a PR gate, so a coverage
+    # hiccup must never block a merge. SKIPPED folds into pass so future
+    # conditionally-gated sub-jobs don't wedge doc-only PRs.
+    needs: [shellcheck, bats]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify upstream jobs
+        env:
+          SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+          BATS_RESULT: ${{ needs.bats.result }}
+        run: |
+          set -euo pipefail
+          echo "shellcheck: ${SHELLCHECK_RESULT}"
+          echo "bats:       ${BATS_RESULT}"
+          fail=0
+          for r in "${SHELLCHECK_RESULT}" "${BATS_RESULT}"; do
+            [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
+          done
+          exit "${fail}"
