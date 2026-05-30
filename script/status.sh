@@ -84,11 +84,14 @@ collect_rows() {
       svc_state="running"
     fi
 
-    local gh_state public_state
+    local gh_state public_state labels
     if [[ ${scope} == "org" ]]; then
       gh_state=$(gh api "/orgs/${org}/actions/runners" \
         --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
         || echo "n/a")
+      labels=$(gh api "/orgs/${org}/actions/runners" \
+        --jq "[.runners[] | select(.name==\"${name}\") | .labels[].name] | join(\",\")" 2>/dev/null \
+        || echo "")
       # Check Default runner-group public-repo dispatch flag. Without this
       # flag set true, public-repo workflows silently stay queued even
       # when the runner is online + idle (see lib/common.sh enable_public_
@@ -106,14 +109,18 @@ collect_rows() {
       gh_state=$(gh api "/repos/${org}/${scope_id}/actions/runners" \
         --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
         || echo "n/a")
+      labels=$(gh api "/repos/${org}/${scope_id}/actions/runners" \
+        --jq "[.runners[] | select(.name==\"${name}\") | .labels[].name] | join(\",\")" 2>/dev/null \
+        || echo "")
       # Repo-scoped runners don't have a runner-group flag; the
       # public/private decision is per-repo visibility.
       public_state="-"
     fi
     [[ -z ${gh_state} ]] && gh_state="not-found"
+    [[ -z ${labels} ]] && labels="-"
 
-    printf '%s\t%s\t%s\t%s\t%s\n' \
-      "${name}" "${scope}" "${svc_state}" "${gh_state}" "${public_state}"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "${name}" "${scope}" "${svc_state}" "${gh_state}" "${public_state}" "${labels}"
   done < <(list_runners)
 }
 
@@ -124,19 +131,19 @@ render_header() {
 
 render_table() {
   local rows=$1 prev=$2
-  printf '%s%-40s %-10s %-10s %-10s %-16s%s\n' "${C_BOLD}" \
-    "NAME" "SCOPE" "LOCAL-SVC" "GITHUB" "PUBLIC-DISPATCH" "${C_RESET}"
-  printf '%-40s %-10s %-10s %-10s %-16s\n' \
-    "----" "-----" "---------" "------" "---------------"
+  printf '%s%-40s %-10s %-10s %-10s %-16s %s%s\n' "${C_BOLD}" \
+    "NAME" "SCOPE" "LOCAL-SVC" "GITHUB" "PUBLIC-DISPATCH" "LABELS" "${C_RESET}"
+  printf '%-40s %-10s %-10s %-10s %-16s %s\n' \
+    "----" "-----" "---------" "------" "---------------" "------"
 
   if [[ -z ${rows} ]]; then
     printf '%s(no runners found in %s)%s\n' "${C_DIM}" "${RUNNER_HOME}" "${C_RESET}"
     return
   fi
 
-  local name scope svc gh public line changed hl rst
-  while IFS=$'\t' read -r name scope svc gh public; do
-    line="${name}"$'\t'"${scope}"$'\t'"${svc}"$'\t'"${gh}"$'\t'"${public}"
+  local name scope svc gh public labels line changed hl rst
+  while IFS=$'\t' read -r name scope svc gh public labels; do
+    line="${name}"$'\t'"${scope}"$'\t'"${svc}"$'\t'"${gh}"$'\t'"${public}"$'\t'"${labels}"
     changed=0
     if (( WATCH )) && [[ -n ${prev} ]] && ! grep -qxF -- "${line}" <<<"${prev}"; then
       changed=1
@@ -147,7 +154,7 @@ render_table() {
     printf '%s%-40s %-10s ' "${hl}" "${name}" "${scope}"
     print_state 10 "${svc}"; printf ' '
     print_state 10 "${gh}"; printf ' '
-    print_state 16 "${public}"
+    print_state 16 "${public}"; printf ' %s' "${labels}"
     printf '%s\n' "${rst}"
   done <<<"${rows}"
 }
