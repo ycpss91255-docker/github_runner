@@ -17,6 +17,7 @@
 - [概要](#概要)
 - [ディレクトリ構成](#ディレクトリ構成)
 - [スクリプト](#スクリプト)
+- [設定](#設定)
 - [テスト](#テスト)
 - [セキュリティモデル](#セキュリティモデル)
 - [前提条件](#前提条件)
@@ -83,15 +84,37 @@ GitHub 側の状態のレポート、自動アップグレードの残骸のク�
 | Script | 用途 |
 |---|---|
 | `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（オフライン時は同梱の pinned fallback）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
-| `script/add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
+| `script/add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。labels は `setup.conf` から取得（デフォルト `gpu`、設定を参照）。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
+| `script/configure.sh` | `${RUNNER_HOME}/setup.conf` を生成／更新。`--labels <csv>` で新規登録 runner の labels を設定、引数なしで現在有効な設定を表示 |
+| `script/set-labels.sh` | GitHub API 経由で既存 runner の labels をライブで変更（remove + 再登録は不要）。使い方：`org <org> <csv>` または `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
-| `script/status.sh` | 登録済み runner のローカル + GitHub 側の状態を一覧表示 |
+| `script/status.sh` | 登録済み runner のローカル + GitHub 側の状態と現在の labels を一覧表示 |
 | `script/update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`）を解決し、キャッシュになければダウンロード、その後すべての登録済み runner の binary を上書き。config は保持 |
 | `script/uninstall.sh` | `script/init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
 | `script/cleanup.sh` | GitHub の自動更新サイクルで溜まるディスク食いの残骸を掃除：古い `bin.X` / `externals.X` バージョンディレクトリ、`${RUNNER_HOME}/.bin/` 内の古いキャッシュ tarball、`_work/_update*` の残り物。スケジュール実行しても安全 — 登録 state、ログ、進行中の job ディレクトリには **触れません**。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー |
 | `script/schedule-cleanup.sh` | user crontab に `cleanup.sh` の定期実行エントリをインストール／削除する（daily / weekly / monthly から選択、時刻と曜日もインタラクティブに指定可）。引数なしでインタラクティブモード、`--every` / `--at` / `--day` を渡せば一発で完了。`--status` で現在のエントリを表示、`--uninstall` で削除。出力は `${RUNNER_HOME}/.cleanup.log` に append、`flock` で重複実行をブロック |
 
 すべてのスクリプトは idempotent です。
+
+## 設定
+
+runner の登録時に、オプションの設定ファイル `${RUNNER_HOME}/setup.conf`（`KEY=value`、shell で source 可能）を読み込みます。`script/configure.sh` で生成・更新します：
+
+```bash
+./script/configure.sh --labels gpu,cuda12   # 新規登録 runner の labels
+./script/configure.sh                         # 現在有効な設定を表示
+```
+
+`LABELS`（デフォルト `gpu`）は登録時に runner の custom labels になります。システム label `self-hosted` / `Linux` / `X64` は GitHub が常に保持します。labels は `runs-on` のルーティングキーです：job の `runs-on` labels がある runner の labels の部分集合である場合にのみ、その runner で job が実行されます。
+
+`setup.conf` は書き込み後に登録される runner にのみ影響します。既存 runner の label をライブで変更する（remove + 再登録なし）には `script/set-labels.sh` を使います：
+
+```bash
+./script/set-labels.sh org ycpss91255-docker gpu,cuda12
+./script/set-labels.sh repo <owner> <repo> gpu,cuda12
+```
+
+`script/status.sh` は各 runner の現在の labels を `LABELS` 列に表示します。
 
 ## テスト
 

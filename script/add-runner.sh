@@ -24,6 +24,9 @@ main() {
     exit 1
   fi
 
+  # Resolve registration labels from setup.conf (default gpu when absent).
+  load_config
+
   local token
   token=$(gh api -X POST "${TARGET_API_TOKEN_PATH}" --jq .token)
 
@@ -34,7 +37,7 @@ main() {
   ./config.sh --unattended \
     --url    "${TARGET_URL}" \
     --token  "${token}" \
-    --labels gpu \
+    --labels "${LABELS}" \
     --name   "${TARGET_NAME}" \
     --work   _work
   sudo ./svc.sh install "$(whoami)"

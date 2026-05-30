@@ -17,6 +17,7 @@
 - [Overview](#overview)
 - [Layout](#layout)
 - [Scripts](#scripts)
+- [Configuration](#configuration)
 - [Testing](#testing)
 - [Security model](#security-model)
 - [Prerequisites](#prerequisites)
@@ -82,15 +83,42 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 | Script | Purpose |
 |---|---|
 | `script/init.sh` | Verify host prerequisites; cache runner tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
-| `script/add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
+| `script/add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. Labels come from `setup.conf` (default `gpu`, see Configuration). For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
+| `script/configure.sh` | Generate / update `${RUNNER_HOME}/setup.conf`. `--labels <csv>` sets the labels for newly registered runners; no args prints the current effective config |
+| `script/set-labels.sh` | Relabel an already-registered runner live via the GitHub API (no remove + re-register). Usage: `org <org> <csv>` or `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
-| `script/status.sh` | List all registered runners with local + GitHub-side state |
+| `script/status.sh` | List all registered runners with local + GitHub-side state and their current labels |
 | `script/update.sh` | Upgrade runner binary across all runners; preserves config |
 | `script/uninstall.sh` | Counterpart to `script/init.sh`: tear down every runner registered through this checkout + remove the cached tarball. Prompts by default; `--yes` skips, `--dry-run` previews. Does NOT change org runner-group flags or remove the checkout itself (see #11) |
 | `script/cleanup.sh` | Prune disk-heavy leftovers from GitHub's auto-update cycle: stale `bin.X` / `externals.X` version dirs, older cached tarballs in `${RUNNER_HOME}/.bin/`, and `_work/_update*` remnants. Safe to schedule; never touches registration state, logs, or in-flight job dirs. Prompts by default; `--yes` skips, `--dry-run` previews |
 | `script/schedule-cleanup.sh` | Install / remove a user-crontab entry that runs `cleanup.sh` on a schedule (daily / weekly / monthly, time and weekday selectable). Interactive prompts by default, or pass `--every` / `--at` / `--day`. `--status` shows the installed entry, `--uninstall` removes it. Output appends to `${RUNNER_HOME}/.cleanup.log`; concurrent runs are guarded by `flock` |
 
 All scripts are idempotent.
+
+## Configuration
+
+Runner registration reads an optional config file at `${RUNNER_HOME}/setup.conf`
+(`KEY=value`, shell-sourceable). Generate or update it with `script/configure.sh`:
+
+```bash
+./script/configure.sh --labels gpu,cuda12   # labels for newly registered runners
+./script/configure.sh                         # print the current effective config
+```
+
+`LABELS` (default `gpu`) becomes the runner's custom labels at registration;
+GitHub always keeps the system labels `self-hosted` / `Linux` / `X64`. Labels are
+the routing key for `runs-on`: a job lands on a runner only when the job's
+`runs-on` labels are a subset of that runner's labels.
+
+`setup.conf` only affects runners registered after it is written. To relabel an
+already-registered runner live (no remove + re-register), use `script/set-labels.sh`:
+
+```bash
+./script/set-labels.sh org ycpss91255-docker gpu,cuda12
+./script/set-labels.sh repo <owner> <repo> gpu,cuda12
+```
+
+`script/status.sh` shows each runner's current labels in the `LABELS` column.
 
 ## Testing
 
