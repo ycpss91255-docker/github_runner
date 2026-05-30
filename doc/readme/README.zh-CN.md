@@ -17,6 +17,7 @@
 - [概览](#概览)
 - [目录结构](#目录结构)
 - [Scripts](#scripts)
+- [配置](#配置)
 - [测试](#测试)
 - [安全性说明](#安全性说明)
 - [先决条件](#先决条件)
@@ -79,15 +80,37 @@ repo 的 [ADR-0012]);这些名称在全文只是具体范例,并未写死绑定�
 | Script | 用途 |
 |---|---|
 | `script/init.sh` | 检查 host 先决条件；透过 GitHub API 解析 actions/runner 最新 release（离线时退回内建 pinned fallback），下载并缓存至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆盖。若带 org 参数，会同时注册该 org 的第一个 runner |
-| `script/add-runner.sh` | 注册新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。`org` scope 会把 Default runner group 的 `allows_public_repositories=true` 打开，让 public repo 的 workflow 能 dispatch（详见下方安全性说明） |
+| `script/add-runner.sh` | 注册新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。labels 取自 `setup.conf`（默认 `gpu`，详见配置）。`org` scope 会把 Default runner group 的 `allows_public_repositories=true` 打开，让 public repo 的 workflow 能 dispatch（详见下方安全性说明） |
+| `script/configure.sh` | 生成／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 设定新注册 runner 的 labels；无参数则打印当前生效的配置 |
+| `script/set-labels.sh` | 通过 GitHub API 即时改既有 runner 的 labels（免 remove + 重新注册）。用法：`org <org> <csv>` 或 `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 取消注册 + uninstall systemd service + 删目录 |
-| `script/status.sh` | 列出所有 registered runner 的本地与 GitHub 端状态 |
+| `script/status.sh` | 列出所有 registered runner 的本地与 GitHub 端状态，以及当前的 labels |
 | `script/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在则下载，再覆盖所有 registered runner 的 binary。保留 config |
 | `script/uninstall.sh` | `script/init.sh` 的对等：把此 checkout 注册过的 runner 全部拆掉 + 删 tarball cache。预设 prompt 确认，`--yes` 跳过，`--dry-run` 预览。**不**动 org runner-group flag、**不**删 checkout 本身（详见 #11） |
 | `script/cleanup.sh` | 清掉 GitHub 自动升级循环留下的占空间残料：陈旧 `bin.X` / `externals.X` 版本目录、`${RUNNER_HOME}/.bin/` 内的旧版 tarball、`_work/_update*` 残留。可安全排程，**不**动 registration state、log、进行中的 job 目录。预设 prompt 确认，`--yes` 跳过，`--dry-run` 预览 |
 | `script/schedule-cleanup.sh` | 安装／移除 user crontab 内的排程，定时自动跑 `cleanup.sh`（daily / weekly / monthly 可选；时段、星期几互动选择）。不带参数进互动模式，也可用 `--every` / `--at` / `--day` 一行带完。`--status` 看目前排程，`--uninstall` 移除。输出 append 到 `${RUNNER_HOME}/.cleanup.log`，`flock` 防并发重跑 |
 
 所有 script 均为 idempotent。
+
+## 配置
+
+Runner 注册时会读取可选的配置文件 `${RUNNER_HOME}/setup.conf`（`KEY=value`，可被 shell source）。用 `script/configure.sh` 生成或更新：
+
+```bash
+./script/configure.sh --labels gpu,cuda12   # 新注册 runner 的 labels
+./script/configure.sh                         # 打印当前生效的配置
+```
+
+`LABELS`（默认 `gpu`）会在注册当下成为 runner 的 custom labels；系统 label `self-hosted` / `Linux` / `X64` 由 GitHub 一律保留。labels 是 `runs-on` 的路由 key：只有 job 的 `runs-on` labels 是某 runner labels 的子集，job 才会落到该 runner。
+
+`setup.conf` 只影响写入之后才注册的 runner。要即时改既有 runner 的 label（免 remove + 重新注册），用 `script/set-labels.sh`：
+
+```bash
+./script/set-labels.sh org ycpss91255-docker gpu,cuda12
+./script/set-labels.sh repo <owner> <repo> gpu,cuda12
+```
+
+`script/status.sh` 会在 `LABELS` 列显示每个 runner 当前的 labels。
 
 ## 测试
 
