@@ -49,9 +49,8 @@ org-level 或 repo-level runner、安装成 systemd service、cache 与升级 ru
 binary、回报本地与 GitHub 端状态、清理自动升级残料。一份 clone 拥有
 `<repo_root>/runners/` 底下所有 runner state,所有 script 均为 idempotent。
 
-这些 script 是通用的 — 任何 org 或 repo 都能传入。作者自己跑在
-`ycpss91255-research` 与 `ycpss91255-docker` 两个 org 上(实作上层 workspace
-repo 的 [ADR-0012]);这些名称在全文只是具体范例,并未写死绑定。
+这些 script 是通用的 — 任何 org 或 repo 都能传入。`ycpss91255-research` 与
+`ycpss91255-docker` 两个 org 在全文只是具体范例(作者自己跑的 org),并未写死绑定。
 
 ## 目录结构
 
@@ -200,16 +199,15 @@ gh auth login --scopes admin:org   # 若尚未登入
 `./script/status.sh` 预期输出：
 
 ```
-NAME                                     SCOPE      LOCAL-SVC  GITHUB
-<hostname>-ycpss91255-docker-org         org        running    online
-<hostname>-ycpss91255-research-org       org        running    online
+NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC-DISPATCH  LABELS
+<hostname>-ycpss91255-docker-org         org        running    online     public-ok        self-hosted,Linux,X64,gpu
+<hostname>-ycpss91255-research-org       org        running    online     public-ok        self-hosted,Linux,X64,gpu
 ```
 
 ## 验证 runner
 
 End-to-end 验证需要一个 canary workflow 放在跟 runner 同 org 的 repo 内
-（GitHub org-level runner 只接受同 org 的 workflow）。Canary 放置位置仍在
-设计中 — 详见上层 issue / ADR-0012 当前决定。立即的健康检查：`./script/status.sh`
+（GitHub org-level runner 只接受同 org 的 workflow）。立即的健康检查：`./script/status.sh`
 显示 GitHub 端的 `online` flag，且 `script/init.sh` 已验证过
 `docker run --gpus all nvidia-smi` 在 host 上能跑。
 

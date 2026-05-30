@@ -52,10 +52,9 @@ GitHub 側の状態のレポート、自動アップグレードの残骸のク�
 ます。1 つの clone が `<repo_root>/runners/` 配下のすべての runner state を
 所有し、すべてのスクリプトは idempotent です。
 
-スクリプトは汎用的で、任意の org / repo を渡せます。作者は
-`ycpss91255-research` と `ycpss91255-docker` の 2 org で運用しています
-（上位 workspace repo の [ADR-0012] を実装）。これらの名前は全文を通じて
-具体例にすぎず、ハードコードされていません。
+スクリプトは汎用的で、任意の org / repo を渡せます。`ycpss91255-research` と
+`ycpss91255-docker` の 2 org は全文を通じて具体例にすぎず（作者が運用している
+org）、ハードコードされていません。
 
 ## ディレクトリ構成
 
@@ -210,17 +209,16 @@ gh auth login --scopes admin:org   # 未認証の場合
 `./script/status.sh` の想定出力：
 
 ```
-NAME                                     SCOPE      LOCAL-SVC  GITHUB
-<hostname>-ycpss91255-docker-org         org        running    online
-<hostname>-ycpss91255-research-org       org        running    online
+NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC-DISPATCH  LABELS
+<hostname>-ycpss91255-docker-org         org        running    online     public-ok        self-hosted,Linux,X64,gpu
+<hostname>-ycpss91255-research-org       org        running    online     public-ok        self-hosted,Linux,X64,gpu
 ```
 
 ## runner の検証
 
 End-to-end 検証には、runner と同じ org のリポジトリ内にある canary
 workflow が必要です（GitHub の org-level runner は同 org の workflow
-からのみ呼び出せます）。canary の配置は設計中 — 上位 issue / ADR-0012
-の現在の決定を参照してください。即時のサニティチェック：`./script/status.sh`
+からのみ呼び出せます）。即時のサニティチェック：`./script/status.sh`
 の GitHub 側 `online` フラグ、および `script/init.sh` が `docker run --gpus
 all nvidia-smi` のホスト動作をすでに検証済みです。
 
