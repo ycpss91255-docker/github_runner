@@ -184,3 +184,73 @@ setup() {
   echo "${output}" | grep -q $'^org\torg-a\tr1\t'
   echo "${output}" | grep -q $'^org\torg-b\tr2\t'
 }
+
+# validate_labels: a labels CSV is valid iff it is one or more
+# comma-separated tokens, each matching [A-Za-z0-9_-]+ (GitHub's allowed
+# label charset). Rejects empty, whitespace, leading/trailing/double comma.
+
+@test "validate_labels accepts a single token" {
+  run bash -c "source '${LIB}'; validate_labels gpu"
+  [ "${status}" -eq 0 ]
+}
+
+@test "validate_labels accepts a comma-separated list" {
+  run bash -c "source '${LIB}'; validate_labels gpu,cuda12,fast"
+  [ "${status}" -eq 0 ]
+}
+
+@test "validate_labels rejects an empty string" {
+  run bash -c "source '${LIB}'; validate_labels ''"
+  [ "${status}" -ne 0 ]
+}
+
+@test "validate_labels rejects a token with whitespace" {
+  run bash -c "source '${LIB}'; validate_labels 'bad label'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "validate_labels rejects a double comma (empty token)" {
+  run bash -c "source '${LIB}'; validate_labels a,,b"
+  [ "${status}" -ne 0 ]
+}
+
+@test "validate_labels rejects a trailing comma" {
+  run bash -c "source '${LIB}'; validate_labels gpu,"
+  [ "${status}" -ne 0 ]
+}
+
+# load_config: source the optional setup.conf under RUNNER_HOME, then leave
+# $LABELS holding the resolved set (default "gpu" when unset / no config).
+
+@test "load_config defaults LABELS to gpu when no setup.conf exists" {
+  TMP=$(mktemp -d)
+  run env -i HOME="${HOME}" PATH="${PATH}" RUNNER_HOME="${TMP}" bash -c \
+    "source '${LIB}'; load_config; echo \"\${LABELS}\""
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "gpu" ]
+}
+
+@test "load_config reads LABELS from setup.conf when present" {
+  TMP=$(mktemp -d)
+  printf 'LABELS=gpu,cuda12\n' > "${TMP}/setup.conf"
+  run env -i HOME="${HOME}" PATH="${PATH}" RUNNER_HOME="${TMP}" bash -c \
+    "source '${LIB}'; load_config; echo \"\${LABELS}\""
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "gpu,cuda12" ]
+}
+
+# runner_agent_id: extract the numeric agentId from <dir>/.runner. Must
+# survive the UTF-8 BOM + pretty-printed JSON that actions/runner writes
+# (same constraint that makes list_runners use a sed extractor, not jq).
+
+@test "runner_agent_id extracts agentId from a BOM-prefixed .runner" {
+  TMP=$(mktemp -d)
+  printf '\xef\xbb\xbf{\n  "agentId": 142,\n  "agentName": "r"\n}\n' \
+    > "${TMP}/.runner"
+  run bash -c "source '${LIB}'; runner_agent_id '${TMP}'"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "142" ]
+}
