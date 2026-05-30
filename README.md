@@ -51,10 +51,10 @@ systemd services, cache and upgrade the runner binary, report local +
 GitHub-side state, and prune auto-update leftovers. One clone owns all runner
 state under `<repo_root>/runners/`, and every script is idempotent.
 
-The scripts are general-purpose -- pass any org or repo. The author runs it for
-the `ycpss91255-research` and `ycpss91255-docker` orgs (implementing [ADR-0012]
-in the consuming workspace repo); those names appear throughout only as
-concrete examples, nothing is hard-coded to them.
+The scripts are general-purpose -- pass any org or repo. The
+`ycpss91255-research` and `ycpss91255-docker` orgs appear throughout only as
+concrete examples (the orgs the author runs it for); nothing is hard-coded to
+them.
 
 ## Layout
 
@@ -212,19 +212,18 @@ later):
 Expected output of `./script/status.sh`:
 
 ```
-NAME                                     SCOPE      LOCAL-SVC  GITHUB
-<hostname>-ycpss91255-docker-org         org        running    online
-<hostname>-ycpss91255-research-org       org        running    online
+NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC-DISPATCH  LABELS
+<hostname>-ycpss91255-docker-org         org        running    online     public-ok        self-hosted,Linux,X64,gpu
+<hostname>-ycpss91255-research-org       org        running    online     public-ok        self-hosted,Linux,X64,gpu
 ```
 
 ## Verifying a runner
 
 End-to-end verification needs a canary workflow inside a repo that lives
 in the same org as the runner (GitHub org-level runners only accept
-workflows from their own org). Canary placement is still under design --
-see the parent issue / ADR-0012 for the current decision. For an
-immediate sanity check, `./script/status.sh` shows the GitHub-side `online` flag,
-and `script/init.sh` already verifies `docker run --gpus all nvidia-smi` works
+workflows from their own org). For an immediate sanity check,
+`./script/status.sh` shows the GitHub-side `online` flag, and
+`script/init.sh` already verifies `docker run --gpus all nvidia-smi` works
 on the host.
 
 ## Upgrading the runner binary
