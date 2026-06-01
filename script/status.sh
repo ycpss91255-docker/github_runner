@@ -79,8 +79,7 @@ collect_rows() {
   # while keeping positional alignment with list_runners' contract.
   while IFS=$'\t' read -r scope org name _ scope_id; do
     local svc_state="stopped"
-    if systemctl list-units --type=service --no-legend 2>/dev/null \
-         | grep -q "actions.runner.*${name}"; then
+    if runner_service_running "${name}"; then
       svc_state="running"
     fi
 
