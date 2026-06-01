@@ -79,26 +79,30 @@ collect_rows() {
   # while keeping positional alignment with list_runners' contract.
   while IFS=$'\t' read -r scope org name _ scope_id; do
     local svc_state="stopped"
-    if systemctl list-units --type=service --no-legend 2>/dev/null \
-         | grep -q "actions.runner.*${name}"; then
+    if runner_service_running "${name}"; then
       svc_state="running"
     fi
 
-    local gh_state public_state labels
+    # One call to GitHub for both status and labels; this script owns the
+    # display vocabulary, the adapter only reports what GitHub said:
+    #   exit 0 -> "<status>\t<labels>"   exit 2 -> not-found   exit 1 -> n/a
+    local gh_state public_state labels row rc
+    row=$(github_runner_status "$(runner_api_base "${scope}" "${org}" "${scope_id}")" "${name}")
+    rc=$?
+    case ${rc} in
+      0) IFS=$'\t' read -r gh_state labels <<<"${row}" ;;
+      2) gh_state="not-found"; labels="" ;;
+      *) gh_state="n/a";       labels="" ;;
+    esac
+
     if [[ ${scope} == "org" ]]; then
-      gh_state=$(gh api "/orgs/${org}/actions/runners" \
-        --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
-        || echo "n/a")
-      labels=$(gh api "/orgs/${org}/actions/runners" \
-        --jq "[.runners[] | select(.name==\"${name}\") | .labels[].name] | join(\",\")" 2>/dev/null \
-        || echo "")
       # Check Default runner-group public-repo dispatch flag. Without this
       # flag set true, public-repo workflows silently stay queued even
       # when the runner is online + idle (see lib/common.sh enable_public_
       # repos_dispatch comment + #6). Surfaces as a column here so the
       # mismatch is visible at a glance.
       local flag
-      flag=$(gh api "/orgs/${org}/actions/runner-groups/1" \
+      flag=$(_gh api "/orgs/${org}/actions/runner-groups/1" \
         --jq '.allows_public_repositories' 2>/dev/null || echo "")
       case ${flag} in
         true)  public_state="public-ok" ;;
@@ -106,17 +110,10 @@ collect_rows() {
         *)     public_state="n/a" ;;
       esac
     else
-      gh_state=$(gh api "/repos/${org}/${scope_id}/actions/runners" \
-        --jq ".runners[] | select(.name==\"${name}\") | .status" 2>/dev/null \
-        || echo "n/a")
-      labels=$(gh api "/repos/${org}/${scope_id}/actions/runners" \
-        --jq "[.runners[] | select(.name==\"${name}\") | .labels[].name] | join(\",\")" 2>/dev/null \
-        || echo "")
       # Repo-scoped runners don't have a runner-group flag; the
       # public/private decision is per-repo visibility.
       public_state="-"
     fi
-    [[ -z ${gh_state} ]] && gh_state="not-found"
     [[ -z ${labels} ]] && labels="-"
 
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' \

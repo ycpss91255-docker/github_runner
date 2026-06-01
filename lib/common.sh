@@ -180,6 +180,139 @@ enable_public_repos_dispatch() {
     --jq '.allows_public_repositories' >/dev/null
 }
 
+# Is the systemd service for a registered runner currently loaded/running?
+#   runner_service_running <runner-name>
+# Owns the actions/runner unit-name convention -- actions.runner.<url-slug>.
+# <runner-name>.service -- in one place. The name is anchored between a dot
+# and ".service" so a runner whose name is a prefix of another's (myorg vs
+# myorg-2) cannot produce a false positive. Returns 0 (running) / 1 (not).
+runner_service_running() {
+  local name=$1
+  systemctl list-units --type=service --no-legend 2>/dev/null \
+    | grep -qE "actions\.runner\..*\.${name}\.service"
+}
+
+# --- Destructive-action policy (C2) -------------------------------------
+# The flag/confirm/summary policy shared verbatim by cleanup.sh and
+# uninstall.sh. The per-item loop + plan rendering differ between those two
+# and stay in each script; only this identical half lives here.
+
+# Parse the destructive-script flag set into the YES / DRY_RUN globals.
+# The caller must define a usage() function: this helper invokes it for
+# -h / --help (exit 0) and for an unknown option (exit 1), exactly as the
+# scripts did inline.
+parse_destructive_flags() {
+  YES=0
+  DRY_RUN=0
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -y|--yes)     YES=1; shift ;;
+      -n|--dry-run) DRY_RUN=1; shift ;;
+      -h|--help)    usage; exit 0 ;;
+      *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+  done
+}
+
+# Gate a destructive action behind confirmation. Returns 0 to proceed.
+#   confirm_or_abort <prompt>
+# - YES=1 -> proceed silently.
+# - Non-TTY stdin without --yes -> refuse (exit 1); --yes is mandatory for
+#   unattended runs so nothing destructive happens without an explicit opt-in.
+# - Interactive -> prompt; anything but y/Y/yes/YES aborts (exit 0).
+confirm_or_abort() {
+  (( YES )) && return 0
+  if [[ ! -t 0 ]]; then
+    echo "FAIL: non-interactive run requires --yes (stdin is not a TTY)" >&2
+    exit 1
+  fi
+  local ans
+  read -r -p "$1" ans
+  case ${ans} in
+    y|Y|yes|YES) return 0 ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+}
+
+# Print the run summary and exit with the matching code.
+#   print_summary <removed> <failed> [fail_label...]
+# 0 failures -> "Summary: N removed, 0 failed." and exit 0; otherwise the
+# count plus one indented line per failure, and exit 1.
+print_summary() {
+  local removed=$1 failed=$2
+  shift 2
+  echo
+  if (( failed == 0 )); then
+    echo "Summary: ${removed} removed, 0 failed."
+    exit 0
+  fi
+  echo "Summary: ${removed} removed, ${failed} failed."
+  printf '  %s\n' "$@"
+  exit 1
+}
+
+# --- GitHub API adapter (C1) --------------------------------------------
+# Every verb below reaches GitHub through this single private wrapper, so
+# the whole adapter is shadowable in one place: tests redefine _gh() after
+# sourcing this file and never touch the network. Production just forwards
+# to the real gh CLI.
+_gh() { command gh "$@"; }
+
+# The runners collection path for a scope -- the single source of truth that
+# status.sh / set-labels.sh build their per-runner endpoints from, instead
+# of re-deriving "/orgs/<org>/actions/runners" by hand. resolve_target's
+# TARGET_API_* paths are this base plus a suffix.
+#   runner_api_base org <org>           -> /orgs/<org>/actions/runners
+#   runner_api_base repo <owner> <repo> -> /repos/<owner>/<repo>/actions/runners
+runner_api_base() {
+  case $1 in
+    org)  printf '/orgs/%s/actions/runners' "$2" ;;
+    repo) printf '/repos/%s/%s/actions/runners' "$2" "$3" ;;
+    *)    return 1 ;;
+  esac
+}
+
+# Online status + custom labels for one registered runner, in ONE call.
+#   github_runner_status <runners_base> <name>
+# <runners_base> is the runners collection path (see runner_api_base).
+# Prints "<status>\t<labels-csv>" for the matching runner.
+# Exit: 0 found / 2 call succeeded but no runner by that name / 1 gh failed.
+# Callers own the display vocabulary (n/a, not-found, ...); this verb only
+# reports what GitHub said.
+github_runner_status() {
+  local base=$1 name=$2 out
+  out=$(_gh api "${base}" \
+    --jq "[.runners[] | select(.name==\"${name}\") | .status + \"\t\" + ([.labels[].name] | join(\",\"))][0] // empty") \
+    || return 1
+  [[ -z ${out} ]] && return 2
+  printf '%s\n' "${out}"
+}
+
+# POST a registration / remove token endpoint and print the .token value.
+#   github_runner_token <token_path>
+# Used by add-runner (TARGET_API_TOKEN_PATH) and remove-runner
+# (TARGET_API_REMOVE_PATH). Exits non-zero if the gh call fails.
+github_runner_token() {
+  _gh api -X POST "$1" --jq .token
+}
+
+# Replace a runner's custom labels via PUT, printing the resulting label
+# set as one CSV line.
+#   github_set_labels <runners_base> <runner_id> <csv>
+# Builds the repeated -f labels[]=<token> fields the endpoint expects.
+# Caller is responsible for validating <csv> (see validate_labels).
+github_set_labels() {
+  local base=$1 id=$2 csv=$3
+  local -a fields=()
+  local tok
+  local IFS=','
+  for tok in ${csv}; do
+    fields+=(-f "labels[]=${tok}")
+  done
+  _gh api --method PUT "${base}/${id}/labels" "${fields[@]}" \
+    --jq '.labels[].name' | paste -sd ',' -
+}
+
 # Populates TARGET_URL, TARGET_DIR, TARGET_NAME, TARGET_API_TOKEN_PATH,
 # TARGET_API_REMOVE_PATH from positional args.
 # Usage:

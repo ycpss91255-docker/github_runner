@@ -28,7 +28,7 @@ main() {
   load_config
 
   local token
-  token=$(gh api -X POST "${TARGET_API_TOKEN_PATH}" --jq .token)
+  token=$(github_runner_token "${TARGET_API_TOKEN_PATH}")
 
   mkdir -p "${TARGET_DIR}"
   tar -xzf "${tarball_path}" -C "${TARGET_DIR}"
