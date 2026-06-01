@@ -21,7 +21,7 @@ main() {
   sudo ./svc.sh uninstall || true
 
   local token
-  token=$(gh api -X POST "${TARGET_API_REMOVE_PATH}" --jq .token)
+  token=$(github_runner_token "${TARGET_API_REMOVE_PATH}")
   ./config.sh remove --token "${token}"
   popd >/dev/null
 

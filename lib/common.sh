@@ -180,6 +180,68 @@ enable_public_repos_dispatch() {
     --jq '.allows_public_repositories' >/dev/null
 }
 
+# --- GitHub API adapter (C1) --------------------------------------------
+# Every verb below reaches GitHub through this single private wrapper, so
+# the whole adapter is shadowable in one place: tests redefine _gh() after
+# sourcing this file and never touch the network. Production just forwards
+# to the real gh CLI.
+_gh() { command gh "$@"; }
+
+# The runners collection path for a scope -- the single source of truth that
+# status.sh / set-labels.sh build their per-runner endpoints from, instead
+# of re-deriving "/orgs/<org>/actions/runners" by hand. resolve_target's
+# TARGET_API_* paths are this base plus a suffix.
+#   runner_api_base org <org>           -> /orgs/<org>/actions/runners
+#   runner_api_base repo <owner> <repo> -> /repos/<owner>/<repo>/actions/runners
+runner_api_base() {
+  case $1 in
+    org)  printf '/orgs/%s/actions/runners' "$2" ;;
+    repo) printf '/repos/%s/%s/actions/runners' "$2" "$3" ;;
+    *)    return 1 ;;
+  esac
+}
+
+# Online status + custom labels for one registered runner, in ONE call.
+#   github_runner_status <runners_base> <name>
+# <runners_base> is the runners collection path (see runner_api_base).
+# Prints "<status>\t<labels-csv>" for the matching runner.
+# Exit: 0 found / 2 call succeeded but no runner by that name / 1 gh failed.
+# Callers own the display vocabulary (n/a, not-found, ...); this verb only
+# reports what GitHub said.
+github_runner_status() {
+  local base=$1 name=$2 out
+  out=$(_gh api "${base}" \
+    --jq "[.runners[] | select(.name==\"${name}\") | .status + \"\t\" + ([.labels[].name] | join(\",\"))][0] // empty") \
+    || return 1
+  [[ -z ${out} ]] && return 2
+  printf '%s\n' "${out}"
+}
+
+# POST a registration / remove token endpoint and print the .token value.
+#   github_runner_token <token_path>
+# Used by add-runner (TARGET_API_TOKEN_PATH) and remove-runner
+# (TARGET_API_REMOVE_PATH). Exits non-zero if the gh call fails.
+github_runner_token() {
+  _gh api -X POST "$1" --jq .token
+}
+
+# Replace a runner's custom labels via PUT, printing the resulting label
+# set as one CSV line.
+#   github_set_labels <runners_base> <runner_id> <csv>
+# Builds the repeated -f labels[]=<token> fields the endpoint expects.
+# Caller is responsible for validating <csv> (see validate_labels).
+github_set_labels() {
+  local base=$1 id=$2 csv=$3
+  local -a fields=()
+  local tok
+  local IFS=','
+  for tok in ${csv}; do
+    fields+=(-f "labels[]=${tok}")
+  done
+  _gh api --method PUT "${base}/${id}/labels" "${fields[@]}" \
+    --jq '.labels[].name' | paste -sd ',' -
+}
+
 # Populates TARGET_URL, TARGET_DIR, TARGET_NAME, TARGET_API_TOKEN_PATH,
 # TARGET_API_REMOVE_PATH from positional args.
 # Usage:

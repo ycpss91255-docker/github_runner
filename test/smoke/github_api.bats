@@ -1,0 +1,98 @@
+#!/usr/bin/env bats
+# Smoke tests for the lib/common.sh GitHub API adapter (C1).
+#
+# Every verb reaches GitHub through the single private _gh() wrapper, so
+# tests source common.sh and shadow _gh with a fake that returns canned
+# output / exit codes. No live gh, no network -- the verb's own behavior
+# (exit-code mapping, one call, value passthrough) is what gets exercised.
+
+setup() {
+  LIB="${BATS_TEST_DIRNAME}/../../lib/common.sh"
+}
+
+@test "github_runner_status returns status<TAB>labels on a found runner (exit 0)" {
+  run bash -c "
+    source '${LIB}'
+    _gh() { printf 'online\tgpu,cuda12\n'; }
+    github_runner_status /orgs/myorg/actions/runners runner-A
+  "
+  [ "${status}" -eq 0 ]
+  IFS=$'\t' read -r state labels <<<"${output}"
+  [ "${state}" = "online" ]
+  [ "${labels}" = "gpu,cuda12" ]
+}
+
+@test "github_runner_status exits 2 when the call succeeds but no runner matches" {
+  run bash -c "
+    source '${LIB}'
+    _gh() { printf ''; }
+    github_runner_status /orgs/myorg/actions/runners ghost
+  "
+  [ "${status}" -eq 2 ]
+}
+
+@test "github_runner_status exits 1 when the gh call itself fails" {
+  run bash -c "
+    source '${LIB}'
+    _gh() { return 1; }
+    github_runner_status /orgs/myorg/actions/runners runner-A
+  "
+  [ "${status}" -eq 1 ]
+}
+
+@test "runner_api_base builds the org-scoped runners collection path" {
+  run bash -c "source '${LIB}'; runner_api_base org myorg"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "/orgs/myorg/actions/runners" ]
+}
+
+@test "runner_api_base builds the repo-scoped runners collection path" {
+  run bash -c "source '${LIB}'; runner_api_base repo owner myrepo"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "/repos/owner/myrepo/actions/runners" ]
+}
+
+@test "github_runner_token returns the token from the POST response" {
+  run bash -c "
+    source '${LIB}'
+    _gh() { printf 'AABBCC\n'; }
+    github_runner_token /orgs/myorg/actions/runners/registration-token
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "AABBCC" ]
+}
+
+@test "github_runner_token propagates a gh failure as a non-zero exit" {
+  run bash -c "
+    source '${LIB}'
+    _gh() { return 1; }
+    github_runner_token /orgs/myorg/actions/runners/registration-token
+  "
+  [ "${status}" -ne 0 ]
+}
+
+@test "github_set_labels returns the resulting labels as one CSV line" {
+  run bash -c "
+    source '${LIB}'
+    _gh() { printf 'gpu\ncuda12\n'; }
+    github_set_labels /orgs/myorg/actions/runners 42 gpu,cuda12
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "gpu,cuda12" ]
+}
+
+@test "github_set_labels sends one labels[] field per token via PUT" {
+  CAP=$(mktemp)
+  run bash -c "
+    source '${LIB}'
+    _gh() { printf '%s\n' \"\$@\" > '${CAP}'; printf 'gpu\n'; }
+    github_set_labels /orgs/myorg/actions/runners 42 gpu,cuda12
+  "
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '--method' "${CAP}"
+  grep -qxF -- 'PUT' "${CAP}"
+  grep -qxF -- '/orgs/myorg/actions/runners/42/labels' "${CAP}"
+  grep -qxF -- 'labels[]=gpu' "${CAP}"
+  grep -qxF -- 'labels[]=cuda12' "${CAP}"
+  rm -f "${CAP}"
+}

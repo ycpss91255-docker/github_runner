@@ -30,13 +30,13 @@ main() {
       [[ $# -eq 3 ]] || { echo "org scope needs <org> <csv>" >&2; usage >&2; exit 1; }
       resolve_target org "$2"
       labels="$3"
-      api_base="/orgs/$2/actions/runners"
+      api_base="$(runner_api_base org "$2")"
       ;;
     repo)
       [[ $# -eq 4 ]] || { echo "repo scope needs <owner> <repo> <csv>" >&2; usage >&2; exit 1; }
       resolve_target repo "$2" "$3"
       labels="$4"
-      api_base="/repos/$2/$3/actions/runners"
+      api_base="$(runner_api_base repo "$2" "$3")"
       ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown scope: ${scope:-<none>}" >&2; usage >&2; exit 1 ;;
@@ -59,17 +59,7 @@ main() {
     exit 1
   fi
 
-  # Build repeated -f labels[]=<token> fields so gh assembles the
-  # {"labels":[...]} body the PUT endpoint expects.
-  local -a fields=()
-  local tok
-  local IFS=','
-  for tok in ${labels}; do
-    fields+=(-f "labels[]=${tok}")
-  done
-
-  gh api --method PUT "${api_base}/${id}/labels" "${fields[@]}" \
-    --jq '.labels[].name' | paste -sd ',' -
+  github_set_labels "${api_base}" "${id}" "${labels}"
   echo "set labels on ${TARGET_NAME} (id ${id}): ${labels}"
 }
 
