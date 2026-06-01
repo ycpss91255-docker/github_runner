@@ -56,17 +56,6 @@ Exit code:
 EOF
 }
 
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      -y|--yes)     YES=1; shift ;;
-      -n|--dry-run) DRY_RUN=1; shift ;;
-      -h|--help)    usage; exit 0 ;;
-      *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
-    esac
-  done
-}
-
 # Return the active runner version (e.g. "2.334.0") for a runner dir by
 # reading its `bin` symlink target. Empty string if the symlink is missing
 # (unconfigured runner) or points somewhere unparseable.
@@ -142,7 +131,7 @@ human_size() {
 }
 
 main() {
-  parse_args "$@"
+  parse_destructive_flags "$@"
 
   if [[ ! -d ${RUNNER_HOME} ]]; then
     echo "Nothing to clean (no ${RUNNER_HOME})."
@@ -171,17 +160,7 @@ main() {
     exit 0
   fi
 
-  if (( ! YES )); then
-    if [[ ! -t 0 ]]; then
-      echo "FAIL: non-interactive run requires --yes (stdin is not a TTY)" >&2
-      exit 1
-    fi
-    read -r -p "Proceed with ${item_count} item(s)? [y/N] " ans
-    case ${ans} in
-      y|Y|yes|YES) ;;
-      *) echo "Aborted."; exit 0 ;;
-    esac
-  fi
+  confirm_or_abort "Proceed with ${item_count} item(s)? [y/N] "
 
   local removed=0 failed=0
   local fail_lines=()
@@ -196,15 +175,7 @@ main() {
     fi
   done <<<"${items}"
 
-  echo
-  if (( failed == 0 )); then
-    echo "Summary: ${removed} removed, 0 failed."
-    exit 0
-  else
-    echo "Summary: ${removed} removed, ${failed} failed."
-    printf '  %s\n' "${fail_lines[@]}"
-    exit 1
-  fi
+  print_summary "${removed}" "${failed}" ${fail_lines[@]+"${fail_lines[@]}"}
 }
 
 main "$@"

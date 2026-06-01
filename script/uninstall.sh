@@ -45,17 +45,6 @@ Exit code:
 EOF
 }
 
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case $1 in
-      -y|--yes)     YES=1; shift ;;
-      -n|--dry-run) DRY_RUN=1; shift ;;
-      -h|--help)    usage; exit 0 ;;
-      *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
-    esac
-  done
-}
-
 # Emit one TAB-separated line per registered runner, reusing the contract
 # from lib/common.sh::list_runners but dropping fields uninstall doesn't
 # need (name + runner_dir) so the rest of this script keeps its current
@@ -83,7 +72,7 @@ format_target() {
 }
 
 main() {
-  parse_args "$@"
+  parse_destructive_flags "$@"
 
   local targets
   targets=$(enumerate_targets)
@@ -120,17 +109,7 @@ main() {
     exit 0
   fi
 
-  if (( ! YES )); then
-    if [[ ! -t 0 ]]; then
-      echo "FAIL: non-interactive run requires --yes (stdin is not a TTY)" >&2
-      exit 1
-    fi
-    read -r -p "Proceed? [y/N] " ans
-    case ${ans} in
-      y|Y|yes|YES) ;;
-      *) echo "Aborted."; exit 0 ;;
-    esac
-  fi
+  confirm_or_abort "Proceed? [y/N] "
 
   local removed=0 failed=0
   local fail_lines=()
@@ -167,15 +146,7 @@ main() {
     fi
   fi
 
-  echo
-  if (( failed == 0 )); then
-    echo "Summary: ${removed} removed, 0 failed."
-    exit 0
-  else
-    echo "Summary: ${removed} removed, ${failed} failed."
-    printf '  %s\n' "${fail_lines[@]}"
-    exit 1
-  fi
+  print_summary "${removed}" "${failed}" ${fail_lines[@]+"${fail_lines[@]}"}
 }
 
 main "$@"

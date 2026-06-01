@@ -180,6 +180,65 @@ enable_public_repos_dispatch() {
     --jq '.allows_public_repositories' >/dev/null
 }
 
+# --- Destructive-action policy (C2) -------------------------------------
+# The flag/confirm/summary policy shared verbatim by cleanup.sh and
+# uninstall.sh. The per-item loop + plan rendering differ between those two
+# and stay in each script; only this identical half lives here.
+
+# Parse the destructive-script flag set into the YES / DRY_RUN globals.
+# The caller must define a usage() function: this helper invokes it for
+# -h / --help (exit 0) and for an unknown option (exit 1), exactly as the
+# scripts did inline.
+parse_destructive_flags() {
+  YES=0
+  DRY_RUN=0
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -y|--yes)     YES=1; shift ;;
+      -n|--dry-run) DRY_RUN=1; shift ;;
+      -h|--help)    usage; exit 0 ;;
+      *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+  done
+}
+
+# Gate a destructive action behind confirmation. Returns 0 to proceed.
+#   confirm_or_abort <prompt>
+# - YES=1 -> proceed silently.
+# - Non-TTY stdin without --yes -> refuse (exit 1); --yes is mandatory for
+#   unattended runs so nothing destructive happens without an explicit opt-in.
+# - Interactive -> prompt; anything but y/Y/yes/YES aborts (exit 0).
+confirm_or_abort() {
+  (( YES )) && return 0
+  if [[ ! -t 0 ]]; then
+    echo "FAIL: non-interactive run requires --yes (stdin is not a TTY)" >&2
+    exit 1
+  fi
+  local ans
+  read -r -p "$1" ans
+  case ${ans} in
+    y|Y|yes|YES) return 0 ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+}
+
+# Print the run summary and exit with the matching code.
+#   print_summary <removed> <failed> [fail_label...]
+# 0 failures -> "Summary: N removed, 0 failed." and exit 0; otherwise the
+# count plus one indented line per failure, and exit 1.
+print_summary() {
+  local removed=$1 failed=$2
+  shift 2
+  echo
+  if (( failed == 0 )); then
+    echo "Summary: ${removed} removed, 0 failed."
+    exit 0
+  fi
+  echo "Summary: ${removed} removed, ${failed} failed."
+  printf '  %s\n' "$@"
+  exit 1
+}
+
 # --- GitHub API adapter (C1) --------------------------------------------
 # Every verb below reaches GitHub through this single private wrapper, so
 # the whole adapter is shadowable in one place: tests redefine _gh() after
