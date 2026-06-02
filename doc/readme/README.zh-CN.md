@@ -185,10 +185,11 @@ release asset 公布的 SHA-256(供应链检查,与上述正交)。
 **主机 / 硬件**
 
 - Linux x64（测试过 Ubuntu 22.04）
-- NVIDIA GPU 且 driver 正常:host 上 `nvidia-smi` 可执行,且
-  `docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` 须能成功。
-  （目前 `script/init.sh` 要求有 GPU;让它变可选见 #34。）
-- Docker 并已安装 NVIDIA Container Toolkit
+- NVIDIA GPU —— **可选**。有卡时:host 上 `nvidia-smi` 可执行、
+  `docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` 须能成功,
+  且 runner 默认挂 `gpu` 标签。无卡时:`script/init.sh` 会自动检测（无 `nvidia-smi`）、
+  跳过 GPU 检查,并提醒你设非 gpu 标签（`./script/configure.sh --labels <label>`）。
+- Docker（用 GPU 时并需 NVIDIA Container Toolkit）
 - 当前使用者在 `docker` group 内（注意:这等同 root —— 见 [Security model](#security-model)）
 
 **CLI 工具**

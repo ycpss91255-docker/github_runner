@@ -202,11 +202,13 @@ extracted (a supply-chain check, orthogonal to the above).
 **Host / hardware**
 
 - Linux x64 (tested: Ubuntu 22.04)
-- An NVIDIA GPU with a working driver: `nvidia-smi` reachable on host, and
+- NVIDIA GPU — **optional**. With one, `nvidia-smi` must be reachable and
   `docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi`
-  must succeed. (A GPU is currently required by `script/init.sh`; see #34 for
-  making it optional.)
-- Docker with the NVIDIA Container Toolkit installed
+  must succeed, and runners default to the `gpu` label. Without one,
+  `script/init.sh` auto-detects the absence (no `nvidia-smi`), skips the GPU
+  checks, and reminds you to set a non-GPU label
+  (`./script/configure.sh --labels <label>`).
+- Docker (with the NVIDIA Container Toolkit when using a GPU)
 - Current user in the `docker` group (note: this is root-equivalent — see
   [Security model](#security-model))
 
