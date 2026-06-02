@@ -128,8 +128,10 @@ fake_runner() {
 
   run "${SCRIPT}" --yes
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"Summary:"* ]]
-  [[ "${output}" == *"0 failed"* ]]
+  # D8: exact summary (5 prunable items: stale bin + externals + _update dir +
+  # _update.sh + old tarball). A loose "0 failed" substring also matches
+  # "10 failed"; the precise count catches an over/under-prune regression.
+  [[ "${output}" == *"Summary: 5 removed, 0 failed."* ]]
 
   [ ! -e "${FAKE_RH}/myorg/_org/bin.2.319.1" ]
   [ ! -e "${FAKE_RH}/myorg/_org/externals.2.319.1" ]

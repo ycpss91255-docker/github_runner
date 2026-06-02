@@ -108,15 +108,37 @@ setup() {
   [ "${output}" = "9.9.9" ]
 }
 
-@test "resolve_runner_version falls back when gh is missing from PATH" {
-  # PATH without gh -> resolve_runner_version short-circuits to fallback.
-  # /bin:/usr/bin keeps bash + coreutils reachable on both alpine + ubuntu.
-  run env -i HOME="${HOME}" PATH=/bin:/usr/bin RUNNER_VERSION= bash -c \
-    "source '${LIB}'; resolve_runner_version"
+@test "resolve_runner_version returns exactly RUNNER_VERSION_FALLBACK when gh is missing" {
+  # D9: empty PATH dir guarantees gh is absent on every host (not just CI),
+  # and we assert against the lib's own constant rather than a loose regex.
+  NOGH="$(mktemp -d)"
+  run env -i HOME="${HOME}" PATH="${NOGH}:/bin:/usr/bin" RUNNER_VERSION= bash -c \
+    "command -v gh >/dev/null 2>&1 && { echo 'gh unexpectedly present'; exit 2; }; \
+     source '${LIB}'; [ \"\$(resolve_runner_version)\" = \"\${RUNNER_VERSION_FALLBACK}\" ] && echo MATCH"
+  rm -rf "${NOGH}"
   [ "${status}" -eq 0 ]
-  # We don't pin the exact fallback value here (it bumps over time), only
-  # that *something* was emitted and it looks like a semver version.
-  [[ "${output}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  [ "${output}" = "MATCH" ]
+}
+
+@test "resolve_runner_version uses the latest gh release tag and strips a leading v" {
+  # gh present (a shadowing function makes 'command -v gh' succeed) exercises
+  # the dynamic-resolution branch: gh api ... | sed 's/^v//'.
+  run bash -c "
+    source '${LIB}'
+    gh() { printf 'v2.341.0\n'; }
+    RUNNER_VERSION= resolve_runner_version
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "2.341.0" ]
+}
+
+@test "resolve_runner_version falls back when gh returns an empty tag" {
+  # shellcheck disable=SC1090
+  source "${LIB}"               # bring RUNNER_VERSION_FALLBACK into scope
+  gh() { printf ''; }           # gh present but emits nothing (rate-limited/unauth)
+  RUNNER_VERSION= run resolve_runner_version
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "${RUNNER_VERSION_FALLBACK}" ]
 }
 
 @test "find_cached_tarball returns empty when .bin/ does not exist" {
@@ -160,6 +182,33 @@ setup() {
   rm -rf "${TMP}"
   [ "${status}" -eq 0 ]
   [ -z "${output}" ]
+}
+
+@test "list_runners reads agentName from a BOM + pretty-printed .runner" {
+  # C-3: prod's actions/runner writes a UTF-8 BOM + multi-line JSON; the sed
+  # extractor must still find agentName (only compact JSON was covered before).
+  TMP=$(mktemp -d)
+  mkdir -p "${TMP}/myorg/_org"
+  printf '\xef\xbb\xbf{\n  "agentId": 7,\n  "agentName": "myhost-myorg-org"\n}\n' \
+    > "${TMP}/myorg/_org/.runner"
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *$'\t'myhost-myorg-org$'\t'* ]]
+}
+
+@test "list_runners emits '?' as the name when .runner has no agentName" {
+  # corrupt/partial marker -> sed yields empty -> name falls back to '?'.
+  TMP=$(mktemp -d)
+  mkdir -p "${TMP}/myorg/_org"
+  printf '{\n  "agentId": 7\n}\n' > "${TMP}/myorg/_org/.runner"
+  RUNNER_HOME="${TMP}" run bash -c "source '${LIB}'; list_runners"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  IFS=$'\t' read -r scope org name dir scope_id <<<"${output}"
+  [ "${scope}" = "org" ]
+  [ "${org}" = "myorg" ]
+  [ "${name}" = "?" ]
 }
 
 @test "list_runners emits one org-scoped row for a configured org runner" {
