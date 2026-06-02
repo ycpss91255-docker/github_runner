@@ -16,6 +16,17 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   quick-start to `git clone ... && cd github_runner` so it no longer collides
   with the deprecated `~/github_runner` runner-state path.
 
+### Fixed
+
+- `schedule-cleanup.sh --install` no longer leaves a stray leading blank line
+  in a previously-empty crontab (B3).
+- `add-runner.sh` removes the partial target directory if extraction /
+  registration fails before `.runner` is written, so a retry starts clean
+  instead of re-extracting over a half-populated tree (B1).
+- Documented the idempotency nuances of `update.sh` (the agent self-updates,
+  the second run is a no-op, the extract is GNU-tar-only) and `set-labels.sh`
+  (always a live API call, not a local no-op) in their headers (B2 / B5).
+
 ### Changed
 
 - UX alignment across scripts: `status.sh`'s interval short flag is now `-i`

@@ -7,6 +7,11 @@
 #   ./script/set-labels.sh repo <owner> <repo> <csv>
 #
 # To set the default labels for NEW runners instead, use configure.sh.
+#
+# Idempotency (B5): converges to the requested label set (the API call is a
+# PUT replace), but it is NOT a local no-op -- every run issues a live mutating
+# request, so it can fail when GitHub is unreachable / rate-limited even if the
+# labels already match.
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh

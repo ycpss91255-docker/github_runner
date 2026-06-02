@@ -146,6 +146,9 @@ build_cron_line() {
   local freq=$1 hm=$2 dow=$3 lockfile=$4 logfile=$5 cleanup_bin=$6
   local prefix
   prefix=$(build_schedule_prefix "${freq}" "${hm}" "${dow}")
+  # CRON_MARKER trails the command: under cron's `sh -c`, the `# ...` is a
+  # shell COMMENT (the entry's tag for idempotent install/uninstall), NOT an
+  # argument to flock. Keep it last so a refactor doesn't feed it to flock.
   printf "%s flock -n %s -c '%s --yes >> %s 2>&1' %s\n" \
     "${prefix}" "${lockfile}" "${cleanup_bin}" "${logfile}" "${CRON_MARKER}"
 }
@@ -226,7 +229,11 @@ cmd_install() {
   local current merged
   current=$(read_crontab)
   merged=$(merge_crontab "${new_line}" <<<"${current}")
-  printf '%s\n' "${merged}" | write_crontab
+  # Drop leading blank lines: a here-string of an empty crontab still feeds one
+  # newline through strip_marker, which would otherwise persist as a stray
+  # first line on every fresh install. sed '/./,$!d' is busybox-safe and keeps
+  # intentional interior blanks.
+  printf '%s\n' "${merged}" | sed '/./,$!d' | write_crontab
   echo "Installed (replaces any previous github_runner cleanup entry)."
   echo "Log:  ${logfile}"
   echo "Lock: ${lockfile}"

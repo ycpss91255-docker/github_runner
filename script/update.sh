@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Upgrade runner binary across all registered runners. Preserves config.
+# Re-seed the runner binary across all registered runners. Preserves config.
 # Usage:
 #   ./script/update.sh                      # resolves and pulls latest released
 #   RUNNER_VERSION=2.334.0 ./script/update.sh  # pin a specific version
+#
+# Idempotency / scope (B2): GitHub's actions/runner self-updates at connect
+# time, so this mainly re-seeds a freshly-registered or reset runner.
+# Extraction uses `tar --skip-old-files` (GNU tar; not busybox-portable, hence
+# excluded from the alpine smoke suite), so a second run over an already-
+# populated tree is a NO-OP rather than a forced overwrite.
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh

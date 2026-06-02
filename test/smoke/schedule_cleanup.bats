@@ -164,3 +164,10 @@ EOF
 
   rm -rf "${STAGE}"
 }
+
+@test "schedule-cleanup --install produces no leading blank line in a fresh crontab" {
+  # B3: a here-string of an empty crontab used to persist a stray first line.
+  run "${SCRIPT}" --install --every daily --at 04:00
+  [ "${status}" -eq 0 ]
+  head -1 "${FAKE_CRON}" | grep -q '^0 4 \* \* \* '
+}
