@@ -126,10 +126,10 @@ main() {
         "${SCRIPT_DIR}/remove-runner.sh" repo "${a1}" "${a2}" || rc=$?
       fi
       if (( rc == 0 )); then
-        echo "${label}  ✓ removed"
+        echo "${label}  removed"
         removed=$(( removed + 1 ))
       else
-        echo "${label}  ✗ FAILED (exit ${rc})"
+        echo "${label}  FAILED (exit ${rc})"
         fail_lines+=("${label}")
         failed=$(( failed + 1 ))
       fi
@@ -138,9 +138,9 @@ main() {
 
   if [[ -n ${cache_size} ]]; then
     if rm -rf "${RUNNER_HOME}/.bin"; then
-      echo "[cache] ${RUNNER_HOME}/.bin  ✓ removed (${cache_size})"
+      echo "[cache] ${RUNNER_HOME}/.bin  removed (${cache_size})"
     else
-      echo "[cache] ${RUNNER_HOME}/.bin  ✗ FAILED"
+      echo "[cache] ${RUNNER_HOME}/.bin  FAILED"
       fail_lines+=("[cache] ${RUNNER_HOME}/.bin")
       failed=$(( failed + 1 ))
     fi

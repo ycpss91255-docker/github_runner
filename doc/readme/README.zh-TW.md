@@ -82,7 +82,7 @@ binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 cl
 | `script/configure.sh` | 產生／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 設定新註冊 runner 的 labels；無參數則印出目前生效的設定 |
 | `script/set-labels.sh` | 透過 GitHub API 即時改既有 runner 的 labels（免 remove + 重新註冊）。用法：`org <org> <csv>` 或 `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
-| `script/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態，以及目前的 labels。`-w`/`--watch` 持續刷新（`-n`/`--interval` 設定間隔，預設 5 秒），以列為單位高亮差異；`--no-color` 關閉顏色 |
+| `script/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態，以及目前的 labels。`-w`/`--watch` 持續刷新（`-i`/`--interval` 設定間隔，預設 5 秒），以列為單位高亮差異；`--no-color` 關閉顏色 |
 | `script/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在則下載，再覆蓋所有 registered runner 的 binary。保留 config |
 | `script/uninstall.sh` | `script/init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
 | `script/cleanup.sh` | 清掉 GitHub 自動升級循環留下的占空間殘料：陳舊 `bin.X` / `externals.X` 版本目錄、`${RUNNER_HOME}/.bin/` 內的舊版 tarball、`_work/_update*` 殘留。可安全排程，**不**動 registration state、log、進行中的 job 目錄。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽 |

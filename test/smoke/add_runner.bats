@@ -41,3 +41,9 @@ teardown() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"tarball missing"* ]]
 }
+
+@test "add-runner.sh --help prints Usage and exits 0" {
+  run "${SCRIPT}" --help
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Usage:"* ]]
+}

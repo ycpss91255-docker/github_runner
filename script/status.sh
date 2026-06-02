@@ -12,12 +12,12 @@ COLOR="auto"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-w] [-n SECONDS] [--no-color]
+Usage: $(basename "$0") [-w] [-i SECONDS] [--no-color]
 
 Options:
   -w, --watch              Refresh continuously (Ctrl-C to exit).
-  -n, --interval SECONDS   Refresh interval for --watch (default: ${INTERVAL}).
-      --no-color           Disable color output.
+  -i, --interval SECONDS   Refresh interval for --watch (default: ${INTERVAL}).
+      --no-color           Disable color output (also honors NO_COLOR).
   -h, --help               Show this help.
 EOF
 }
@@ -26,7 +26,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
       -w|--watch) WATCH=1; shift ;;
-      -n|--interval)
+      -i|--interval)
         [[ $# -ge 2 ]] || { echo "missing value for $1" >&2; exit 1; }
         [[ $2 =~ ^[0-9]+$ ]] || { echo "interval must be a positive integer" >&2; exit 1; }
         INTERVAL=$2; shift 2 ;;
@@ -39,6 +39,8 @@ parse_args() {
 
 setup_colors() {
   local use=0
+  # U6: honor the cross-tool NO_COLOR convention, overriding tty auto-detect.
+  [[ -n ${NO_COLOR:-} ]] && COLOR="never"
   case ${COLOR} in
     always) use=1 ;;
     never) use=0 ;;

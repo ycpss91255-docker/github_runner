@@ -15,6 +15,14 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 # shellcheck source=SCRIPTDIR/../lib/common.sh
 source "${SCRIPT_DIR}/../lib/common.sh"
 
+usage() {
+  cat <<EOF
+Usage:
+  $(basename "$0") <org>   # bootstrap host + register the first org-level runner
+  $(basename "$0")         # bootstrap only (no runner registered)
+EOF
+}
+
 check_prereqs() {
   # errors=$((errors+1)) (not ((errors++))): under set -e, post-increment
   # ((errors++)) evaluates to the OLD value, so the first failure (0) makes
@@ -48,6 +56,10 @@ cache_tarball() {
   curl -fL -o "${path}" \
     "https://github.com/actions/runner/releases/download/v${version}/${tarball}"
 }
+
+# U2: intercept --help before $1 is treated as an org name (otherwise
+# `init.sh --help` would try to register a runner for org "--help").
+case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 
 check_prereqs
 cache_tarball

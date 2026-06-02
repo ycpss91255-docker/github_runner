@@ -26,3 +26,9 @@ teardown() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"nothing to remove"* ]]
 }
+
+@test "remove-runner.sh --help prints Usage and exits 0" {
+  run "${SCRIPT}" --help
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Usage:"* ]]
+}
