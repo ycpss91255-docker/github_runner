@@ -31,8 +31,7 @@
 ## TL;DR
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # if not already
 
 ./script/init.sh ycpss91255-docker             # prep host + register first runner
@@ -82,13 +81,13 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 
 | Script | Purpose |
 |---|---|
-| `script/init.sh` | Verify host prerequisites; cache runner tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
+| `script/init.sh` | Verify host prerequisites; resolve the actions/runner version (`RUNNER_VERSION=...` override, else the latest release via `gh api`, falling back to a pinned version when `gh` is missing / unauthenticated / offline), then download + cache the tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
 | `script/add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. Labels come from `setup.conf` (default `gpu`, see Configuration). For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
 | `script/configure.sh` | Generate / update `${RUNNER_HOME}/setup.conf`. `--labels <csv>` sets the labels for newly registered runners; no args prints the current effective config |
 | `script/set-labels.sh` | Relabel an already-registered runner live via the GitHub API (no remove + re-register). Usage: `org <org> <csv>` or `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
-| `script/status.sh` | List all registered runners with local + GitHub-side state and their current labels |
-| `script/update.sh` | Upgrade runner binary across all runners; preserves config |
+| `script/status.sh` | List all registered runners with local + GitHub-side state and their current labels. `-w`/`--watch` refreshes continuously (configurable `-n`/`--interval`, default 5s) with row-level diff highlighting; `--no-color` disables color |
+| `script/update.sh` | Resolve the runner version (`RUNNER_VERSION=...` override or latest release, same fallback as init), download into the cache if absent, then replace the binary across all registered runners; preserves config |
 | `script/uninstall.sh` | Counterpart to `script/init.sh`: tear down every runner registered through this checkout + remove the cached tarball. Prompts by default; `--yes` skips, `--dry-run` previews. Does NOT change org runner-group flags or remove the checkout itself (see #11) |
 | `script/cleanup.sh` | Prune disk-heavy leftovers from GitHub's auto-update cycle: stale `bin.X` / `externals.X` version dirs, older cached tarballs in `${RUNNER_HOME}/.bin/`, and `_work/_update*` remnants. Safe to schedule; never touches registration state, logs, or in-flight job dirs. Prompts by default; `--yes` skips, `--dry-run` previews |
 | `script/schedule-cleanup.sh` | Install / remove a user-crontab entry that runs `cleanup.sh` on a schedule (daily / weekly / monthly, time and weekday selectable). Interactive prompts by default, or pass `--every` / `--at` / `--day`. `--status` shows the installed entry, `--uninstall` removes it. Output appends to `${RUNNER_HOME}/.cleanup.log`; concurrent runs are guarded by `flock` |
@@ -158,7 +157,7 @@ Public-repo dispatch on self-hosted runners has two GitHub knobs that
 matter and must agree:
 
 1. **Outside-collaborator approval gate** (org Settings -> Actions ->
-   General -> "Require approval for all external contributors"). Set per
+   General -> "Require approval for all outside collaborators"). Set per
    ADR-0011 Public repo security. Blocks fork PRs from running arbitrary
    code on the runner until the maintainer clicks "Approve and run".
 2. **Runner group `allows_public_repositories` flag** (Default group on
@@ -193,8 +192,7 @@ set on each org so the configuration cannot drift silently.
 runners are added with `script/add-runner.sh`:
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org   # if not already
 
 ./script/init.sh ycpss91255-docker             # prep + first runner (for -docker org)
@@ -240,8 +238,7 @@ are preserved.
 After machine loss / reformat:
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 ./script/init.sh ycpss91255-docker
 ./script/add-runner.sh org ycpss91255-research
 ```
