@@ -8,6 +8,30 @@ setup() {
   export RUNNER_HOME="/tmp/gh-runner-test-home"
 }
 
+# SEC-3: RUNNER_HOME is the rm -rf root for every destructive consumer, so a
+# dangerous override must be refused at the single chokepoint (source time).
+
+@test "sourcing common.sh refuses RUNNER_HOME=/" {
+  run bash -c "RUNNER_HOME=/ source '${LIB}'"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *refusing* ]]
+}
+
+@test "sourcing common.sh refuses a relative RUNNER_HOME" {
+  run bash -c "RUNNER_HOME=runners source '${LIB}'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "sourcing common.sh refuses a RUNNER_HOME containing .." {
+  run bash -c "RUNNER_HOME=/tmp/x/../y source '${LIB}'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "sourcing common.sh accepts a non-existent absolute RUNNER_HOME (first install)" {
+  run bash -c "RUNNER_HOME=/tmp/does-not-exist-yet/runners source '${LIB}'"
+  [ "${status}" -eq 0 ]
+}
+
 @test "resolve_target org sets org-scoped variables" {
   # shellcheck disable=SC1090
   source "${LIB}"
@@ -28,6 +52,31 @@ setup() {
   [ "${TARGET_API_TOKEN_PATH}" = "/repos/owner/myrepo/actions/runners/registration-token" ]
   [ "${TARGET_API_REMOVE_PATH}" = "/repos/owner/myrepo/actions/runners/remove-token" ]
   [[ "${TARGET_NAME}" == *"-owner-myrepo" ]]
+}
+
+# SEC-4: org/owner/repo flow into TARGET_DIR (an rm -rf root) and gh API
+# paths, so resolve_target must reject anything that isn't a clean GitHub
+# identifier (no slashes, no path traversal).
+
+@test "resolve_target rejects an org with path traversal" {
+  run bash -c "source '${LIB}'; resolve_target org '../../etc'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "resolve_target rejects a repo name of .." {
+  run bash -c "source '${LIB}'; resolve_target repo owner .."
+  [ "${status}" -ne 0 ]
+}
+
+@test "resolve_target rejects an org containing a slash" {
+  run bash -c "source '${LIB}'; resolve_target org 'a/b'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "resolve_target accepts a normal hyphenated org" {
+  run bash -c "source '${LIB}'; resolve_target org my-org; echo \"\${TARGET_DIR}\""
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == */my-org/_org ]]
 }
 
 @test "resolve_target with no args exits non-zero" {
@@ -219,8 +268,9 @@ setup() {
   [ "${status}" -ne 0 ]
 }
 
-# load_config: source the optional setup.conf under RUNNER_HOME, then leave
-# $LABELS holding the resolved set (default "gpu" when unset / no config).
+# load_config: extract LABELS from the optional setup.conf under RUNNER_HOME
+# (without sourcing it -- SEC-6), then leave $LABELS holding the resolved set
+# (default "gpu" when unset / no config).
 
 @test "load_config defaults LABELS to gpu when no setup.conf exists" {
   TMP=$(mktemp -d)
@@ -239,6 +289,27 @@ setup() {
   rm -rf "${TMP}"
   [ "${status}" -eq 0 ]
   [ "${output}" = "gpu,cuda12" ]
+}
+
+@test "load_config does not execute code embedded in setup.conf" {
+  # SEC-6: setup.conf is writable by the runner user; a CI job could drop a
+  # payload. load_config must extract LABELS, not source the file.
+  TMP=$(mktemp -d); MARK="${TMP}/pwned"
+  printf 'LABELS=gpu\ntouch %s\n' "${MARK}" > "${TMP}/setup.conf"
+  run env -i HOME="${HOME}" PATH="${PATH}" RUNNER_HOME="${TMP}" bash -c \
+    "source '${LIB}'; load_config; echo \"\${LABELS}\""
+  [ ! -e "${MARK}" ]
+  [ "${output}" = "gpu" ]
+  rm -rf "${TMP}"
+}
+
+@test "load_config rejects an invalid LABELS line" {
+  TMP=$(mktemp -d)
+  printf 'LABELS=bad label!\n' > "${TMP}/setup.conf"
+  run env -i HOME="${HOME}" PATH="${PATH}" RUNNER_HOME="${TMP}" bash -c \
+    "source '${LIB}'; load_config"
+  rm -rf "${TMP}"
+  [ "${status}" -ne 0 ]
 }
 
 # runner_agent_id: extract the numeric agentId from <dir>/.runner. Must
