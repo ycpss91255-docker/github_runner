@@ -301,6 +301,58 @@ require_gh_auth() {
   }
 }
 
+# --- Tarball integrity (SEC-5) ------------------------------------------
+# Supply-chain check at the DOWNLOAD point only: confirm a freshly-downloaded
+# actions/runner tarball matches the SHA-256 GitHub publishes for that release
+# asset. Orthogonal to the runner-user's docker-group privilege (which is
+# accepted, see README security model) -- this defends the download against a
+# tampered mirror / MITM, nothing else.
+
+# Compare a file's SHA-256 to an expected hex digest. 0 = match, 1 = not.
+# sha256sum is present on both alpine (busybox) and Ubuntu (coreutils).
+verify_sha256() {
+  local file=$1 expected=$2 actual
+  actual=$(sha256sum "${file}" 2>/dev/null | cut -d' ' -f1) || return 1
+  [[ -n ${expected} && ${actual} == "${expected}" ]]
+}
+
+# Print the expected SHA-256 (bare hex) for a release asset, or nothing when
+# it cannot be obtained (gh missing / unauthenticated / offline, or the asset
+# predates GitHub's per-asset digest field). Reaches GitHub via _gh so it is
+# shadowable in tests.
+runner_asset_digest() {
+  local version=$1 tarball=$2 d
+  d=$(_gh api "repos/actions/runner/releases/tags/v${version}" \
+        --jq ".assets[] | select(.name==\"${tarball}\") | .digest // empty" \
+        2>/dev/null) || return 0
+  printf '%s' "${d#sha256:}"
+}
+
+# Verify a downloaded tarball against its published digest.
+#   verify_runner_tarball <file> <version> <tarball_name> <strict|best-effort>
+# Returns 0 to proceed, 1 for the caller to abort (and rm the file). A SHA
+# mismatch always returns 1. When the expected digest cannot be obtained:
+# strict (init, where gh is a prereq) returns 1; best-effort (update's
+# degraded path) warns and returns 0.
+verify_runner_tarball() {
+  local file=$1 version=$2 tarball=$3 mode=$4 expected
+  expected=$(runner_asset_digest "${version}" "${tarball}")
+  if [[ -z ${expected} ]]; then
+    if [[ ${mode} == strict ]]; then
+      echo "FAIL: could not obtain the expected sha256 for ${tarball} from GitHub" >&2
+      return 1
+    fi
+    echo "WARN: no sha256 digest available for ${tarball}; skipping integrity check" >&2
+    return 0
+  fi
+  if verify_sha256 "${file}" "${expected}"; then
+    echo "verified ${tarball} (sha256 ok)"
+    return 0
+  fi
+  echo "FAIL: sha256 mismatch for ${tarball} (expected ${expected})" >&2
+  return 1
+}
+
 # The runners collection path for a scope -- the single source of truth that
 # status.sh / set-labels.sh build their per-runner endpoints from, instead
 # of re-deriving "/orgs/<org>/actions/runners" by hand. resolve_target's

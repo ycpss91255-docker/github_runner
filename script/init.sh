@@ -55,6 +55,11 @@ cache_tarball() {
   echo "downloading ${tarball}..."
   curl -fL -o "${path}" \
     "https://github.com/actions/runner/releases/download/v${version}/${tarball}"
+  # SEC-5: verify the freshly-downloaded tarball. gh is an init prereq, so
+  # verification is strict here (a missing digest aborts); rm the file on any
+  # failure so a later run can't silently trust an unverified cached copy.
+  verify_runner_tarball "${path}" "${version}" "${tarball}" strict \
+    || { rm -f "${path}"; exit 1; }
 }
 
 # U2: intercept --help before $1 is treated as an org name (otherwise
