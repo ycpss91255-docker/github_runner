@@ -52,6 +52,12 @@ setup() {
   [ "${output}" = "/repos/owner/myrepo/actions/runners" ]
 }
 
+@test "runner_api_base returns non-zero and prints nothing on an unknown scope" {
+  run bash -c "source '${LIB}'; runner_api_base bogus foo"
+  [ "${status}" -ne 0 ]
+  [ -z "${output}" ]
+}
+
 @test "github_runner_token returns the token from the POST response" {
   run bash -c "
     source '${LIB}'
@@ -71,14 +77,16 @@ setup() {
   [ "${status}" -ne 0 ]
 }
 
-@test "github_set_labels returns the resulting labels as one CSV line" {
+@test "github_set_labels joins the PUT RESPONSE labels (not its input) into one CSV line" {
+  # D3: the canned response order/content deliberately differs from the input
+  # csv, so an "echo the input back" regression cannot pass this.
   run bash -c "
     source '${LIB}'
-    _gh() { printf 'gpu\ncuda12\n'; }
+    _gh() { printf 'cuda12\ngpu\nfast\n'; }   # server-canonicalised, != input
     github_set_labels /orgs/myorg/actions/runners 42 gpu,cuda12
   "
   [ "${status}" -eq 0 ]
-  [ "${output}" = "gpu,cuda12" ]
+  [ "${output}" = "cuda12,gpu,fast" ]
 }
 
 @test "github_set_labels sends one labels[] field per token via PUT" {
@@ -94,5 +102,19 @@ setup() {
   grep -qxF -- '/orgs/myorg/actions/runners/42/labels' "${CAP}"
   grep -qxF -- 'labels[]=gpu' "${CAP}"
   grep -qxF -- 'labels[]=cuda12' "${CAP}"
+  rm -f "${CAP}"
+}
+
+@test "enable_public_repos_dispatch PATCHes runner-group 1 with allows_public_repositories=true" {
+  CAP=$(mktemp)
+  run bash -c "
+    source '${LIB}'
+    gh() { printf '%s\n' \"\$@\" > '${CAP}'; printf 'true\n'; }
+    enable_public_repos_dispatch myorg
+  "
+  [ "${status}" -eq 0 ]
+  grep -qxF -- 'PATCH' "${CAP}"
+  grep -qxF -- '/orgs/myorg/actions/runner-groups/1' "${CAP}"
+  grep -qxF -- 'allows_public_repositories=true' "${CAP}"
   rm -f "${CAP}"
 }

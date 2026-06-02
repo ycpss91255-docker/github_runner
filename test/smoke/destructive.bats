@@ -49,16 +49,23 @@ setup() {
   [[ "${output}" == *"USAGE-TEXT"* ]]
 }
 
-@test "confirm_or_abort returns without prompting when YES=1" {
+@test "confirm_or_abort returns 0 without prompting when YES=1 (and actually ran)" {
+  # D1: set -e + a command -v guard kill the spurious-green where a missing /
+  # no-op confirm_or_abort would still let the trailing echo pass. The non-TTY
+  # companion below covers the no-op-returns-success regression.
   run bash -c "
+    set -euo pipefail
     source '${LIB}'
     YES=1
-    confirm_or_abort 'Proceed? '
+    command -v confirm_or_abort >/dev/null || { echo MISSING; exit 3; }
+    confirm_or_abort 'Proceed? ' < /dev/null
     echo CONTINUED
   "
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"CONTINUED"* ]]
+  [[ "${output}" != *"MISSING"* ]]
   [[ "${output}" != *"Proceed?"* ]]
+  [[ "${output}" != *"non-interactive run requires --yes"* ]]
 }
 
 @test "confirm_or_abort fails non-TTY without --yes (exit 1, pinned message)" {

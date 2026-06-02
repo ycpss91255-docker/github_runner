@@ -28,10 +28,12 @@ teardown() {
   grep -qx 'LABELS=gpu,cuda12' "${RUNNER_HOME}/setup.conf"
 }
 
-@test "configure.sh with no args prints the current effective config (default gpu)" {
-  run "${SCRIPT}"
+@test "configure.sh with no args prints exactly the gpu default (scrubbed env)" {
+  # D4: scrub the env so an ambient LABELS can't satisfy the assertion, and
+  # match the whole output line exactly rather than a loose substring.
+  run env -i HOME="${HOME}" PATH="${PATH}" RUNNER_HOME="${RUNNER_HOME}" "${SCRIPT}"
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"LABELS=gpu"* ]]
+  [ "${output}" = "LABELS=gpu" ]
 }
 
 @test "configure.sh with no args reflects a written setup.conf" {

@@ -19,14 +19,13 @@ teardown() {
   [[ "${output}" == *"./script/init.sh"* ]]
 }
 
-@test "status.sh empty RUNNER_HOME -> headers only" {
+@test "status.sh on empty RUNNER_HOME prints the no-runners notice and zero data rows" {
+  # D6: assert the behavior (no-runners notice + no per-runner state cells)
+  # rather than just the header vocabulary, which can't tell empty from
+  # populated.
   mkdir -p "${RUNNER_HOME}"
-  run "${SCRIPT}"
+  run "${SCRIPT}" --no-color
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"NAME"* ]]
-  [[ "${output}" == *"SCOPE"* ]]
-  [[ "${output}" == *"LOCAL-SVC"* ]]
-  [[ "${output}" == *"GITHUB"* ]]
-  [[ "${output}" == *"PUBLIC-DISPATCH"* ]]
-  [[ "${output}" == *"LABELS"* ]]
+  [[ "${output}" == *"(no runners found in ${RUNNER_HOME})"* ]]
+  [ "$(printf '%s\n' "${output}" | grep -cE 'public-ok|public-BLOCKED|online|offline|not-found')" -eq 0 ]
 }
