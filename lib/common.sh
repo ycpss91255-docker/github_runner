@@ -13,6 +13,19 @@
 if [[ -z "${RUNNER_HOME:-}" ]]; then
   RUNNER_HOME="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/runners"
 fi
+# SEC-3: RUNNER_HOME becomes the rm -rf root for remove-runner / uninstall /
+# cleanup, so refuse dangerous overrides lexically here -- the single
+# chokepoint. Validated without requiring the dir to exist, so a first
+# install (dir not yet created) is not broken. --preserve-root would not
+# help: every consumer derives a SUBPATH (/.bin, /<org>/_org).
+[[ "${RUNNER_HOME}" = /* ]] || { echo "FATAL: RUNNER_HOME must be absolute: '${RUNNER_HOME}'" >&2; exit 1; }
+RUNNER_HOME="${RUNNER_HOME%/}"
+case "${RUNNER_HOME}" in
+  ""|/|/.|/..|"${HOME:-}") echo "FATAL: refusing RUNNER_HOME='${RUNNER_HOME}'" >&2; exit 1 ;;
+esac
+case "/${RUNNER_HOME}/" in
+  */../*) echo "FATAL: RUNNER_HOME must be normalized (no '..'): '${RUNNER_HOME}'" >&2; exit 1 ;;
+esac
 readonly RUNNER_HOME
 
 # Path to the optional registration config (KEY=value, shell-sourceable).
@@ -29,14 +42,32 @@ validate_labels() {
   [[ "${1:-}" =~ ^[A-Za-z0-9_-]+(,[A-Za-z0-9_-]+)*$ ]]
 }
 
-# Source the optional setup.conf, then leave $LABELS holding the resolved
-# registration labels (default "gpu" when unset / no config file). Called
-# by init.sh / add-runner.sh before invoking the runner's config.sh, so a
-# fresh install with no setup.conf keeps the historical gpu-only behavior.
+# SEC-4: GitHub owner/org and repo name validators. Owner/org is alphanumerics
+# with single internal hyphens (GitHub's rule); repo additionally allows '.'
+# and '_' but is never '.' or '..'. Both reject slashes and path traversal, so
+# values that reach TARGET_DIR (an rm -rf root) and gh API paths stay safe.
+valid_owner() { [[ "$1" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]]; }
+valid_repo()  { [[ "$1" =~ ^[A-Za-z0-9._-]+$ && "$1" != . && "$1" != .. ]]; }
+
+# Resolve registration labels from the optional setup.conf, leaving $LABELS
+# holding the result (default "gpu" when unset / no config file). Called by
+# init.sh / add-runner.sh before invoking the runner's config.sh, so a fresh
+# install with no setup.conf keeps the historical gpu-only behavior.
+#
+# SEC-6: setup.conf lives under RUNNER_HOME and is writable by the runner
+# user, so a CI job could drop arbitrary shell into it. We therefore EXTRACT
+# the LABELS value with sed instead of sourcing the file (which would execute
+# any other lines), then re-validate it -- failing closed on anything that
+# isn't a clean labels CSV. sed '.../p | tail -1' is busybox-portable and
+# mirrors configure.sh's "last LABELS= line wins" upsert.
 load_config() {
+  LABELS=""
   if [[ -f "${SETUP_CONF}" ]]; then
-    # shellcheck disable=SC1090  # runtime-resolved user config path
-    source "${SETUP_CONF}"
+    LABELS=$(sed -n 's/^LABELS=//p' "${SETUP_CONF}" | tail -1)
+  fi
+  if [[ -n "${LABELS}" ]] && ! validate_labels "${LABELS}"; then
+    echo "FAIL: invalid LABELS in ${SETUP_CONF}: '${LABELS}'" >&2
+    exit 1
   fi
   LABELS="${LABELS:-gpu}"
 }
@@ -324,6 +355,7 @@ resolve_target() {
     org)
       [[ $# -eq 1 ]] || { echo "usage: ... org <org>" >&2; exit 1; }
       local org=$1
+      valid_owner "${org}" || { echo "invalid org: '${org}'" >&2; exit 1; }
       TARGET_URL="https://github.com/${org}"
       TARGET_DIR="${RUNNER_HOME}/${org}/_org"
       TARGET_NAME="$(hostname)-${org}-org"
@@ -333,6 +365,8 @@ resolve_target() {
     repo)
       [[ $# -eq 2 ]] || { echo "usage: ... repo <owner> <repo>" >&2; exit 1; }
       local owner=$1 repo=$2
+      { valid_owner "${owner}" && valid_repo "${repo}"; } \
+        || { echo "invalid owner/repo: '${owner}/${repo}'" >&2; exit 1; }
       TARGET_URL="https://github.com/${owner}/${repo}"
       TARGET_DIR="${RUNNER_HOME}/${owner}/${repo}"
       TARGET_NAME="$(hostname)-${owner}-${repo}"

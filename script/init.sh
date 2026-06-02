@@ -16,17 +16,21 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}/../lib/common.sh"
 
 check_prereqs() {
+  # errors=$((errors+1)) (not ((errors++))): under set -e, post-increment
+  # ((errors++)) evaluates to the OLD value, so the first failure (0) makes
+  # the arithmetic command return status 1 and aborts the script -- only one
+  # FAIL line would ever print. All diagnostics go to stderr.
   local errors=0
-  command -v docker     >/dev/null || { echo "FAIL: docker not installed"; ((errors++)); }
-  command -v nvidia-smi >/dev/null || { echo "FAIL: nvidia-smi not found"; ((errors++)); }
-  command -v gh         >/dev/null || { echo "FAIL: gh CLI not installed"; ((errors++)); }
-  command -v curl       >/dev/null || { echo "FAIL: curl not installed"; ((errors++)); }
-  command -v jq         >/dev/null || { echo "FAIL: jq not installed"; ((errors++)); }
-  groups | grep -qw docker || { echo "FAIL: ${USER} not in docker group"; ((errors++)); }
-  gh auth status >/dev/null 2>&1 || { echo "FAIL: gh not authenticated (run: gh auth login --scopes admin:org)"; ((errors++)); }
+  command -v docker     >/dev/null || { echo "FAIL: docker not installed" >&2; errors=$((errors+1)); }
+  command -v nvidia-smi >/dev/null || { echo "FAIL: nvidia-smi not found" >&2; errors=$((errors+1)); }
+  command -v gh         >/dev/null || { echo "FAIL: gh CLI not installed" >&2; errors=$((errors+1)); }
+  command -v curl       >/dev/null || { echo "FAIL: curl not installed" >&2; errors=$((errors+1)); }
+  command -v jq         >/dev/null || { echo "FAIL: jq not installed" >&2; errors=$((errors+1)); }
+  groups | grep -qw docker || { echo "FAIL: $(id -un) not in docker group" >&2; errors=$((errors+1)); }
+  gh auth status >/dev/null 2>&1 || { echo "FAIL: gh not authenticated (run: gh auth login --scopes admin:org)" >&2; errors=$((errors+1)); }
   docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi >/dev/null 2>&1 \
-    || { echo "FAIL: docker --gpus all not working"; ((errors++)); }
-  ((errors == 0)) || { echo "prereq check failed (${errors})"; exit 1; }
+    || { echo "FAIL: docker --gpus all not working" >&2; errors=$((errors+1)); }
+  ((errors == 0)) || { echo "prereq check failed (${errors})" >&2; exit 1; }
   echo "prereqs OK"
 }
 
