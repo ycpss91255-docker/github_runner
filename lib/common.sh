@@ -289,6 +289,18 @@ print_summary() {
 # to the real gh CLI.
 _gh() { command gh "$@"; }
 
+# U3: hard pre-gate for the mutating scripts (add-runner / remove-runner /
+# set-labels). Call it AFTER local arg/state validation but BEFORE the first
+# gh mutation, so an unauthenticated host fails with one clear line instead
+# of gh's raw error mid-operation (and, for remove-runner, before any service
+# teardown that could otherwise strand a half-deregistered runner).
+require_gh_auth() {
+  gh auth status >/dev/null 2>&1 || {
+    echo "FAIL: gh not authenticated (run: gh auth login --scopes admin:org)" >&2
+    exit 1
+  }
+}
+
 # The runners collection path for a scope -- the single source of truth that
 # status.sh / set-labels.sh build their per-runner endpoints from, instead
 # of re-deriving "/orgs/<org>/actions/runners" by hand. resolve_target's

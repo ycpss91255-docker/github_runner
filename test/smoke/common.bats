@@ -374,3 +374,18 @@ setup() {
   [ "${status}" -eq 0 ]
   [ "${output}" = "142" ]
 }
+
+# require_gh_auth: hard pre-gate used by the mutating scripts. gh is shadowed
+# so the auth probe's success/failure is what gets exercised, not real auth.
+
+@test "require_gh_auth exits non-zero with guidance when gh auth fails" {
+  run bash -c "source '${LIB}'; gh() { return 1; }; require_gh_auth"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"not authenticated"* ]]
+}
+
+@test "require_gh_auth returns 0 when gh auth succeeds" {
+  run bash -c "source '${LIB}'; gh() { return 0; }; require_gh_auth && echo OK"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"OK"* ]]
+}

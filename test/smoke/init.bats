@@ -35,3 +35,10 @@ teardown() {
   grep -q 'prereq check failed' "${BATS_TEST_TMPDIR}/err"
   ! grep -q '^FAIL:' "${BATS_TEST_TMPDIR}/out"
 }
+
+@test "init.sh --help prints Usage and does not bootstrap a runner" {
+  run "${SCRIPT}" --help
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Usage:"* ]]
+  [[ "${output}" != *"bootstrapping first runner"* ]]
+}

@@ -29,3 +29,15 @@ teardown() {
   [[ "${output}" == *"(no runners found in ${RUNNER_HOME})"* ]]
   [ "$(printf '%s\n' "${output}" | grep -cE 'public-ok|public-BLOCKED|online|offline|not-found')" -eq 0 ]
 }
+
+@test "status.sh accepts -i as the interval flag" {
+  # U1: -i replaced -n for --interval. Missing RUNNER_HOME -> exits 0 cleanly.
+  run "${SCRIPT}" -i 5
+  [ "${status}" -eq 0 ]
+}
+
+@test "status.sh no longer accepts -n (frees it from the cross-script collision)" {
+  run "${SCRIPT}" -n 5
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"unknown option: -n"* ]]
+}

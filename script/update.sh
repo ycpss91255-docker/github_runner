@@ -8,7 +8,18 @@ set -euo pipefail
 # shellcheck source=SCRIPTDIR/../lib/common.sh
 source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 
+usage() {
+  cat <<EOF
+Usage:
+  $(basename "$0")                          # resolve + pull the latest release
+  RUNNER_VERSION=<x.y.z> $(basename "$0")   # pin a specific version
+
+Upgrade the runner binary across all registered runners; preserves config.
+EOF
+}
+
 main() {
+  case "${1:-}" in -h|--help) usage; exit 0 ;; esac
   local version tarball tarball_path
   version=$(resolve_runner_version)
   tarball="actions-runner-linux-x64-${version}.tar.gz"
