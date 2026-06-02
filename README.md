@@ -81,6 +81,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 
 | Script | Purpose |
 |---|---|
+| `script/install-deps.sh` | Install the CLI prerequisites (`gh`, `jq`, `curl`, `sudo`) on an apt/Ubuntu host and run `gh auth login`. `-y` accepts every install prompt; `--dry-run` reports what's missing. Docker + the NVIDIA Container Toolkit are assumed already installed. Idempotent |
 | `script/init.sh` | Verify host prerequisites; resolve the actions/runner version (`RUNNER_VERSION=...` override, else the latest release via `gh api`, falling back to a pinned version when `gh` is missing / unauthenticated / offline), then download + cache the tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
 | `script/add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. Labels come from `setup.conf` (default `gpu`, see Configuration). For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
 | `script/configure.sh` | Generate / update `${RUNNER_HOME}/setup.conf`. `--labels <csv>` sets the labels for newly registered runners; no args prints the current effective config |
@@ -198,14 +199,44 @@ extracted (a supply-chain check, orthogonal to the above).
 
 ## Prerequisites
 
-- Linux x64 (tested: Ubuntu 22.04)
-- Docker with GPU runtime (`docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` must work)
-- `nvidia-smi` reachable on host
-- `gh` CLI authenticated with `admin:org` scope
-- Current user in `docker` group
-- `curl`, `jq`, `sudo`
+**Host / hardware**
 
-`script/init.sh` runs all of these checks and exits non-zero on failure.
+- Linux x64 (tested: Ubuntu 22.04)
+- An NVIDIA GPU with a working driver: `nvidia-smi` reachable on host, and
+  `docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi`
+  must succeed. (A GPU is currently required by `script/init.sh`; see #34 for
+  making it optional.)
+- Docker with the NVIDIA Container Toolkit installed
+- Current user in the `docker` group (note: this is root-equivalent — see
+  [Security model](#security-model))
+
+**CLI tools**
+
+- `gh`, `jq`, `curl`, `sudo`
+
+**Access / network**
+
+- `gh` authenticated with the `admin:org` scope (`gh auth login --scopes admin:org`)
+- Outbound HTTPS to `github.com`, `api.github.com`, `cli.github.com`, and
+  `objects.githubusercontent.com` (runner download + registration)
+- `sudo` rights (the runner is installed as a systemd service)
+
+**Installing the prerequisites**
+
+Docker and the NVIDIA Container Toolkit must be installed first — follow
+Docker's and NVIDIA's official guides (they involve kernel drivers / repos
+this tool deliberately does not touch). Once those are in place,
+`script/install-deps.sh` installs the remaining CLI tools (`gh`, `jq`, `curl`,
+`sudo`) on an apt/Ubuntu host and walks you through `gh auth login`:
+
+```bash
+./script/install-deps.sh            # prompt before each install, then authenticate
+./script/install-deps.sh -y         # accept every install prompt (apt -y); auth is still interactive
+./script/install-deps.sh --dry-run  # report what's missing; install nothing
+```
+
+`script/init.sh` then re-checks all of the above and exits non-zero on failure
+(listing every missing item).
 
 ## Quick start
 
@@ -214,7 +245,8 @@ runners are added with `script/add-runner.sh`:
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-gh auth login --scopes admin:org   # if not already
+./script/install-deps.sh                       # install gh/jq/curl/sudo + gh auth login
+                                               # (skip if already set up; Docker+NVIDIA must pre-exist)
 
 ./script/init.sh ycpss91255-docker             # prep + first runner (for -docker org)
 ./script/add-runner.sh org ycpss91255-research # second runner (for -research org)

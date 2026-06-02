@@ -73,6 +73,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `script/install-deps.sh`: install the CLI prerequisites (`gh`, `jq`, `curl`,
+  `sudo`) on an apt/Ubuntu host and drive `gh auth login --scopes admin:org`.
+  `-y` accepts every install prompt, `--dry-run` reports what's missing without
+  installing. Docker + the NVIDIA Container Toolkit are assumed already present.
+  Idempotent. README Prerequisites gains install guidance + access/network
+  requirements (all locales).
 - `script/configure.sh`: generate / update `${RUNNER_HOME}/setup.conf`.
   `--labels <csv>` sets the labels for newly registered runners; no args
   prints the current effective config. `lib/common.sh` gains `load_config`,

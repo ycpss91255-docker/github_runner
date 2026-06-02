@@ -81,6 +81,7 @@ org）、ハードコードされていません。
 
 | Script | 用途 |
 |---|---|
+| `script/install-deps.sh` | apt/Ubuntu ホストに CLI 前提条件（`gh`、`jq`、`curl`、`sudo`）をインストールし `gh auth login` を実行。`-y` ですべてのインストール確認を承認;`--dry-run` は不足分の報告のみ。Docker と NVIDIA Container Toolkit はインストール済み前提。冪等 |
 | `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（オフライン時は同梱の pinned fallback）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
 | `script/add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。labels は `setup.conf` から取得（デフォルト `gpu`、設定を参照）。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
 | `script/configure.sh` | `${RUNNER_HOME}/setup.conf` を生成／更新。`--labels <csv>` で新規登録 runner の labels を設定、引数なしで現在有効な設定を表示 |
@@ -194,15 +195,40 @@ tarball は、展開前に GitHub が release asset 向けに公開する SHA-25
 
 ## 前提条件
 
-- Linux x64（テスト済み：Ubuntu 22.04）
-- GPU runtime を含む Docker（`docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` が動作すること）
-- ホスト上で `nvidia-smi` が実行可能
-- `gh` CLI が認証済みで token に `admin:org` scope を含む
-- 現在のユーザーが `docker` group に所属
-- `curl`、`jq`、`sudo` がインストール済み
+**ホスト / ハードウェア**
 
-`script/init.sh` は上記すべてをチェックし、いずれかが失敗すると non-zero で
-exit します。
+- Linux x64（テスト済み：Ubuntu 22.04）
+- driver が動作する NVIDIA GPU：ホスト上で `nvidia-smi` が実行でき、
+  `docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` が成功すること。
+  （現状 `script/init.sh` は GPU を必須とします。オプション化は #34 を参照。）
+- Docker、および NVIDIA Container Toolkit がインストール済み
+- 現在のユーザーが `docker` group に所属（注意：これは root 相当 —— [Security model](#security-model) 参照）
+
+**CLI ツール**
+
+- `gh`、`jq`、`curl`、`sudo`
+
+**アクセス / ネットワーク**
+
+- `gh` が認証済みで token に `admin:org` scope を含む（`gh auth login --scopes admin:org`）
+- `github.com`、`api.github.com`、`cli.github.com`、`objects.githubusercontent.com` への外向き HTTPS（runner のダウンロード + 登録）
+- `sudo` 権限（runner は systemd service として導入）
+
+**前提条件のインストール**
+
+Docker と NVIDIA Container Toolkit は先に各自で導入してください（kernel driver / repo が
+絡むため、本ツールは意図的に触れません）。Docker と NVIDIA の公式手順に従えば OK です。
+その後 `script/install-deps.sh` が apt/Ubuntu ホストで残りの CLI ツール（`gh`、`jq`、`curl`、
+`sudo`）を導入し、`gh auth login` まで案内します：
+
+```bash
+./script/install-deps.sh            # 各インストール前に確認し、その後 auth
+./script/install-deps.sh -y         # すべてのインストール確認を承認（apt -y）；auth は対話式のまま
+./script/install-deps.sh --dry-run  # 不足分を報告するのみ、インストールしない
+```
+
+`script/init.sh` はその後、上記すべてを再チェックし、いずれかが失敗すると non-zero で
+exit します（不足項目をすべて列挙）。
 
 ## クイックスタート
 
@@ -211,7 +237,8 @@ runner は `script/add-runner.sh` で登録：
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-gh auth login --scopes admin:org   # 未認証の場合
+./script/install-deps.sh                       # gh/jq/curl/sudo + gh auth login を導入
+                                               # （設定済みならスキップ可；Docker+NVIDIA は事前に必要）
 
 ./script/init.sh ycpss91255-docker             # 準備 + 最初の runner（-docker org）
 ./script/add-runner.sh org ycpss91255-research # 2 つ目の runner（-research org）

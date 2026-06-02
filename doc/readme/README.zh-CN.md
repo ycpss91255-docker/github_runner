@@ -77,6 +77,7 @@ binary、回报本地与 GitHub 端状态、清理自动升级残料。一份 cl
 
 | Script | 用途 |
 |---|---|
+| `script/install-deps.sh` | 在 apt/Ubuntu host 上安装 CLI 先决条件（`gh`、`jq`、`curl`、`sudo`）并跑 `gh auth login`。`-y` 接受所有安装提示;`--dry-run` 只报告缺什么。Docker 与 NVIDIA Container Toolkit 假设已安装。幂等 |
 | `script/init.sh` | 检查 host 先决条件；透过 GitHub API 解析 actions/runner 最新 release（离线时退回内建 pinned fallback），下载并缓存至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆盖。若带 org 参数，会同时注册该 org 的第一个 runner |
 | `script/add-runner.sh` | 注册新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。labels 取自 `setup.conf`（默认 `gpu`，详见配置）。`org` scope 会把 Default runner group 的 `allows_public_repositories=true` 打开，让 public repo 的 workflow 能 dispatch（详见下方安全性说明） |
 | `script/configure.sh` | 生成／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 设定新注册 runner 的 labels；无参数则打印当前生效的配置 |
@@ -181,14 +182,38 @@ release asset 公布的 SHA-256(供应链检查,与上述正交)。
 
 ## 先决条件
 
-- Linux x64（测试过 Ubuntu 22.04）
-- Docker 含 GPU runtime（`docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` 须能成功）
-- Host 上可直接执行 `nvidia-smi`
-- `gh` CLI 已登入且 token 含 `admin:org` scope
-- 当前使用者在 `docker` group 内
-- 安装 `curl`, `jq`, `sudo`
+**主机 / 硬件**
 
-`script/init.sh` 会跑完上述所有检查，任何一项失败即 exit non-zero。
+- Linux x64（测试过 Ubuntu 22.04）
+- NVIDIA GPU 且 driver 正常:host 上 `nvidia-smi` 可执行,且
+  `docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` 须能成功。
+  （目前 `script/init.sh` 要求有 GPU;让它变可选见 #34。）
+- Docker 并已安装 NVIDIA Container Toolkit
+- 当前使用者在 `docker` group 内（注意:这等同 root —— 见 [Security model](#security-model)）
+
+**CLI 工具**
+
+- `gh`、`jq`、`curl`、`sudo`
+
+**存取 / 网络**
+
+- `gh` 已登入且 token 含 `admin:org` scope（`gh auth login --scopes admin:org`）
+- 对 `github.com`、`api.github.com`、`cli.github.com`、`objects.githubusercontent.com` 的对外 HTTPS（runner 下载 + 注册）
+- `sudo` 权限（runner 以 systemd service 安装）
+
+**安装先决条件**
+
+Docker 与 NVIDIA Container Toolkit 须先自行安装（牵涉 kernel driver / repo，本工具刻意不碰），
+照 Docker 与 NVIDIA 官方文件即可。之后 `script/install-deps.sh` 会在 apt/Ubuntu host 上
+装好其余 CLI 工具（`gh`、`jq`、`curl`、`sudo`）并带你跑 `gh auth login`:
+
+```bash
+./script/install-deps.sh            # 每项安装前先询问,再做 auth
+./script/install-deps.sh -y         # 接受所有安装提示（apt -y）;auth 仍为交互式
+./script/install-deps.sh --dry-run  # 只报告缺什么,不安装
+```
+
+`script/init.sh` 接着会重新检查以上全部,任何一项失败即 exit non-zero（并列出每个缺项）。
 
 ## 快速开始
 
@@ -197,7 +222,8 @@ release asset 公布的 SHA-256(供应链检查,与上述正交)。
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-gh auth login --scopes admin:org   # 若尚未登入
+./script/install-deps.sh                       # 装 gh/jq/curl/sudo + gh auth login
+                                               # （已设定好可略过;Docker+NVIDIA 须先存在）
 
 ./script/init.sh ycpss91255-docker             # 准备 + 第一个 runner（-docker org）
 ./script/add-runner.sh org ycpss91255-research # 第二个 runner（-research org）
