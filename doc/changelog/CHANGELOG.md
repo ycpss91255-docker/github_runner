@@ -42,6 +42,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `script/init.sh`: the NVIDIA GPU is now **optional** (#34). It auto-detects a
+  GPU via `nvidia-smi` — present → the docker `--gpus` runtime check still runs;
+  absent → both GPU checks are skipped and init proceeds as a non-GPU host,
+  reminding you that the default `gpu` label should be changed
+  (`configure.sh --labels …`). The runner binary was already GPU-agnostic; only
+  init's gates assumed a GPU. README Requirements updated (all locales).
 - UX alignment across scripts: `status.sh`'s interval short flag is now `-i`
   (was `-n`), removing the cross-script collision where `-n` means `--dry-run`
   in `cleanup.sh` / `uninstall.sh`; `status.sh` also honors the `NO_COLOR`

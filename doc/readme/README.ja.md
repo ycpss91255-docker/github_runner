@@ -198,10 +198,12 @@ tarball は、展開前に GitHub が release asset 向けに公開する SHA-25
 **ホスト / ハードウェア**
 
 - Linux x64（テスト済み：Ubuntu 22.04）
-- driver が動作する NVIDIA GPU：ホスト上で `nvidia-smi` が実行でき、
+- NVIDIA GPU —— **任意**。GPU ありの場合：ホスト上で `nvidia-smi` が実行でき、
   `docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi` が成功すること。
-  （現状 `script/init.sh` は GPU を必須とします。オプション化は #34 を参照。）
-- Docker、および NVIDIA Container Toolkit がインストール済み
+  runner は既定で `gpu` ラベルになります。GPU なしの場合：`script/init.sh` が自動検出
+  （`nvidia-smi` なし）して GPU チェックをスキップし、非 gpu ラベルの設定を促します
+  （`./script/configure.sh --labels <label>`）。
+- Docker（GPU 利用時は NVIDIA Container Toolkit も）
 - 現在のユーザーが `docker` group に所属（注意：これは root 相当 —— [Security model](#security-model) 参照）
 
 **CLI ツール**

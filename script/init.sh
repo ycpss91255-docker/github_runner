@@ -30,14 +30,23 @@ check_prereqs() {
   # FAIL line would ever print. All diagnostics go to stderr.
   local errors=0
   command -v docker     >/dev/null || { echo "FAIL: docker not installed" >&2; errors=$((errors+1)); }
-  command -v nvidia-smi >/dev/null || { echo "FAIL: nvidia-smi not found" >&2; errors=$((errors+1)); }
   command -v gh         >/dev/null || { echo "FAIL: gh CLI not installed" >&2; errors=$((errors+1)); }
   command -v curl       >/dev/null || { echo "FAIL: curl not installed" >&2; errors=$((errors+1)); }
   command -v jq         >/dev/null || { echo "FAIL: jq not installed" >&2; errors=$((errors+1)); }
   groups | grep -qw docker || { echo "FAIL: $(id -un) not in docker group" >&2; errors=$((errors+1)); }
   gh auth status >/dev/null 2>&1 || { echo "FAIL: gh not authenticated (run: gh auth login --scopes admin:org)" >&2; errors=$((errors+1)); }
-  docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi >/dev/null 2>&1 \
-    || { echo "FAIL: docker --gpus all not working" >&2; errors=$((errors+1)); }
+  # #34: the GPU is optional. Auto-detect via nvidia-smi: when present, require
+  # the docker GPU runtime to work (the original gate); when absent, skip both
+  # GPU checks and proceed as a non-GPU host. HAS_GPU is consumed below to warn
+  # about the default 'gpu' label.
+  if command -v nvidia-smi >/dev/null; then
+    HAS_GPU=1
+    docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi >/dev/null 2>&1 \
+      || { echo "FAIL: docker --gpus all not working" >&2; errors=$((errors+1)); }
+  else
+    HAS_GPU=0
+    echo "note: no NVIDIA GPU detected (nvidia-smi absent) -- proceeding as a non-GPU host" >&2
+  fi
   ((errors == 0)) || { echo "prereq check failed (${errors})" >&2; exit 1; }
   echo "prereqs OK"
 }
@@ -66,8 +75,16 @@ cache_tarball() {
 # `init.sh --help` would try to register a runner for org "--help").
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 
+HAS_GPU=0   # set by check_prereqs; default keeps set -u happy
 check_prereqs
 cache_tarball
+
+# #34: on a non-GPU host the default 'gpu' registration label is wrong; the
+# label is the routing key for runs-on, so flag it (we don't guess a label).
+if (( ! HAS_GPU )); then
+  echo "note: runners default to the 'gpu' label. For this non-GPU host, set labels first:" >&2
+  echo "      ./script/configure.sh --labels <label>   (then re-run add-runner)" >&2
+fi
 
 if [[ $# -gt 0 ]]; then
   echo "==> bootstrapping first runner for org: $1"

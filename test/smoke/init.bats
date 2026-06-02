@@ -21,11 +21,20 @@ teardown() {
   # CLI happens to be present there, so don't assert on it).
   PATH=/bin:/usr/bin run "${SCRIPT}"
   [ "${status}" -ne 0 ]
-  [[ "${output}" == *"FAIL: nvidia-smi not found"* ]]
   [[ "${output}" == *"FAIL: gh CLI not installed"* ]]
+  [[ "${output}" == *"FAIL: curl not installed"* ]]
   [[ "${output}" == *"FAIL: jq not installed"* ]]
   [[ "${output}" == *"prereq check failed"* ]]
   [ "$(printf '%s\n' "${output}" | grep -c '^FAIL:')" -ge 4 ]
+}
+
+@test "init.sh skips the GPU checks when nvidia-smi is absent (non-GPU host)" {
+  # #34: a host without a GPU is auto-detected (no nvidia-smi) -> the two GPU
+  # gates are skipped (a note, not a FAIL), so a non-GPU host can bootstrap.
+  PATH=/bin:/usr/bin run "${SCRIPT}"
+  [[ "${output}" != *"FAIL: nvidia-smi"* ]]
+  [[ "${output}" != *"FAIL: docker --gpus all"* ]]
+  [[ "${output}" == *"non-GPU"* ]]
 }
 
 @test "init.sh prereq failures and the summary go to stderr, not stdout" {
