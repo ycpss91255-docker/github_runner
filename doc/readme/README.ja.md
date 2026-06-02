@@ -31,8 +31,7 @@
 ## TL;DR
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 未ログインの場合
 
 ./script/init.sh ycpss91255-docker             # ホスト準備 + 最初の runner を登録
@@ -87,7 +86,7 @@ org）、ハードコードされていません。
 | `script/configure.sh` | `${RUNNER_HOME}/setup.conf` を生成／更新。`--labels <csv>` で新規登録 runner の labels を設定、引数なしで現在有効な設定を表示 |
 | `script/set-labels.sh` | GitHub API 経由で既存 runner の labels をライブで変更（remove + 再登録は不要）。使い方：`org <org> <csv>` または `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
-| `script/status.sh` | 登録済み runner のローカル + GitHub 側の状態と現在の labels を一覧表示 |
+| `script/status.sh` | 登録済み runner のローカル + GitHub 側の状態と現在の labels を一覧表示。`-w`/`--watch` で継続的にリフレッシュ（`-n`/`--interval` で間隔指定、デフォルト 5 秒）し、行単位で差分をハイライト；`--no-color` で色を無効化 |
 | `script/update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`）を解決し、キャッシュになければダウンロード、その後すべての登録済み runner の binary を上書き。config は保持 |
 | `script/uninstall.sh` | `script/init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
 | `script/cleanup.sh` | GitHub の自動更新サイクルで溜まるディスク食いの残骸を掃除：古い `bin.X` / `externals.X` バージョンディレクトリ、`${RUNNER_HOME}/.bin/` 内の古いキャッシュ tarball、`_work/_update*` の残り物。スケジュール実行しても安全 — 登録 state、ログ、進行中の job ディレクトリには **触れません**。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー |
@@ -153,7 +152,7 @@ Self-hosted runner 上での public リポジトリの workflow ディスパッ�
 ついて、GitHub には揃えるべき 2 つのスイッチがあります：
 
 1. **外部コントリビューター approval gate**（org Settings → Actions →
-   General → 「Require approval for all external contributors」）。
+   General → 「Require approval for all outside collaborators」）。
    ADR-0011 Public repo security に従って設定。fork PR が runner 上で
    任意のコードを実行することを、maintainer が「Approve and run」を
    クリックするまでブロックします。
@@ -191,8 +190,7 @@ exit します。
 runner は `script/add-runner.sh` で登録：
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org   # 未認証の場合
 
 ./script/init.sh ycpss91255-docker             # 準備 + 最初の runner（-docker org）
@@ -236,8 +234,7 @@ credentials は保持されます。
 マシン消失 / OS 再インストール後：
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 ./script/init.sh ycpss91255-docker
 ./script/add-runner.sh org ycpss91255-research
 ```

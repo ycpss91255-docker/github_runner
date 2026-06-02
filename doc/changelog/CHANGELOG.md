@@ -6,6 +6,16 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Documentation
+
+- README (all locales): documented `status.sh`'s `--watch` / `--interval` /
+  `--no-color` flags; expanded the English `init.sh` / `update.sh` rows to
+  describe runner-version resolution (the translations already had it);
+  corrected the public-repo security note to GitHub's actual setting name
+  ("Require approval for all outside collaborators"); and switched the
+  quick-start to `git clone ... && cd github_runner` so it no longer collides
+  with the deprecated `~/github_runner` runner-state path.
+
 ### Changed
 
 - Runner labels are now configurable instead of hard-coded to `gpu`.

@@ -31,8 +31,7 @@
 ## TL;DR
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 若尚未登入
 
 ./script/init.sh ycpss91255-docker             # 準備 host + 註冊第一個 runner
@@ -83,7 +82,7 @@ binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 cl
 | `script/configure.sh` | 產生／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 設定新註冊 runner 的 labels；無參數則印出目前生效的設定 |
 | `script/set-labels.sh` | 透過 GitHub API 即時改既有 runner 的 labels（免 remove + 重新註冊）。用法：`org <org> <csv>` 或 `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
-| `script/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態，以及目前的 labels |
+| `script/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態，以及目前的 labels。`-w`/`--watch` 持續刷新（`-n`/`--interval` 設定間隔，預設 5 秒），以列為單位高亮差異；`--no-color` 關閉顏色 |
 | `script/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在則下載，再覆蓋所有 registered runner 的 binary。保留 config |
 | `script/uninstall.sh` | `script/init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
 | `script/cleanup.sh` | 清掉 GitHub 自動升級循環留下的占空間殘料：陳舊 `bin.X` / `externals.X` 版本目錄、`${RUNNER_HOME}/.bin/` 內的舊版 tarball、`_work/_update*` 殘留。可安全排程，**不**動 registration state、log、進行中的 job 目錄。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽 |
@@ -147,7 +146,7 @@ Public repo 的 workflow 在 self-hosted runner 上 dispatch，GitHub 有兩個
 開關需同時對齊：
 
 1. **外部貢獻者 approval gate**（org Settings → Actions → General →
-   「Require approval for all external contributors」）。依 ADR-0011 Public
+   「Require approval for all outside collaborators」）。依 ADR-0011 Public
    repo security 設定。擋住 fork PR 在 runner 上任意執行 code，直到
    maintainer 按「Approve and run」。
 2. **Runner group `allows_public_repositories` flag**（各 org 的 Default
@@ -181,8 +180,7 @@ maintainer 跟受信任 collaborator 可跑。只關一個的話：knob 2 關
 `script/add-runner.sh` 新增：
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org   # 若尚未登入
 
 ./script/init.sh ycpss91255-docker             # 準備 + 第一個 runner（-docker org）
@@ -224,8 +222,7 @@ RUNNER_VERSION=<new-version> ./script/update.sh
 機器遺失 / 重灌後：
 
 ```bash
-git clone https://github.com/ycpss91255-docker/github_runner.git ~/github_runner
-cd ~/github_runner
+git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 ./script/init.sh ycpss91255-docker
 ./script/add-runner.sh org ycpss91255-research
 ```
