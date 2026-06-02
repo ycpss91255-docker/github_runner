@@ -47,3 +47,19 @@ teardown() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"Usage:"* ]]
 }
+
+@test "add-runner.sh removes the partial dir when extraction fails (B1 idempotency)" {
+  # A corrupt tarball makes tar fail after mkdir; the ERR trap must remove the
+  # half-created TARGET_DIR so a retry starts clean. A gh stub on PATH lets
+  # require_gh_auth + the token fetch (which run 'command gh') pass first.
+  mkdir -p "${RUNNER_HOME}/.bin"
+  printf 'not-a-real-gzip' > "${RUNNER_HOME}/.bin/actions-runner-linux-x64-2.334.0.tar.gz"
+  STUB=$(mktemp -d)
+  printf '#!/bin/sh\nprintf "TOKEN\\n"\n' > "${STUB}/gh"   # any args -> succeeds, prints a token
+  chmod +x "${STUB}/gh"
+
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" org myorg
+  rm -rf "${STUB}"
+  [ "${status}" -ne 0 ]
+  [ ! -e "${RUNNER_HOME}/myorg/_org" ]
+}

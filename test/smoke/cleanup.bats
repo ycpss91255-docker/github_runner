@@ -147,3 +147,12 @@ fake_runner() {
   [ -L "${FAKE_RH}/myorg/_org/externals" ]
   [ -f "${FAKE_RH}/.bin/actions-runner-linux-x64-2.334.0.tar.gz" ]
 }
+
+@test "cleanup.sh --yes a second time finds nothing to clean (idempotent)" {
+  fake_runner myorg 2.334.0
+  mkdir -p "${FAKE_RH}/myorg/_org/bin.2.319.1"
+  "${SCRIPT}" --yes >/dev/null
+  run "${SCRIPT}" --yes
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Nothing to clean"* ]]
+}

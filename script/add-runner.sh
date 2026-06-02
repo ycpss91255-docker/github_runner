@@ -43,6 +43,11 @@ main() {
   token=$(github_runner_token "${TARGET_API_TOKEN_PATH}")
 
   mkdir -p "${TARGET_DIR}"
+  # B1 idempotency: if extraction or registration fails before .runner is
+  # written, remove the partial dir so a retry starts clean (the re-run guard
+  # keys on .runner, which a crashed run would leave absent over a half-
+  # populated tree). Cleared once config.sh has persisted .runner.
+  trap 'rm -rf "${TARGET_DIR}"' ERR
   tar -xzf "${tarball_path}" -C "${TARGET_DIR}"
 
   pushd "${TARGET_DIR}" >/dev/null
@@ -52,6 +57,7 @@ main() {
     --labels "${LABELS}" \
     --name   "${TARGET_NAME}" \
     --work   _work
+  trap - ERR   # registration persisted (.runner written); keep the dir
   sudo ./svc.sh install "$(whoami)"
   sudo ./svc.sh start
   popd >/dev/null
