@@ -163,6 +163,22 @@ maintainer 跟受信任 collaborator 可跑。只关一个的话：knob 2 关
 `script/status.sh` 多了一栏 `PUBLIC-DISPATCH` 显示每个 org 的 knob 2 状态，
 避免设定静默偏移。
 
+### Runner-user 权限
+
+Workflow job 直接以 runner service user 在 host 上执行，而该 user 属于
+`docker` group —— 这**等同 root**（`docker run -v /:/host …` 即可触及整台主机）。
+对单租户、自管的 GPU 主机而言这是刻意接受的取舍:真正的安全边界是**哪些
+workflow 被允许执行**(由上述两个 knob 把关，只有维护者与已批准的 PR 能
+dispatch)，而**不是** runner user 的本机权限。由此衍生、且刻意**不**在 repo 内
+追的后果:短效的 registration token 会出现在 runner `config.sh` 的命令行上
+(其他本机 user 可透过 `ps` 看到 —— 单租户下非问题)，且 `sudo ./svc.sh` 信任
+runner 树。若这台主机未来要跑不可信的 workflow 或变成多租户,升级路径是
+**rootless Docker 或 rootless Podman**(不需 `docker` group，daemon 以非特权执行)
+—— 可行,但有 GPU + docker-in-docker 的摩擦,届时再单独评估。
+
+repo 内**有**做的加固:下载的 actions/runner tarball 在解压前会比对 GitHub 为该
+release asset 公布的 SHA-256(供应链检查,与上述正交)。
+
 ## 先决条件
 
 - Linux x64（测试过 Ubuntu 22.04）

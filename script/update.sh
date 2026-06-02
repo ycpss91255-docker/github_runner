@@ -36,6 +36,11 @@ main() {
     mkdir -p "${RUNNER_HOME}/.bin"
     curl -fL -o "${tarball_path}" \
       "https://github.com/actions/runner/releases/download/v${version}/${tarball}"
+    # SEC-5: verify the download. update.sh has no gh prereq and resolve_runner
+    # _version can fall back offline, so verification is best-effort here (a
+    # missing digest warns + proceeds); a mismatch still aborts + rm's the file.
+    verify_runner_tarball "${tarball_path}" "${version}" "${tarball}" best-effort \
+      || { rm -f "${tarball_path}"; exit 1; }
   fi
 
   local runner_dir

@@ -175,6 +175,27 @@ hole (knob 1 off). See #6 for the original analysis.
 `script/status.sh` surfaces a `PUBLIC-DISPATCH` column showing whether knob 2 is
 set on each org so the configuration cannot drift silently.
 
+### Runner-user privilege
+
+Workflow jobs run directly on the host as the runner service user, and that
+user is in the `docker` group — which is **root-equivalent** (`docker run -v
+/:/host …` reaches the whole host). This is an accepted trade-off for a
+single-tenant, self-managed GPU host: the real security boundary is *which
+workflows are allowed to run*, enforced by the two knobs above (only the
+maintainer's and approved PRs dispatch), **not** the runner user's local
+privilege. Consequences that follow from this and are intentionally *not*
+chased in-repo: the short-lived registration token is passed to the runner's
+`config.sh` on its command line (visible via `ps` to other local users — a
+non-issue on a single-tenant host), and `sudo ./svc.sh` trusts the runner
+tree. If this host ever needs to run untrusted workflows or be multi-tenant,
+the upgrade path is **rootless Docker or rootless Podman** (no `docker` group;
+the daemon runs unprivileged) — doable but with GPU + docker-in-docker
+friction, so evaluate it separately at that point.
+
+What *is* hardened in-repo: the downloaded actions/runner tarball is verified
+against the SHA-256 GitHub publishes for the release asset before it is
+extracted (a supply-chain check, orthogonal to the above).
+
 ## Prerequisites
 
 - Linux x64 (tested: Ubuntu 22.04)

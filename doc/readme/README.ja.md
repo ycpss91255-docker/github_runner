@@ -172,6 +172,26 @@ Self-hosted runner 上での public リポジトリの workflow ディスパッ�
 `script/status.sh` は `PUBLIC-DISPATCH` カラムを表示し、各 org の knob 2 状態
 を可視化することで設定の静かなドリフトを防ぎます。
 
+### Runner ユーザーの権限
+
+Workflow ジョブは runner サービスユーザーとしてホスト上で直接実行され、その
+ユーザーは `docker` group に属します —— これは **root 相当**です（`docker run
+-v /:/host …` でホスト全体に到達できます）。シングルテナントで自己管理の GPU
+ホストでは、これは意図的なトレードオフです。本当のセキュリティ境界は**どの
+workflow の実行を許すか**（上記 2 つの knob で制御し、メンテナと承認済み PR
+のみ dispatch 可能）であり、runner ユーザーのローカル権限**ではありません**。
+ここから派生し、リポジトリ内で意図的に**追わない**帰結:短命の registration
+token は runner の `config.sh` にコマンドライン引数として渡され（他のローカル
+ユーザーから `ps` で見える —— シングルテナントでは非問題）、`sudo ./svc.sh` は
+runner ツリーを信頼します。将来このホストで信頼できない workflow を実行する、
+あるいはマルチテナントにする場合の移行先は **rootless Docker または rootless
+Podman**（`docker` group 不要、daemon を非特権で実行）です —— 可能ですが GPU +
+docker-in-docker の摩擦があるため、その時点で別途評価してください。
+
+リポジトリ内で**実施している**ハードニング:ダウンロードした actions/runner
+tarball は、展開前に GitHub が release asset 向けに公開する SHA-256 と照合され
+ます（サプライチェーンチェック、上記とは独立）。
+
 ## 前提条件
 
 - Linux x64（テスト済み：Ubuntu 22.04）

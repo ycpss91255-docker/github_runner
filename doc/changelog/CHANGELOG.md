@@ -6,6 +6,19 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- The downloaded actions/runner tarball is now verified against the SHA-256
+  GitHub publishes for the release asset before extraction (`init.sh` strict,
+  `update.sh` best-effort on the offline/no-gh path; a mismatch always aborts).
+  A supply-chain check at the download point. `lib/common.sh` gains
+  `verify_sha256` / `runner_asset_digest` / `verify_runner_tarball`.
+- Documented the runner-user privilege model in the README security section
+  (all locales): the runner user is in the `docker` group (≈ root), an accepted
+  trade-off for a single-tenant self-managed host whose real boundary is the
+  dispatch approval gate; rootless Docker/Podman is the noted upgrade path for
+  untrusted/multi-tenant use.
+
 ### Documentation
 
 - README (all locales): documented `status.sh`'s `--watch` / `--interval` /
