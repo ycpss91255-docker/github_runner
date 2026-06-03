@@ -82,13 +82,13 @@ org）、ハードコードされていません。
 | Script | 用途 |
 |---|---|
 | `script/install-deps.sh` | apt/Ubuntu ホストに CLI 前提条件（`gh`、`jq`、`curl`、`sudo`）をインストールし `gh auth login` を実行。`-y` ですべてのインストール確認を承認;`--dry-run` は不足分の報告のみ。Docker と NVIDIA Container Toolkit はインストール済み前提。冪等 |
-| `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（オフライン時は同梱の pinned fallback）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
+| `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（gh 不在 / 未認証 / オフライン時は同梱の pinned バージョンにフォールバック）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
 | `script/add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。labels は `setup.conf` から取得（デフォルト `gpu`、設定を参照）。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
 | `script/configure.sh` | `${RUNNER_HOME}/setup.conf` を生成／更新。`--labels <csv>` で新規登録 runner の labels を設定、引数なしで現在有効な設定を表示 |
 | `script/set-labels.sh` | GitHub API 経由で既存 runner の labels をライブで変更（remove + 再登録は不要）。使い方：`org <org> <csv>` または `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
 | `script/status.sh` | 登録済み runner のローカル + GitHub 側の状態と現在の labels を一覧表示。`-w`/`--watch` で継続的にリフレッシュ（`-i`/`--interval` で間隔指定、デフォルト 5 秒）し、行単位で差分をハイライト；`--no-color` で色を無効化 |
-| `script/update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`）を解決し、キャッシュになければダウンロード、その後すべての登録済み runner の binary を上書き。config は保持 |
+| `script/update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`、init と同じフォールバック）を解決し、キャッシュになければダウンロード、その後 versioned な新しい runner ファイルを各 runner ディレクトリに seed（既存ファイルはそのまま残す）。runner は次回接続時に通常の self-update で新バージョンを取り込む。config は保持 |
 | `script/uninstall.sh` | `script/init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
 | `script/cleanup.sh` | GitHub の自動更新サイクルで溜まるディスク食いの残骸を掃除：古い `bin.X` / `externals.X` バージョンディレクトリ、`${RUNNER_HOME}/.bin/` 内の古いキャッシュ tarball、`_work/_update*` の残り物。スケジュール実行しても安全 — 登録 state、ログ、進行中の job ディレクトリには **触れません**。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー |
 | `script/schedule-cleanup.sh` | user crontab に `cleanup.sh` の定期実行エントリをインストール／削除する（daily / weekly / monthly から選択、時刻と曜日もインタラクティブに指定可）。引数なしでインタラクティブモード、`--every` / `--at` / `--day` を渡せば一発で完了。`--status` で現在のエントリを表示、`--uninstall` で削除。出力は `${RUNNER_HOME}/.cleanup.log` に append、`flock` で重複実行をブロック |
@@ -266,8 +266,9 @@ NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC
 End-to-end 検証には、runner と同じ org のリポジトリ内にある canary
 workflow が必要です（GitHub の org-level runner は同 org の workflow
 からのみ呼び出せます）。即時のサニティチェック：`./script/status.sh`
-の GitHub 側 `online` フラグ、および `script/init.sh` が `docker run --gpus
-all nvidia-smi` のホスト動作をすでに検証済みです。
+の GitHub 側 `online` フラグ、および GPU ホストでは `script/init.sh` が
+`docker run --gpus all nvidia-smi` のホスト動作をすでに検証済みです
+（GPU が検出されない場合はスキップ）。
 
 ## runner バイナリのアップグレード
 
@@ -275,8 +276,9 @@ all nvidia-smi` のホスト動作をすでに検証済みです。
 RUNNER_VERSION=<new-version> ./script/update.sh
 ```
 
-各 runner の service を停止 → バイナリを置き換え → 再起動。config と
-credentials は保持されます。
+versioned な新しい runner ファイルを各 runner ディレクトリに seed します
+（既存ファイルはそのまま残す）。runner は次回接続時に通常の self-update で
+新バージョンを取り込みます。config と credentials は保持されます。
 
 ## 再構築 SOP
 

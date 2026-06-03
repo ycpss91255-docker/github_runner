@@ -9,6 +9,7 @@ source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
 WATCH=0
 INTERVAL=5
 COLOR="auto"
+USE_ANSI=0
 
 usage() {
   cat <<EOF
@@ -46,6 +47,10 @@ setup_colors() {
     never) use=0 ;;
     auto) [[ -t 1 ]] && use=1 ;;
   esac
+  # Expose the same gate for non-SGR ANSI control sequences (e.g. the
+  # --watch clear-screen). UX: --no-color / NO_COLOR / non-TTY all suppress
+  # raw escapes, not just colors, so piped/captured output stays clean.
+  USE_ANSI=${use}
   if (( use )); then
     C_RESET=$'\033[0m'
     C_BOLD=$'\033[1m'
@@ -172,7 +177,10 @@ main() {
     local prev_rows="" rows
     while :; do
       rows=$(collect_rows)
-      printf '\033[H\033[2J'
+      # Gate the cursor-home + clear-screen the same way SGR colors are
+      # gated (setup_colors' USE_ANSI): a raw escape into a pipe / non-TTY
+      # or under --no-color would corrupt captured output.
+      (( USE_ANSI )) && printf '\033[H\033[2J'
       render_header
       render_table "${rows}" "${prev_rows}"
       prev_rows=${rows}

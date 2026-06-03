@@ -32,3 +32,11 @@ teardown() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"Usage:"* ]]
 }
+
+# M4: a bogus scope must hit the script's own validation and print the rich
+# usage() (not resolve_target's terse one-line arity error) before exiting 1.
+@test "remove-runner.sh with a bogus scope prints the rich usage and exits 1" {
+  run "${SCRIPT}" bogus foo
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"Usage:"* ]]
+}

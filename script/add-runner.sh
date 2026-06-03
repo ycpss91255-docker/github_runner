@@ -20,11 +20,30 @@ EOF
 
 main() {
   case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+  case "${1:-}" in
+    org|repo) ;;
+    *) usage >&2; exit 1 ;;
+  esac
   resolve_target "$@"
 
   if [[ -f "${TARGET_DIR}/.runner" ]]; then
-    echo "runner at ${TARGET_DIR} already configured."
-    echo "use ./script/remove-runner.sh first if you want to re-register."
+    # The runner is registered. Only treat it as "already configured" if its
+    # systemd service is actually active: a prior run whose `sudo ./svc.sh
+    # install/start` failed after config.sh wrote .runner leaves the runner
+    # registered with its service missing/stopped. In that case converge by
+    # (re)running the service-install/start steps instead of falsely reporting
+    # success.
+    if runner_service_running "${TARGET_NAME}"; then
+      echo "runner at ${TARGET_DIR} already configured."
+      echo "use ./script/remove-runner.sh first if you want to re-register."
+      exit 0
+    fi
+    echo "runner at ${TARGET_DIR} is registered but its service is missing/stopped; (re)installing it." >&2
+    pushd "${TARGET_DIR}" >/dev/null
+    sudo ./svc.sh install "$(whoami)"
+    sudo ./svc.sh start
+    popd >/dev/null
+    echo "service (re)installed for ${TARGET_NAME} at ${TARGET_DIR}"
     exit 0
   fi
 

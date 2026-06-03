@@ -3,6 +3,7 @@
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../../script/status.sh"
+  LIB="${BATS_TEST_DIRNAME}/../../lib/common.sh"
   FAKE_RH=$(mktemp -d)
   # Point RUNNER_HOME at a non-existent subdir so the "missing dir" branch
   # fires; tests that want an empty dir create RUNNER_HOME explicitly.
@@ -11,6 +12,21 @@ setup() {
 
 teardown() {
   rm -rf "${FAKE_RH}"
+}
+
+# The rendering helpers (collect_rows / setup_colors / state_color) are unit-
+# testable only by sourcing status.sh, but the script ends in `main "$@"`.
+# Source it with that invocation -- and its own `source common.sh` line --
+# stripped, sourcing common.sh ourselves first. The shadows (systemctl, _gh)
+# are then in scope for collect_rows exactly as service.bats / github_api.bats
+# shadow the same names. collect_rows is driven via `rows=$(collect_rows)`,
+# matching how main() captures it, so its internal `row=$(...); rc=$?`
+# status-mapping survives `set -e`.
+_load_status() {
+  printf 'source %q\n' "${LIB}"
+  sed -e '/^main "\$@"$/d' \
+      -e '/^source .*common\.sh/d' \
+      -e '/shellcheck source/d' "${SCRIPT}"
 }
 
 @test "status.sh missing RUNNER_HOME directory -> exits 0 with message" {
@@ -40,4 +56,99 @@ teardown() {
   run "${SCRIPT}" -n 5
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"unknown option: -n"* ]]
+}
+
+@test "collect_rows renders an online org runner: running/online/public-ok/labels" {
+  mkdir -p "${RUNNER_HOME}/acme/_org"
+  printf '{\n"agentName": "host-acme-org"\n}\n' > "${RUNNER_HOME}/acme/_org/.runner"
+  run bash -c "
+    $(_load_status)
+    # service loaded for this exact unit name -> svc 'running'
+    systemctl() { printf '  actions.runner.acme.host-acme-org.service loaded active running\n'; }
+    # status verb sees a matching runner (rc 0); runner-group dispatch enabled.
+    _gh() {
+      case \" \$* \" in
+        *runner-groups*) printf 'true\n' ;;
+        *)               printf 'online\tgpu,cuda12\n' ;;
+      esac
+    }
+    setup_colors
+    rows=\$(collect_rows); printf '%s\n' \"\${rows}\"
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = $'host-acme-org\torg\trunning\tonline\tpublic-ok\tgpu,cuda12' ]
+}
+
+@test "collect_rows maps github_runner_status rc=2 to 'not-found'" {
+  mkdir -p "${RUNNER_HOME}/acme/_org"
+  printf '{\n"agentName": "host-acme-org"\n}\n' > "${RUNNER_HOME}/acme/_org/.runner"
+  run bash -c "
+    $(_load_status)
+    systemctl() { printf '  ssh.service loaded active running\n'; }   # not running
+    # status verb: call succeeds but empty (no match) -> github_runner_status rc 2.
+    _gh() {
+      case \" \$* \" in
+        *runner-groups*) printf 'false\n' ;;
+        *)               printf '' ;;
+      esac
+    }
+    setup_colors
+    rows=\$(collect_rows); printf '%s\n' \"\${rows}\"
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = $'host-acme-org\torg\tstopped\tnot-found\tpublic-BLOCKED\t-' ]
+}
+
+@test "collect_rows maps github_runner_status rc=1/other to 'n/a'" {
+  mkdir -p "${RUNNER_HOME}/acme/_org"
+  printf '{\n"agentName": "host-acme-org"\n}\n' > "${RUNNER_HOME}/acme/_org/.runner"
+  run bash -c "
+    $(_load_status)
+    systemctl() { printf '  ssh.service loaded active running\n'; }
+    # status verb: the gh call itself fails -> github_runner_status rc 1.
+    # runner-group lookup also fails -> public_state 'n/a'.
+    _gh() { return 1; }
+    setup_colors
+    rows=\$(collect_rows); printf '%s\n' \"\${rows}\"
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = $'host-acme-org\torg\tstopped\tn/a\tn/a\t-' ]
+}
+
+@test "collect_rows gives a repo-scoped runner public-dispatch '-' (no runner-group flag)" {
+  mkdir -p "${RUNNER_HOME}/acme/myrepo"
+  printf '{\n"agentName": "host-acme-repo"\n}\n' > "${RUNNER_HOME}/acme/myrepo/.runner"
+  run bash -c "
+    $(_load_status)
+    systemctl() { printf '  actions.runner.acme.host-acme-repo.service loaded active running\n'; }
+    # A runner-group reply must NOT be consulted for repo scope; return 'true'
+    # so a regression that queried it would surface as 'public-ok'.
+    _gh() {
+      case \" \$* \" in
+        *runner-groups*) printf 'true\n' ;;
+        *)               printf 'online\tgpu\n' ;;
+      esac
+    }
+    setup_colors
+    rows=\$(collect_rows); printf '%s\n' \"\${rows}\"
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = $'host-acme-repo\trepo\trunning\tonline\t-\tgpu' ]
+}
+
+@test "setup_colors/state_color emit empty codes under --no-color and real SGR under COLOR=always" {
+  run bash -c "
+    $(_load_status)
+    COLOR=never;  setup_colors; nocolor=\$(state_color online); ansi_off=\${USE_ANSI}
+    COLOR=always; setup_colors; color=\$(state_color online);   ansi_on=\${USE_ANSI}
+    printf 'no=[%s] ansi_off=%s ansi_on=%s\n' \"\${nocolor}\" \"\${ansi_off}\" \"\${ansi_on}\"
+    # render the always-on code as visible bytes so the escape is assertable.
+    printf 'always=' ; printf '%s' \"\${color}\" | od -An -tx1 | tr -d ' \n'; printf '\n'
+  "
+  [ "${status}" -eq 0 ]
+  # --no-color: no SGR bytes, and USE_ANSI is 0 (the clear-screen gate is off);
+  # COLOR=always flips the same gate to 1.
+  [[ "${output}" == *"no=[] ansi_off=0 ansi_on=1"* ]]
+  # COLOR=always: green SGR is ESC [ 3 2 m == 1b 5b 33 32 6d.
+  [[ "${output}" == *"always=1b5b33326d"* ]]
 }

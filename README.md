@@ -88,7 +88,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 | `script/set-labels.sh` | Relabel an already-registered runner live via the GitHub API (no remove + re-register). Usage: `org <org> <csv>` or `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
 | `script/status.sh` | List all registered runners with local + GitHub-side state and their current labels. `-w`/`--watch` refreshes continuously (configurable `-i`/`--interval`, default 5s) with row-level diff highlighting; `--no-color` disables color |
-| `script/update.sh` | Resolve the runner version (`RUNNER_VERSION=...` override or latest release, same fallback as init), download into the cache if absent, then replace the binary across all registered runners; preserves config |
+| `script/update.sh` | Resolve the runner version (`RUNNER_VERSION=...` override or latest release, same fallback as init), download into the cache if absent, then seed the new versioned runner files into each runner dir (existing files are left in place); the runner picks up the new version via its normal self-update on next connect; preserves config |
 | `script/uninstall.sh` | Counterpart to `script/init.sh`: tear down every runner registered through this checkout + remove the cached tarball. Prompts by default; `--yes` skips, `--dry-run` previews. Does NOT change org runner-group flags or remove the checkout itself (see #11) |
 | `script/cleanup.sh` | Prune disk-heavy leftovers from GitHub's auto-update cycle: stale `bin.X` / `externals.X` version dirs, older cached tarballs in `${RUNNER_HOME}/.bin/`, and `_work/_update*` remnants. Safe to schedule; never touches registration state, logs, or in-flight job dirs. Prompts by default; `--yes` skips, `--dry-run` previews |
 | `script/schedule-cleanup.sh` | Install / remove a user-crontab entry that runs `cleanup.sh` on a schedule (daily / weekly / monthly, time and weekday selectable). Interactive prompts by default, or pass `--every` / `--at` / `--day`. `--status` shows the installed entry, `--uninstall` removes it. Output appends to `${RUNNER_HOME}/.cleanup.log`; concurrent runs are guarded by `flock` |
@@ -275,9 +275,9 @@ NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC
 End-to-end verification needs a canary workflow inside a repo that lives
 in the same org as the runner (GitHub org-level runners only accept
 workflows from their own org). For an immediate sanity check,
-`./script/status.sh` shows the GitHub-side `online` flag, and
-`script/init.sh` already verifies `docker run --gpus all nvidia-smi` works
-on the host.
+`./script/status.sh` shows the GitHub-side `online` flag, and on a GPU host,
+`script/init.sh` verifies `docker run --gpus all nvidia-smi` works (skipped
+automatically when no GPU is detected).
 
 ## Upgrading the runner binary
 
@@ -285,8 +285,10 @@ on the host.
 RUNNER_VERSION=<new-version> ./script/update.sh
 ```
 
-Stops each runner service, replaces binary, restarts. Config and credentials
-are preserved.
+Stops each runner service, seeds the new versioned runner files into each
+runner dir (existing files are left in place), restarts. The runner then
+picks up the new version via its normal self-update on next connect. Config
+and credentials are preserved.
 
 ## Rebuild SOP
 

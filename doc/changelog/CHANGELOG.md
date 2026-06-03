@@ -31,6 +31,18 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `update.sh` now verifies a cached tarball before extraction, not only on
+  download: a cache hit no longer skips the integrity check (best-effort on the
+  offline/no-gh path, but a mismatch still aborts + rm's the file). H1.
+- `set-labels.sh` now pre-gates on `gh` auth like the other mutating scripts
+  (`add-runner.sh` / `remove-runner.sh`), failing with one clear line instead
+  of a raw mid-operation API error. M1.
+- `add-runner.sh`'s re-run guard now detects a registered-but-serviceless
+  runner (a prior run whose `svc.sh install` never landed) and reinstalls the
+  service instead of falsely reporting "already configured".
+- `add-runner.sh` / `remove-runner.sh` now print their full `usage()` on a bad
+  scope argument; `resolve_target`'s usage strings no longer emit a literal
+  "...".
 - `schedule-cleanup.sh --install` no longer leaves a stray leading blank line
   in a previously-empty crontab (B3).
 - `add-runner.sh` removes the partial target directory if extraction /
@@ -42,6 +54,17 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- README + zh-TW / zh-CN / ja docs corrected for `update.sh` semantics (it
+  seeds the binary then lets each runner self-update on its next job, it does
+  not "replace" the binaries in place) and for GPU verification being skipped
+  on non-GPU hosts; the translations expanded the `init.sh` / `update.sh`
+  version-fallback conditions to match the English rows.
+- `schedule-cleanup.sh` gained `--dry-run` (`-n`): print the merged crontab
+  `--install` / `--uninstall` would write without touching the live crontab.
+- `status.sh --watch` no longer emits cursor-home / clear-screen escapes under
+  `--no-color` / `NO_COLOR` / a non-TTY, so piped or captured output stays
+  clean (the raw escapes are gated the same way SGR colors are).
+- `install-deps.sh` now documents its apt-style (default-yes) prompts.
 - `script/init.sh`: the NVIDIA GPU is now **optional** (#34). It auto-detects a
   GPU via `nvidia-smi` — present → the docker `--gpus` runtime check still runs;
   absent → both GPU checks are skipped and init proceeds as a non-GPU host,
@@ -79,6 +102,10 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Substantial smoke-test coverage: the `status.sh` rendering pipeline, the
+  `remove-runner.sh` rm-guard helper, `init.sh`'s `cache_tarball`, `update.sh`'s
+  no-op + verify-fail paths, `uninstall.sh`'s cache-only run + failure summary,
+  the `install-deps.sh` guards, and `lib/common.sh` helper edge cases.
 - `script/install-deps.sh`: install the CLI prerequisites (`gh`, `jq`, `curl`,
   `sudo`) on an apt/Ubuntu host and drive `gh auth login --scopes admin:org`.
   `-y` accepts every install prompt, `--dry-run` reports what's missing without

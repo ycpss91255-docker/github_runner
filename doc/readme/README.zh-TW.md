@@ -78,13 +78,13 @@ binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 cl
 | Script | 用途 |
 |---|---|
 | `script/install-deps.sh` | 在 apt/Ubuntu host 上安裝 CLI 先決條件（`gh`、`jq`、`curl`、`sudo`）並跑 `gh auth login`。`-y` 接受所有安裝提示;`--dry-run` 只回報缺什麼。Docker 與 NVIDIA Container Toolkit 假設已安裝。冪等 |
-| `script/init.sh` | 檢查 host 先決條件；透過 GitHub API 解析 actions/runner 最新 release（離線時退回內建 pinned fallback），下載並 cache 至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆蓋。若帶 org 參數，會同時註冊該 org 的第一個 runner |
+| `script/init.sh` | 檢查 host 先決條件；透過 GitHub API 解析 actions/runner 最新 release（當 gh 缺失 / 未認證 / 離線時退回內建 pinned 版本），下載並 cache 至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆蓋。若帶 org 參數，會同時註冊該 org 的第一個 runner |
 | `script/add-runner.sh` | 註冊新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。labels 取自 `setup.conf`（預設 `gpu`，詳見設定）。`org` scope 會把 Default runner group 的 `allows_public_repositories=true` 打開，讓 public repo 的 workflow 能 dispatch（詳見下方安全性說明） |
 | `script/configure.sh` | 產生／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 設定新註冊 runner 的 labels；無參數則印出目前生效的設定 |
 | `script/set-labels.sh` | 透過 GitHub API 即時改既有 runner 的 labels（免 remove + 重新註冊）。用法：`org <org> <csv>` 或 `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
 | `script/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態，以及目前的 labels。`-w`/`--watch` 持續刷新（`-i`/`--interval` 設定間隔，預設 5 秒），以列為單位高亮差異；`--no-color` 關閉顏色 |
-| `script/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定），cache 不存在則下載，再覆蓋所有 registered runner 的 binary。保留 config |
+| `script/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定，與 init 相同的 fallback），cache 不存在則下載，再把新版的 versioned runner 檔案 seed 到各 runner 目錄（既有檔案保留原狀）；runner 會在下次連線時透過正常的 self-update 接手新版本。保留 config |
 | `script/uninstall.sh` | `script/init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
 | `script/cleanup.sh` | 清掉 GitHub 自動升級循環留下的占空間殘料：陳舊 `bin.X` / `externals.X` 版本目錄、`${RUNNER_HOME}/.bin/` 內的舊版 tarball、`_work/_update*` 殘留。可安全排程，**不**動 registration state、log、進行中的 job 目錄。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽 |
 | `script/schedule-cleanup.sh` | 安裝／移除 user crontab 內的排程，定時自動跑 `cleanup.sh`（daily / weekly / monthly 可選；時段、星期幾互動選擇）。沒帶參數會進互動模式，也可用 `--every` / `--at` / `--day` 一行帶完。`--status` 看目前排程，`--uninstall` 移除。輸出 append 到 `${RUNNER_HOME}/.cleanup.log`，`flock` 防併發重跑 |
@@ -249,8 +249,8 @@ NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC
 
 End-to-end 驗證需要一個 canary workflow 放在跟 runner 同 org 的 repo 內
 （GitHub org-level runner 只接受同 org 的 workflow）。立即的健康檢查：`./script/status.sh`
-顯示 GitHub 端的 `online` flag，且 `script/init.sh` 已驗證過
-`docker run --gpus all nvidia-smi` 在 host 上能跑。
+顯示 GitHub 端的 `online` flag，且在 GPU 主機上 `script/init.sh` 已驗證過
+`docker run --gpus all nvidia-smi` 在 host 上能跑（偵測不到 GPU 時會跳過）。
 
 ## 升級 runner 二進位
 
@@ -258,7 +258,7 @@ End-to-end 驗證需要一個 canary workflow 放在跟 runner 同 org 的 repo 
 RUNNER_VERSION=<new-version> ./script/update.sh
 ```
 
-停每個 runner 的 service、覆蓋 binary、重啟。config 跟 credentials 保留。
+把新版的 versioned runner 檔案 seed 到各 runner 目錄（既有檔案保留原狀）；runner 會在下次連線時透過正常的 self-update 接手新版本。config 跟 credentials 保留。
 
 ## 重建 SOP
 

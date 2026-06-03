@@ -11,6 +11,9 @@
 #   ./script/install-deps.sh -y         # accept every install prompt (apt -y)
 #   ./script/install-deps.sh --dry-run  # report what's missing; install nothing
 #   ./script/install-deps.sh -h         # help
+#
+# Prompts are apt-style (Enter = proceed/install), the opposite of the
+# destructive scripts' [y/N] (Enter = abort) -- this script only adds packages.
 set -euo pipefail
 
 # CLI prerequisites this script manages. gh needs GitHub's apt repo; the rest
@@ -144,4 +147,6 @@ main() {
   echo "deps ready. Next: ./script/init.sh <org>"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

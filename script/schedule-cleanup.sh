@@ -39,12 +39,14 @@ ACTION=""
 EVERY=""
 AT=""
 DAY=""
+DRY_RUN=0
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [--install [--every FREQ] [--at HH:MM] [--day DOW]]
        $(basename "$0") --status
        $(basename "$0") --uninstall
+       $(basename "$0") [--install | --uninstall] [--dry-run | -n]
        $(basename "$0") -h | --help
 
 Install, inspect or remove a user-crontab entry that runs cleanup.sh on
@@ -59,10 +61,12 @@ Options:
       --at HH:MM       24-hour local time. Default: 03:30.
       --day DOW        Day of week for --every weekly (Sun..Sat or 0..6).
                        Default: Sun.
+  -n, --dry-run    Print the merged crontab that --install / --uninstall
+                       WOULD write, then exit without touching the crontab.
   -h, --help           Show this help.
 
 Exit codes:
-  0  Success / status reported / nothing-to-do.
+  0  Success / status reported / nothing-to-do / dry-run.
   1  Usage error or invalid input.
   2  --install requested with bad / unparseable flag combination.
 EOF
@@ -80,6 +84,7 @@ parse_args() {
                    AT=$2; shift 2 ;;
       --day)       [[ $# -ge 2 ]] || { echo "missing value for --day" >&2; exit 1; }
                    DAY=$2; shift 2 ;;
+      -n|--dry-run) DRY_RUN=1; shift ;;
       -h|--help)   usage; exit 0 ;;
       *)           echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -233,6 +238,12 @@ cmd_install() {
   # newline through strip_marker, which would otherwise persist as a stray
   # first line on every fresh install. sed '/./,$!d' is busybox-safe and keeps
   # intentional interior blanks.
+  if (( DRY_RUN )); then
+    echo "Dry-run; crontab that would be written:"
+    printf '%s\n' "${merged}" | sed '/./,$!d'
+    echo "Dry-run; crontab not modified."
+    exit 0
+  fi
   printf '%s\n' "${merged}" | sed '/./,$!d' | write_crontab
   echo "Installed (replaces any previous github_runner cleanup entry)."
   echo "Log:  ${logfile}"
@@ -247,6 +258,16 @@ cmd_uninstall() {
     exit 0
   fi
   stripped=$(strip_marker <<<"${current}")
+  if (( DRY_RUN )); then
+    echo "Dry-run; crontab that would be written:"
+    if [[ -z ${stripped} ]]; then
+      echo "  (crontab would be removed entirely)"
+    else
+      printf '%s\n' "${stripped}"
+    fi
+    echo "Dry-run; crontab not modified."
+    exit 0
+  fi
   if [[ -z ${stripped} ]]; then
     # Empty crontab -- remove it entirely so `crontab -l` reports cleanly.
     "${CRONTAB_CMD}" -r 2>/dev/null || true
