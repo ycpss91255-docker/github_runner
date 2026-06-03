@@ -36,11 +36,15 @@ setup() {
   # absent, instead of relying on the ambient image lacking apt-get (the
   # alpine test-tools image has none, but the Debian kcov coverage image
   # does -- which made this assertion image-dependent).
-  run bash -c "
-    source '${SCRIPT}'
-    have() { return 1; }
-    main
-  "
+  #
+  # Source in the test body (not a `bash -c` sub-shell) + `run main`: under
+  # kcov, a sub-shell that runs a set -u script aborts on kcov's BASH_ENV
+  # instrumentation referencing an unbound BASH_SOURCE; sourcing here runs
+  # the function in the bats process where BASH_SOURCE is set, so the helper
+  # stays instrumented and the assertion is image-independent.
+  source "${SCRIPT}"
+  have() { return 1; }
+  run main
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"supports apt"* ]]
 }
@@ -54,63 +58,51 @@ setup() {
 @test "install-deps.sh fails when apt-get is present but sudo is absent and not root" {
   # Make apt-get appear present so the guard reaches the root/sudo check, while
   # sudo stays absent and id reports a non-root uid -> "need root or sudo".
-  run bash -c "
-    source '${SCRIPT}'
-    have() { [ \"\$1\" = apt-get ]; }
-    id() { echo 1000; }
-    main
-  "
+  source "${SCRIPT}"
+  have() { [ "$1" = apt-get ]; }
+  id() { echo 1000; }
+  run main
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"need root or sudo"* ]]
 }
 
 @test "confirm() defaults to yes on empty input (apt-style)" {
-  run bash -c "
-    source '${SCRIPT}'
-    YES=0
-    confirm 'Install foo?' <<< ''
-  "
+  source "${SCRIPT}"
+  YES=0
+  run confirm 'Install foo?' <<< ''
   [ "${status}" -eq 0 ]
 }
 
 @test "confirm() returns 1 when the user answers no" {
-  run bash -c "
-    source '${SCRIPT}'
-    YES=0
-    confirm 'Install foo?' <<< 'n'
-  "
+  source "${SCRIPT}"
+  YES=0
+  run confirm 'Install foo?' <<< 'n'
   [ "${status}" -eq 1 ]
 }
 
 @test "confirm() returns 0 without prompting when YES=1" {
-  run bash -c "
-    source '${SCRIPT}'
-    YES=1
-    confirm 'Install foo?' < /dev/null
-  "
+  source "${SCRIPT}"
+  YES=1
+  run confirm 'Install foo?' < /dev/null
   [ "${status}" -eq 0 ]
 }
 
 @test "run_root runs the command directly when already root" {
   # id -u == 0 -> no sudo; the command runs verbatim.
-  run bash -c "
-    source '${SCRIPT}'
-    id() { echo 0; }
-    sudo() { echo 'SUDO-CALLED'; }
-    run_root echo RAN
-  "
+  source "${SCRIPT}"
+  id() { echo 0; }
+  sudo() { echo 'SUDO-CALLED'; }
+  run run_root echo RAN
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"RAN"* ]]
   [[ "${output}" != *"SUDO-CALLED"* ]]
 }
 
 @test "run_root prefixes sudo when not root" {
-  run bash -c "
-    source '${SCRIPT}'
-    id() { echo 1000; }
-    sudo() { echo \"SUDO: \$*\"; }
-    run_root echo RAN
-  "
+  source "${SCRIPT}"
+  id() { echo 1000; }
+  sudo() { echo "SUDO: $*"; }
+  run run_root echo RAN
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"SUDO: echo RAN"* ]]
 }

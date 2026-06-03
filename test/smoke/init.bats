@@ -15,8 +15,9 @@ teardown() {
 }
 
 # Build a PATH stub dir that lets check_prereqs pass to completion on a
-# non-GPU host: docker is real in the alpine test-tools image, so we only
-# shadow the prereqs it lacks (gh/curl/jq), make `groups` report membership,
+# non-GPU host: shadow gh/curl/jq AND docker (docker is real in the alpine
+# test-tools image but ABSENT in the Debian kcov coverage image, so stubbing
+# it keeps these tests image-independent), make `groups` report membership,
 # and -- deliberately -- supply NO nvidia-smi so the non-GPU branch is taken.
 # The `gh` stub answers the three gh shapes init reaches:
 #   - `gh auth status`                       -> exit 0 (authenticated)
@@ -55,7 +56,8 @@ exit 0
 EOF
   printf '#!/bin/sh\nexit 0\n' > "${STUB}/jq"
   printf '#!/bin/sh\necho docker\n' > "${STUB}/groups"
-  chmod +x "${STUB}/gh" "${STUB}/curl" "${STUB}/jq" "${STUB}/groups"
+  printf '#!/bin/sh\nexit 0\n' > "${STUB}/docker"
+  chmod +x "${STUB}/gh" "${STUB}/curl" "${STUB}/jq" "${STUB}/groups" "${STUB}/docker"
 }
 
 @test "init.sh reports every missing prereq individually and the aggregate gate fires" {
