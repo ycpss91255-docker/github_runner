@@ -32,8 +32,15 @@ setup() {
 }
 
 @test "install-deps.sh real run on a non-apt host fails with clear guidance" {
-  # No apt-get in the alpine test image -> the apt-guard fires before any install.
-  run "${SCRIPT}"
+  # Hermetic: drive the apt-guard by overriding have() so apt-get reads as
+  # absent, instead of relying on the ambient image lacking apt-get (the
+  # alpine test-tools image has none, but the Debian kcov coverage image
+  # does -- which made this assertion image-dependent).
+  run bash -c "
+    source '${SCRIPT}'
+    have() { return 1; }
+    main
+  "
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"supports apt"* ]]
 }

@@ -30,6 +30,16 @@ jobs:
     # Main-push only. kcov instrumentation is 2-5x slower than plain bats
     # (per base/self-test.yaml comment), so PRs run lint + test only and
     # main push picks up the coverage signal for Codecov.
+    #
+    # continue-on-error: coverage is a METRIC, never a gate. It runs in the
+    # Debian kcov image (Makefile.ci's COVERAGE_IMAGE), which diverges from
+    # the alpine test-tools image the `bats` job uses: a known subset of
+    # source-the-script tests deterministically misbehaves under kcov's
+    # ptrace in the full suite (they pass under `make test` and in
+    # isolation). Per base/self-test.yaml, a coverage hiccup must never turn
+    # the workflow — and therefore the CI badge — red, so the whole job is
+    # allowed to fail without failing the run.
+    continue-on-error: true
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -37,11 +47,14 @@ jobs:
       - name: run kcov coverage
         run: make -f Makefile.ci coverage
       - name: upload to Codecov
+        # fail_ci_if_error: false mirrors base/self-test.yaml — a Codecov
+        # upload glitch (or a missing token on forks) must not fail the job.
+        if: ${{ always() }}
         uses: codecov/codecov-action@v5
         with:
           directory: ./coverage
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   ci-rollup:
     # Single aggregator that branch protection requires, mirroring base's
