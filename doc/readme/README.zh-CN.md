@@ -237,6 +237,15 @@ git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_ru
 ./script/init.sh   # 不带 org 参数 = 只 bootstrap
 ```
 
+org vs repo scope：org runner 服务该 org 下所有 repo；repo runner 只绑定单一 repo。
+`script/init.sh` 只会注册 org-scoped 的第一个 runner，所以 repo-scoped runner 要先
+准备 host，再用 `script/add-runner.sh` 明确注册：
+
+```bash
+./script/init.sh                                      # 只准备（不带 org 参数，同上）
+./script/add-runner.sh repo ycpss91255-docker my-repo # runner 绑定 ycpss91255-docker/my-repo
+```
+
 `./script/status.sh` 预期输出：
 
 ```
