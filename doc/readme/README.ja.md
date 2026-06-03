@@ -253,6 +253,16 @@ git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_ru
 ./script/init.sh   # org 引数なし = bootstrap のみ
 ```
 
+org スコープ vs repo スコープ：org runner は org 配下の全 repo を、repo runner は
+単一 repo のみを担当します。`script/init.sh` は org スコープの最初の runner しか
+登録しないため、repo スコープの runner はホスト準備後に `script/add-runner.sh` で
+明示的に登録します：
+
+```bash
+./script/init.sh                                      # 準備のみ（org 引数なし、上記と同じ）
+./script/add-runner.sh repo ycpss91255-docker my-repo # ycpss91255-docker/my-repo に紐づく runner
+```
+
 `./script/status.sh` の想定出力：
 
 ```

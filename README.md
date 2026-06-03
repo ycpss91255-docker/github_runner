@@ -262,6 +262,16 @@ later):
 ./script/init.sh   # no org arg = bootstrap only
 ```
 
+Org- vs repo-scoped: an org runner serves every repo in the org; a repo runner
+is pinned to a single repo. `script/init.sh` only registers org-scoped first
+runners, so for a repo-scoped runner prep the host first, then add it explicitly
+with `script/add-runner.sh`:
+
+```bash
+./script/init.sh                                      # prep-only (no org arg, as above)
+./script/add-runner.sh repo ycpss91255-docker my-repo # runner pinned to ycpss91255-docker/my-repo
+```
+
 Expected output of `./script/status.sh`:
 
 ```
