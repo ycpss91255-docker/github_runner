@@ -53,14 +53,20 @@ setup() {
   # D1: set -e + a command -v guard kill the spurious-green where a missing /
   # no-op confirm_or_abort would still let the trailing echo pass. The non-TTY
   # companion below covers the no-op-returns-success regression.
-  run bash -c "
+  #
+  # Run the set -e sequence as a function in the bats process (not a `bash -c`
+  # sub-shell): under kcov a set -u sub-shell aborts on kcov's BASH_ENV
+  # instrumentation referencing an unbound BASH_SOURCE. The set -e + exit-3
+  # spurious-green guard is preserved inside the function.
+  _probe() {
     set -euo pipefail
-    source '${LIB}'
+    source "${LIB}"
     YES=1
     command -v confirm_or_abort >/dev/null || { echo MISSING; exit 3; }
     confirm_or_abort 'Proceed? ' < /dev/null
     echo CONTINUED
-  "
+  }
+  run _probe
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"CONTINUED"* ]]
   [[ "${output}" != *"MISSING"* ]]
