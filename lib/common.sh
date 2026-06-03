@@ -49,6 +49,19 @@ validate_labels() {
 valid_owner() { [[ "$1" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]]; }
 valid_repo()  { [[ "$1" =~ ^[A-Za-z0-9._-]+$ && "$1" != . && "$1" != .. ]]; }
 
+# H3: anchor an rm target under RUNNER_HOME lexically. A dir is acceptable
+# iff "<dir>/" is prefixed by "${RUNNER_HOME}/", so no future change can turn
+# a destructive rm into an out-of-tree delete. Defense-in-depth on top of the
+# SEC-3 RUNNER_HOME normalization + resolve_target's identifier validation.
+# Returns 0 (under RUNNER_HOME) or prints a refusal to stderr and returns 1.
+assert_under_runner_home() {
+  local dir=$1
+  case "${dir}/" in
+    "${RUNNER_HOME}/"*) return 0 ;;
+    *) echo "refusing rm outside RUNNER_HOME: ${dir}" >&2; return 1 ;;
+  esac
+}
+
 # Resolve registration labels from the optional setup.conf, leaving $LABELS
 # holding the result (default "gpu" when unset / no config file). Called by
 # init.sh / add-runner.sh before invoking the runner's config.sh, so a fresh
@@ -417,7 +430,7 @@ resolve_target() {
   local scope=$1; shift
   case ${scope} in
     org)
-      [[ $# -eq 1 ]] || { echo "usage: ... org <org>" >&2; exit 1; }
+      [[ $# -eq 1 ]] || { echo "usage: $(basename "$0") org <org>" >&2; exit 1; }
       local org=$1
       valid_owner "${org}" || { echo "invalid org: '${org}'" >&2; exit 1; }
       TARGET_URL="https://github.com/${org}"
@@ -427,7 +440,7 @@ resolve_target() {
       TARGET_API_REMOVE_PATH="/orgs/${org}/actions/runners/remove-token"
       ;;
     repo)
-      [[ $# -eq 2 ]] || { echo "usage: ... repo <owner> <repo>" >&2; exit 1; }
+      [[ $# -eq 2 ]] || { echo "usage: $(basename "$0") repo <owner> <repo>" >&2; exit 1; }
       local owner=$1 repo=$2
       { valid_owner "${owner}" && valid_repo "${repo}"; } \
         || { echo "invalid owner/repo: '${owner}/${repo}'" >&2; exit 1; }

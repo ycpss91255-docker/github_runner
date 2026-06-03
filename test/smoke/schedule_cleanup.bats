@@ -171,3 +171,41 @@ EOF
   [ "${status}" -eq 0 ]
   head -1 "${FAKE_CRON}" | grep -q '^0 4 \* \* \* '
 }
+
+@test "schedule-cleanup parse_time zero-pads single-digit hours" {
+  # Probe parse_time in a fresh bash process: copy the script next to the real
+  # checkout (so the relative ../lib/common.sh source still resolves via $0)
+  # but strip the trailing `main "$@"`, then source-and-call. Running it as the
+  # process's own script makes $0 resolve to the copy, not the bats runner.
+  local copy="${BATS_TEST_DIRNAME}/../../script/.parse_time_probe.sh"
+  grep -v '^main "\$@"$' "${SCRIPT}" >"${copy}"
+
+  run bash -c 'source "$0"; parse_time "3:05"' "${copy}"
+  rm -f "${copy}"
+
+  [ "${status}" -eq 0 ]
+  [ "${output}" = '03:05' ]
+}
+
+@test "schedule-cleanup --install --dry-run does not mutate the crontab" {
+  run "${SCRIPT}" --install --every daily --at 04:00 --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Dry-run"* ]]
+  [[ "${output}" == *"0 4 * * *"* ]]
+  # No crontab written: the stub only creates the state file on `crontab -`.
+  [ ! -f "${FAKE_CRON}" ]
+}
+
+@test "schedule-cleanup --uninstall --dry-run leaves the marked entry in place" {
+  cat >"${FAKE_CRON}" <<'EOF'
+0 7 * * * unrelated-job
+30 3 * * 0 flock -n /tmp/.cleanup.lock -c '/tmp/cleanup.sh --yes' # github_runner cleanup
+EOF
+
+  run "${SCRIPT}" --uninstall --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Dry-run"* ]]
+  # Crontab untouched: the marked entry is still present.
+  grep -q '# github_runner cleanup' "${FAKE_CRON}"
+  grep -q 'unrelated-job' "${FAKE_CRON}"
+}

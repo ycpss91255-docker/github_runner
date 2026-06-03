@@ -75,3 +75,48 @@ teardown() {
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"non-interactive run requires --yes"* ]]
 }
+
+@test "uninstall.sh --yes with only the cache (zero runners) removes .bin and exits 0" {
+  # No registered runners; the tarball cache is the sole target. The
+  # per-runner loop never runs, so remove-runner.sh is not involved at all.
+  mkdir -p "${FAKE_RH}/.bin"
+  touch "${FAKE_RH}/.bin/fake-tarball.tar.gz"
+
+  run "${SCRIPT}" --yes
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Runners to deregister: 0"* ]]
+  [[ "${output}" == *"[cache] ${FAKE_RH}/.bin  removed"* ]]
+  [[ "${output}" == *"Summary: 0 removed, 0 failed."* ]]
+
+  # The cache is actually gone.
+  [ ! -e "${FAKE_RH}/.bin" ]
+}
+
+@test "uninstall.sh --yes reports a failing remove-runner.sh and exits 1" {
+  # uninstall.sh resolves remove-runner.sh via its own SCRIPT_DIR
+  # (readlink -f "$0"), so to inject a stub we mirror the script/ + lib/
+  # layout under a temp dir and run the copy from there.
+  local fake_root fake_script_dir
+  fake_root=$(mktemp -d)
+  fake_script_dir="${fake_root}/script"
+  mkdir -p "${fake_script_dir}" "${fake_root}/lib"
+  cp "${SCRIPT}" "${fake_script_dir}/uninstall.sh"
+  cp "${BATS_TEST_DIRNAME}/../../lib/common.sh" "${fake_root}/lib/common.sh"
+
+  # Stub remove-runner.sh that always fails with a known exit code.
+  cat >"${fake_script_dir}/remove-runner.sh" <<'STUB'
+#!/usr/bin/env bash
+exit 7
+STUB
+  chmod +x "${fake_script_dir}/remove-runner.sh"
+
+  mkdir -p "${FAKE_RH}/myorg/_org"
+  touch "${FAKE_RH}/myorg/_org/.runner"
+
+  run "${fake_script_dir}/uninstall.sh" --yes
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"org myorg  FAILED (exit 7)"* ]]
+  [[ "${output}" == *"Summary: 0 removed, 1 failed."* ]]
+
+  rm -rf "${fake_root}"
+}

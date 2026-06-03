@@ -64,6 +64,7 @@ main() {
     exit 1
   fi
 
+  require_gh_auth
   github_set_labels "${api_base}" "${id}" "${labels}"
   echo "set labels on ${TARGET_NAME} (id ${id}): ${labels}"
 }

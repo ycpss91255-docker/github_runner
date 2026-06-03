@@ -19,7 +19,11 @@ EOF
 }
 
 main() {
-  case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+  case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+    org|repo) : ;;
+    *) usage >&2; exit 1 ;;
+  esac
   resolve_target "$@"
 
   if [[ ! -f "${TARGET_DIR}/.runner" ]]; then
@@ -44,10 +48,7 @@ main() {
   # SEC-3 normalization + resolve_target's identifier validation, but anchor
   # the rm to RUNNER_HOME lexically before deleting, so no future change can
   # turn this into an out-of-tree rm -rf.
-  case "${TARGET_DIR}/" in
-    "${RUNNER_HOME}/"*) : ;;
-    *) echo "refusing rm outside RUNNER_HOME: ${TARGET_DIR}" >&2; exit 1 ;;
-  esac
+  assert_under_runner_home "${TARGET_DIR}" || exit 1
   rm -rf "${TARGET_DIR}"
   echo "removed: ${TARGET_NAME}"
 }

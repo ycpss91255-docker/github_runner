@@ -100,6 +100,21 @@ setup() {
   [ "${status}" -ne 0 ]
 }
 
+# H3: assert_under_runner_home anchors a destructive rm target under
+# RUNNER_HOME lexically. Both arms: a dir inside passes; a dir outside is
+# refused with a message + nonzero.
+
+@test "assert_under_runner_home passes for a dir inside RUNNER_HOME" {
+  run bash -c "source '${LIB}'; assert_under_runner_home \"\${RUNNER_HOME}/myorg/_org\""
+  [ "${status}" -eq 0 ]
+}
+
+@test "assert_under_runner_home refuses a dir outside RUNNER_HOME" {
+  run bash -c "source '${LIB}'; assert_under_runner_home /etc"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"refusing rm outside RUNNER_HOME: /etc"* ]]
+}
+
 @test "resolve_runner_version honours RUNNER_VERSION env override verbatim" {
   # shellcheck disable=SC1090
   source "${LIB}"
@@ -317,6 +332,51 @@ setup() {
   [ "${status}" -ne 0 ]
 }
 
+# SEC-4 validators, exercised directly (resolve_target only covers them
+# indirectly). valid_owner is GitHub's owner/org rule: alphanumerics with
+# single internal hyphens. valid_repo additionally allows '.' and '_' but is
+# never '.' or '..'.
+
+@test "valid_owner rejects a doubled internal hyphen" {
+  run bash -c "source '${LIB}'; valid_owner 'a--b'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "valid_owner rejects a leading hyphen" {
+  run bash -c "source '${LIB}'; valid_owner '-a'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "valid_owner rejects a trailing hyphen" {
+  run bash -c "source '${LIB}'; valid_owner 'a-'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "valid_owner accepts a normal hyphenated name" {
+  run bash -c "source '${LIB}'; valid_owner 'a-b'"
+  [ "${status}" -eq 0 ]
+}
+
+@test "valid_repo accepts a dotted name" {
+  run bash -c "source '${LIB}'; valid_repo 'a.b'"
+  [ "${status}" -eq 0 ]
+}
+
+@test "valid_repo accepts an underscored name" {
+  run bash -c "source '${LIB}'; valid_repo 'a_b'"
+  [ "${status}" -eq 0 ]
+}
+
+@test "valid_repo rejects '.'" {
+  run bash -c "source '${LIB}'; valid_repo '.'"
+  [ "${status}" -ne 0 ]
+}
+
+@test "valid_repo rejects '..'" {
+  run bash -c "source '${LIB}'; valid_repo '..'"
+  [ "${status}" -ne 0 ]
+}
+
 # load_config: extract LABELS from the optional setup.conf under RUNNER_HOME
 # (without sourcing it -- SEC-6), then leave $LABELS holding the resolved set
 # (default "gpu" when unset / no config).
@@ -373,6 +433,15 @@ setup() {
   rm -rf "${TMP}"
   [ "${status}" -eq 0 ]
   [ "${output}" = "142" ]
+}
+
+@test "runner_agent_id prints nothing and exits 0 when .runner lacks an agentId" {
+  TMP=$(mktemp -d)
+  printf '{\n  "agentName": "r"\n}\n' > "${TMP}/.runner"
+  run bash -c "source '${LIB}'; runner_agent_id '${TMP}'"
+  rm -rf "${TMP}"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
 }
 
 # require_gh_auth: hard pre-gate used by the mutating scripts. gh is shadowed
