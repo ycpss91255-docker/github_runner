@@ -10,15 +10,23 @@ WATCH=0
 INTERVAL=5
 COLOR="auto"
 USE_ANSI=0
+CHECK=0
+JSON=0
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [-w] [-i SECONDS] [--no-color]
+Usage: $(basename "$0") [-w] [-i SECONDS] [--no-color] [-c|--check] [--json]
 
 Options:
   -w, --watch              Refresh continuously (Ctrl-C to exit).
   -i, --interval SECONDS   Refresh interval for --watch (default: ${INTERVAL}).
       --no-color           Disable color output (also honors NO_COLOR).
+  -c, --check              Health-check mode: print the table (or --json) once,
+                           then exit non-zero if any runner is unhealthy (not
+                           online, or its local service is not running). Suited
+                           to cron / monitoring; pipe the exit code to alerting.
+      --json               Emit machine-readable JSON instead of the table
+                           (single shot; ignores --watch).
   -h, --help               Show this help.
 EOF
 }
@@ -32,6 +40,8 @@ parse_args() {
         [[ $2 =~ ^[0-9]+$ ]] || { echo "interval must be a positive integer" >&2; exit 1; }
         INTERVAL=$2; shift 2 ;;
       --no-color) COLOR="never"; shift ;;
+      -c|--check) CHECK=1; shift ;;
+      --json)     JSON=1; shift ;;
       -h|--help) usage; exit 0 ;;
       *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -177,12 +187,77 @@ render_table() {
   done <<<"${rows}"
 }
 
+# Emit the collected rows as a JSON array, one object per runner. Stays jq-less
+# (the project deliberately avoids a jq dependency); field values are drawn from
+# a constrained vocabulary (states) plus agent names / labels, so a minimal
+# escape of backslash and double-quote is sufficient. #52.
+json_escape() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '%s' "${s}"
+}
+
+emit_json() {
+  local rows=$1 first=1
+  local name scope svc gh public gate labels
+  printf '['
+  while IFS=$'\t' read -r name scope svc gh public gate labels; do
+    [[ -z ${name} ]] && continue
+    (( first )) || printf ','
+    first=0
+    printf '{"name":"%s","scope":"%s","local_svc":"%s","github":"%s","public_dispatch":"%s","approval_gate":"%s","labels":"%s"}' \
+      "$(json_escape "${name}")" "$(json_escape "${scope}")" \
+      "$(json_escape "${svc}")" "$(json_escape "${gh}")" \
+      "$(json_escape "${public}")" "$(json_escape "${gate}")" \
+      "$(json_escape "${labels}")"
+  done <<<"${rows}"
+  printf ']\n'
+}
+
+# Count runners that are NOT healthy. Healthy = local service running AND the
+# GitHub side reports online. Anything else (offline / not-found / n/a, or a
+# stopped service) is unhealthy. #52.
+count_unhealthy() {
+  local rows=$1 n=0
+  local name scope svc gh public gate labels
+  while IFS=$'\t' read -r name scope svc gh public gate labels; do
+    [[ -z ${name} ]] && continue
+    if [[ ${svc} != "running" || ${gh} != "online" ]]; then
+      n=$(( n + 1 ))
+    fi
+  done <<<"${rows}"
+  printf '%s' "${n}"
+}
+
 main() {
   parse_args "$@"
   setup_colors
 
   if [[ ! -d ${RUNNER_HOME} ]]; then
-    echo "no ${RUNNER_HOME} directory. run ./script/init.sh first."
+    # No runner-state dir: nothing to render and nothing to be unhealthy, so
+    # --check is a clean pass. JSON callers still get a valid empty array.
+    if (( JSON )); then
+      echo '[]'
+    else
+      echo "no ${RUNNER_HOME} directory. run ./script/init.sh first."
+    fi
+    exit 0
+  fi
+
+  # --check / --json are single-shot (a --watch loop has no exit code to act on
+  # and JSON streaming is not meaningful here).
+  if (( CHECK )) || (( JSON )); then
+    local rows; rows=$(collect_rows)
+    if (( JSON )); then emit_json "${rows}"; else render_table "${rows}" ""; fi
+    if (( CHECK )); then
+      local bad; bad=$(count_unhealthy "${rows}")
+      if (( bad > 0 )); then
+        echo "health-check: ${bad} runner(s) unhealthy" >&2
+        exit 1
+      fi
+      echo "health-check: all runners healthy" >&2
+    fi
     exit 0
   fi
 

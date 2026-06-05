@@ -130,6 +130,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `status.sh` health-check support: `--check` (`-c`) prints the table once then
+  exits non-zero if any runner is unhealthy (not `online`, or its local service
+  is not running), suitable for cron / monitoring; `--json` emits a
+  machine-readable array (one object per runner) for piping into Prometheus
+  textfile / Nagios-style checks. Notification is intentionally left to the
+  caller's alerting (the exit code / JSON are the integration points). (#52)
 - Substantial smoke-test coverage: the `status.sh` rendering pipeline, the
   `remove-runner.sh` rm-guard helper, `init.sh`'s `cache_tarball`, `update.sh`'s
   no-op + verify-fail paths, `uninstall.sh`'s cache-only run + failure summary,
