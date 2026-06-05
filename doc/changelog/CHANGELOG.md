@@ -49,6 +49,11 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `update.sh` now verifies a cached tarball before extraction, not only on
   download: a cache hit no longer skips the integrity check (best-effort on the
   offline/no-gh path, but a mismatch still aborts + rm's the file). H1.
+- `update.sh` now upgrades each runner independently: a single runner's
+  stop/extract/start failure is reported and no longer aborts the whole loop
+  (which previously left earlier runners stopped and later runners untouched).
+  The run ends with an `N updated, M failed` summary and a non-zero exit when
+  any runner failed, mirroring `cleanup.sh` / `uninstall.sh`. (#49)
 - `set-labels.sh` now pre-gates on `gh` auth like the other mutating scripts
   (`add-runner.sh` / `remove-runner.sh`), failing with one clear line instead
   of a raw mid-operation API error. M1.
