@@ -212,6 +212,25 @@ github_public_dispatch_status() {
     --jq '.allows_public_repositories' 2>/dev/null || echo ""
 }
 
+# Read the org's fork-PR contributor approval policy -- the gate that decides
+# whether an outside contributor's fork-PR workflow runs without manual
+# approval. "all_external_contributors" is the safe value (every outside
+# contributor's run needs approval). Any other policy (first_time_contributors,
+# none, ...) leaves the fork-PR hole open, which matters once public-repo
+# dispatch is enabled (enable_public_repos_dispatch). Echoes the policy string,
+# or empty on any API error. Single _gh seam. #48.
+github_fork_pr_approval_policy() {
+  _gh api "/orgs/$1/actions/permissions/fork-pr-contributor-approval" \
+    --jq '.approval_policy' 2>/dev/null || echo ""
+}
+
+# True when the org's fork-PR approval gate is set to the safe policy, i.e.
+# every outside contributor's fork-PR workflow requires approval. This is the
+# complementary protection enable_public_repos_dispatch relies on. #48.
+fork_pr_gate_is_safe() {
+  [[ "$(github_fork_pr_approval_policy "$1")" == "all_external_contributors" ]]
+}
+
 # (runner_service_running moved to lib/runner-service.sh, alongside the
 # svc.sh lifecycle seam it belongs with.)
 

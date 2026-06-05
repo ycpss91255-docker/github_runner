@@ -66,8 +66,8 @@ setup_colors() {
 
 state_color() {
   case $1 in
-    running|online|public-ok) printf '%s' "${C_GREEN}" ;;
-    stopped|offline|public-BLOCKED) printf '%s' "${C_RED}" ;;
+    running|online|public-ok|gate-ok) printf '%s' "${C_GREEN}" ;;
+    stopped|offline|public-BLOCKED|gate-WEAK) printf '%s' "${C_RED}" ;;
     *) printf '%s' "${C_YELLOW}" ;;
   esac
 }
@@ -93,7 +93,7 @@ collect_rows() {
     # One call to GitHub for both status and labels; this script owns the
     # display vocabulary, the adapter only reports what GitHub said:
     #   exit 0 -> "<status>\t<labels>"   exit 2 -> not-found   exit 1 -> n/a
-    local gh_state public_state labels row rc
+    local gh_state public_state gate_state labels row rc
     row=$(github_runner_status "$(runner_api_base "${scope}" "${org}" "${scope_id}")" "${name}")
     rc=$?
     case ${rc} in
@@ -115,15 +115,29 @@ collect_rows() {
         false) public_state="public-BLOCKED" ;;
         *)     public_state="n/a" ;;
       esac
+
+      # #48: the complementary protection to public-repo dispatch is the
+      # org's fork-PR approval gate. Surface it next to PUBLIC-DISPATCH so a
+      # one-sided configuration (dispatch open, gate weak) is visible here and
+      # cannot drift silently. "all_external_contributors" is the safe policy.
+      local gate
+      gate=$(github_fork_pr_approval_policy "${org}")
+      case ${gate} in
+        all_external_contributors) gate_state="gate-ok" ;;
+        "")                        gate_state="n/a" ;;
+        *)                         gate_state="gate-WEAK" ;;
+      esac
     else
       # Repo-scoped runners don't have a runner-group flag; the
       # public/private decision is per-repo visibility.
       public_state="-"
+      gate_state="-"
     fi
     [[ -z ${labels} ]] && labels="-"
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "${name}" "${scope}" "${svc_state}" "${gh_state}" "${public_state}" "${labels}"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "${name}" "${scope}" "${svc_state}" "${gh_state}" \
+      "${public_state}" "${gate_state}" "${labels}"
   done < <(list_runners)
 }
 
@@ -134,19 +148,19 @@ render_header() {
 
 render_table() {
   local rows=$1 prev=$2
-  printf '%s%-40s %-10s %-10s %-10s %-16s %s%s\n' "${C_BOLD}" \
-    "NAME" "SCOPE" "LOCAL-SVC" "GITHUB" "PUBLIC-DISPATCH" "LABELS" "${C_RESET}"
-  printf '%-40s %-10s %-10s %-10s %-16s %s\n' \
-    "----" "-----" "---------" "------" "---------------" "------"
+  printf '%s%-40s %-10s %-10s %-10s %-16s %-14s %s%s\n' "${C_BOLD}" \
+    "NAME" "SCOPE" "LOCAL-SVC" "GITHUB" "PUBLIC-DISPATCH" "APPROVAL-GATE" "LABELS" "${C_RESET}"
+  printf '%-40s %-10s %-10s %-10s %-16s %-14s %s\n' \
+    "----" "-----" "---------" "------" "---------------" "-------------" "------"
 
   if [[ -z ${rows} ]]; then
     printf '%s(no runners found in %s)%s\n' "${C_DIM}" "${RUNNER_HOME}" "${C_RESET}"
     return
   fi
 
-  local name scope svc gh public labels line changed hl rst
-  while IFS=$'\t' read -r name scope svc gh public labels; do
-    line="${name}"$'\t'"${scope}"$'\t'"${svc}"$'\t'"${gh}"$'\t'"${public}"$'\t'"${labels}"
+  local name scope svc gh public gate labels line changed hl rst
+  while IFS=$'\t' read -r name scope svc gh public gate labels; do
+    line="${name}"$'\t'"${scope}"$'\t'"${svc}"$'\t'"${gh}"$'\t'"${public}"$'\t'"${gate}"$'\t'"${labels}"
     changed=0
     if (( WATCH )) && [[ -n ${prev} ]] && ! grep -qxF -- "${line}" <<<"${prev}"; then
       changed=1
@@ -157,7 +171,8 @@ render_table() {
     printf '%s%-40s %-10s ' "${hl}" "${name}" "${scope}"
     print_state 10 "${svc}"; printf ' '
     print_state 10 "${gh}"; printf ' '
-    print_state 16 "${public}"; printf ' %s' "${labels}"
+    print_state 16 "${public}"; printf ' '
+    print_state 14 "${gate}"; printf ' %s' "${labels}"
     printf '%s\n' "${rst}"
   done <<<"${rows}"
 }

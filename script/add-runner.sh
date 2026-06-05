@@ -11,15 +11,33 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh"
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") org <org>
+  $(basename "$0") [--force] org <org>
   $(basename "$0") repo <owner> <repo>
 
 Register a new self-hosted runner (org- or repo-level). Idempotent.
+
+Options:
+  --force   (org only) Enable public-repo dispatch even when the org's
+            fork-PR approval gate is not "all_external_contributors".
+            Without it, registration refuses to lower the public-repo
+            default while the complementary approval gate is open. #48.
 EOF
 }
 
 main() {
-  case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+  # Extract --force from anywhere in the args, then dispatch on the positional
+  # scope as before. -h/--help short-circuits here too.
+  local force=0
+  local -a rest=()
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --force)   force=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *)         rest+=("$1"); shift ;;
+    esac
+  done
+  set -- ${rest[@]+"${rest[@]}"}
+
   case "${1:-}" in
     org|repo) ;;
     *) usage >&2; exit 1 ;;
@@ -56,6 +74,20 @@ main() {
   load_config
 
   require_gh_auth
+
+  # #48: an org runner enables public-repo dispatch below, which lowers
+  # GitHub's 2024+ safe default. The complementary protection is the org's
+  # fork-PR approval gate. Verify it BEFORE registering so we never lower one
+  # knob without the other; --force opts out (accepting the fork-PR exposure).
+  if [[ ${1:-} == "org" ]] && (( ! force )) && ! fork_pr_gate_is_safe "$2"; then
+    echo "FAIL: refusing to register an org runner that would enable public-repo dispatch." >&2
+    echo "  The org's fork-PR approval gate is '$(github_fork_pr_approval_policy "$2")', not 'all_external_contributors'." >&2
+    echo "  Without it, any fork PR could dispatch workflows to this root-equivalent runner." >&2
+    echo "  Fix: set 'Require approval for all outside collaborators' in the org's Actions" >&2
+    echo "  settings, then re-run; or pass --force to proceed anyway." >&2
+    exit 1
+  fi
+
   local token
   token=$(github_runner_token "${TARGET_API_TOKEN_PATH}")
 
@@ -76,7 +108,14 @@ main() {
   # Only meaningful for org-scoped runners; repo-scoped runners do not have
   # a runner-group flag.
   if [[ ${1:-} == "org" ]]; then
-    enable_public_repos_dispatch "$2"
+    if (( force )) && ! fork_pr_gate_is_safe "$2"; then
+      echo "WARN: --force: the org's fork-PR approval gate is not 'all_external_contributors'; any fork PR can dispatch to this root-equivalent runner." >&2
+    fi
+    # #51: this flag is idempotent and non-critical -- the runner is already
+    # registered and online by this point. A failure here must warn, not abort
+    # the whole run (which would falsely signal the registration failed).
+    enable_public_repos_dispatch "$2" \
+      || echo "WARN: runner is registered and online, but enabling org public-repo dispatch failed; re-run ./script/add-runner.sh (idempotent) or set 'allows_public_repositories' manually." >&2
   fi
 
   echo "registered: ${TARGET_NAME} at ${TARGET_DIR}"

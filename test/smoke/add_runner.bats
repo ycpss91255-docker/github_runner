@@ -109,15 +109,95 @@ EOF
 @test "add-runner.sh removes the partial dir when extraction fails (B1 idempotency)" {
   # A corrupt tarball makes tar fail after mkdir; the ERR trap must remove the
   # half-created TARGET_DIR so a retry starts clean. A gh stub on PATH lets
-  # require_gh_auth + the token fetch (which run 'command gh') pass first.
+  # require_gh_auth + the token fetch (which run 'command gh') pass first, and
+  # reports a safe fork-PR gate so the #48 pre-flight does not short-circuit
+  # before extraction.
   mkdir -p "${RUNNER_HOME}/.bin"
   printf 'not-a-real-gzip' > "${RUNNER_HOME}/.bin/actions-runner-linux-x64-2.334.0.tar.gz"
   STUB=$(mktemp -d)
-  printf '#!/bin/sh\nprintf "TOKEN\\n"\n' > "${STUB}/gh"   # any args -> succeeds, prints a token
+  cat > "${STUB}/gh" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *fork-pr-contributor-approval*) echo "all_external_contributors" ;;
+  *) printf 'TOKEN\n' ;;
+esac
+EOF
   chmod +x "${STUB}/gh"
 
   run env PATH="${STUB}:${PATH}" "${SCRIPT}" org myorg
   rm -rf "${STUB}"
   [ "${status}" -ne 0 ]
   [ ! -e "${RUNNER_HOME}/myorg/_org" ]
+}
+
+@test "add-runner.sh org refuses to register when the fork-PR approval gate is weak (#48)" {
+  # The org path would enable public-repo dispatch (lowering GitHub's safe
+  # default). When the complementary fork-PR approval gate is NOT
+  # 'all_external_contributors', add-runner must refuse BEFORE registering --
+  # never lowering one knob without the other.
+  mkdir -p "${RUNNER_HOME}/.bin"
+  printf 'cached' > "${RUNNER_HOME}/.bin/actions-runner-linux-x64-2.334.0.tar.gz"
+  STUB=$(mktemp -d)
+  cat > "${STUB}/gh" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *"auth status"*)                exit 0 ;;
+  *fork-pr-contributor-approval*) echo "none" ;;
+  *)                              echo "TOKEN" ;;
+esac
+EOF
+  chmod +x "${STUB}/gh"
+
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" org myorg
+  rm -rf "${STUB}"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"refusing to register"* ]]
+  [[ "${output}" == *"all_external_contributors"* ]]
+  # Refused before registering -> no runner dir created.
+  [ ! -e "${RUNNER_HOME}/myorg/_org" ]
+}
+
+@test "add-runner.sh --force registers despite a weak gate and warns on dispatch-enable failure (#48/#51)" {
+  # --force bypasses the #48 refusal. The runner registers + the service comes
+  # up; the public-repo dispatch PATCH then fails, which #51 must downgrade to
+  # a warning (not abort) since the runner is already online. We also expect
+  # the --force exposure warning.
+  mkdir -p "${RUNNER_HOME}/.bin"
+  printf 'cached' > "${RUNNER_HOME}/.bin/actions-runner-linux-x64-2.334.0.tar.gz"
+  STUB=$(mktemp -d)
+  # gh: auth ok; weak gate; token ok; the runner-groups PATCH fails (#51 path).
+  cat > "${STUB}/gh" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *"auth status"*)                exit 0 ;;
+  *fork-pr-contributor-approval*) echo "first_time_contributors" ;;
+  *registration-token*)           echo "TOKEN" ;;
+  *runner-groups*)                exit 1 ;;
+  *)                              exit 0 ;;
+esac
+EOF
+  # sudo passes through to its args so the bundled svc.sh runs.
+  printf '#!/bin/sh\nexec "$@"\n' > "${STUB}/sudo"
+  # tar is stubbed (busybox lacks GNU options): drop a config.sh that writes
+  # the .runner marker and a no-op svc.sh into the extraction target.
+  cat > "${STUB}/tar" <<'EOF'
+#!/bin/sh
+d=""
+while [ $# -gt 0 ]; do [ "$1" = "-C" ] && { shift; d="$1"; }; shift; done
+if [ -n "$d" ]; then
+  printf '#!/bin/sh\ntouch .runner\nexit 0\n' > "$d/config.sh"
+  printf '#!/bin/sh\nexit 0\n' > "$d/svc.sh"
+  chmod +x "$d/config.sh" "$d/svc.sh"
+fi
+exit 0
+EOF
+  chmod +x "${STUB}/gh" "${STUB}/sudo" "${STUB}/tar"
+
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --force org myorg
+  rm -rf "${STUB}"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"registered:"* ]]
+  [[ "${output}" == *"any fork PR can dispatch"* ]]
+  [[ "${output}" == *"enabling org public-repo dispatch failed"* ]]
+  [ -f "${RUNNER_HOME}/myorg/_org/.runner" ]
 }
