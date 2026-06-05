@@ -67,14 +67,7 @@ main() {
   trap 'rm -rf "${TARGET_DIR}"' ERR
   tar -xzf "${tarball_path}" -C "${TARGET_DIR}"
 
-  pushd "${TARGET_DIR}" >/dev/null
-  ./config.sh --unattended \
-    --url    "${TARGET_URL}" \
-    --token  "${token}" \
-    --labels "${LABELS}" \
-    --name   "${TARGET_NAME}" \
-    --work   _work
-  popd >/dev/null
+  runner_config_register "${TARGET_DIR}" "${TARGET_URL}" "${token}" "${LABELS}" "${TARGET_NAME}"
   trap - ERR   # registration persisted (.runner written); keep the dir
   runner_service_install "${TARGET_DIR}" "$(whoami)"
   runner_service_start "${TARGET_DIR}"

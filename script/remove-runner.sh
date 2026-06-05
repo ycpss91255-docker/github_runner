@@ -40,9 +40,7 @@ main() {
 
   runner_service_stop "${TARGET_DIR}"
   runner_service_uninstall "${TARGET_DIR}"
-  pushd "${TARGET_DIR}" >/dev/null
-  ./config.sh remove --token "${token}"
-  popd >/dev/null
+  runner_config_deregister "${TARGET_DIR}" "${token}"
 
   # SEC-4 defense-in-depth: TARGET_DIR is already confined by RUNNER_HOME's
   # SEC-3 normalization + resolve_target's identifier validation, but anchor

@@ -54,6 +54,20 @@ actions/runner tarball), so every verb runs from that dir as root:
 Consumers (`add-runner.sh`, `remove-runner.sh`, `update.sh`) call these instead
 of open-coding the `pushd; sudo ./svc.sh <verb>; popd` dance.
 
+## Runner Config
+
+The **Runner Config** module (`lib/runner-config.sh`) is the sibling seam over a
+runner's bundled `config.sh` (registration), which like `svc.sh` runs from the
+runner dir (no sudo):
+
+- `runner_config_register <dir> <url> <token> <labels> <name>` — `config.sh
+  --unattended` (writes the `.runner` marker). Propagates failure so
+  add-runner's ERR trap can rm the partial dir.
+- `runner_config_deregister <dir> <token>` — `config.sh remove`.
+
+add-runner.sh / remove-runner.sh call these instead of open-coding
+`pushd; ./config.sh ...; popd`.
+
 ## Runner Release
 
 The **Runner Release** module (`lib/runner-release.sh`) is the single source of
