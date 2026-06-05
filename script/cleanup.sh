@@ -56,16 +56,6 @@ Exit code:
 EOF
 }
 
-# Return the active runner version (e.g. "2.334.0") for a runner dir by
-# reading its `bin` symlink target. Empty string if the symlink is missing
-# (unconfigured runner) or points somewhere unparseable.
-active_runner_version() {
-  local dir=$1 target
-  [[ -L "${dir}/bin" ]] || return 0
-  target=$(readlink "${dir}/bin")
-  basename "${target}" | sed -n 's/^bin\.\(.*\)$/\1/p'
-}
-
 # Emit one TAB-separated item per prunable path:
 #   <path>\t<short-label>
 # `<short-label>` is a human one-liner used in the plan output.
@@ -78,7 +68,7 @@ enumerate_items() {
     # Re-derive the on-disk label (_org for org-scoped, repo name for
     # repo-scoped) so prune messages stay identical to the previous form.
     scope_label=$(basename "${runner_dir}")
-    ver=$(active_runner_version "${runner_dir}")
+    ver=$(runner_active_version "${runner_dir}")
     for variant in bin externals; do
       for cand in "${runner_dir}/${variant}".*; do
         [[ -d "${cand}" ]] || continue
