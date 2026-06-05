@@ -15,6 +15,10 @@ terms verbatim in code, tests, and docs so names don't drift.
   cache (`.bin/`) and one dir per runner. Defaults to `<repo>/runners/`,
   overridable; validated once (SEC-3) as the `rm -rf` chokepoint.
 
+The `lib/runner-*.sh` modules below follow a runner's install lifecycle:
+**Layout** (where it lives) → **Release** (the tarball) → **Config** (register)
+→ **Service** (run).
+
 ## Runner Layout
 
 The **Runner Layout** module (`lib/runner-layout.sh`) is the single source of
@@ -38,36 +42,6 @@ Consumers (`resolve_target`, `list_runners`, `runner_service_running`,
 `cleanup.sh`) derive layout through this module rather than re-encoding it, so a
 layout change in actions/runner lands in one place.
 
-## Runner Service
-
-The **Runner Service** module (`lib/runner-service.sh`) is the single seam over
-a runner's systemd service. svc.sh ships inside each runner dir (from the
-actions/runner tarball), so every verb runs from that dir as root:
-
-- `runner_service_install` / `runner_service_start` — propagate failure (the
-  caller cares whether the service came up).
-- `runner_service_stop` / `runner_service_uninstall` — best-effort (teardown
-  must not abort because the service was already gone).
-- `runner_service_running` — is the unit active (uses the layout's
-  `runner_service_unit_pattern`).
-
-Consumers (`add-runner.sh`, `remove-runner.sh`, `update.sh`) call these instead
-of open-coding the `pushd; sudo ./svc.sh <verb>; popd` dance.
-
-## Runner Config
-
-The **Runner Config** module (`lib/runner-config.sh`) is the sibling seam over a
-runner's bundled `config.sh` (registration), which like `svc.sh` runs from the
-runner dir (no sudo):
-
-- `runner_config_register <dir> <url> <token> <labels> <name>` — `config.sh
-  --unattended` (writes the `.runner` marker). Propagates failure so
-  add-runner's ERR trap can rm the partial dir.
-- `runner_config_deregister <dir> <token>` — `config.sh remove`.
-
-add-runner.sh / remove-runner.sh call these instead of open-coding
-`pushd; ./config.sh ...; popd`.
-
 ## Runner Release
 
 The **Runner Release** module (`lib/runner-release.sh`) is the single source of
@@ -87,6 +61,36 @@ truth for the actions/runner release tarball:
 init.sh and update.sh keep their own verify *policy* (strict on fresh download
 vs best-effort on every run, H1) but share these primitives; cleanup.sh and
 add-runner.sh derive the cache glob / highest cached tarball through the module.
+
+## Runner Config
+
+The **Runner Config** module (`lib/runner-config.sh`) is the seam over a
+runner's bundled `config.sh` (registration), which like `svc.sh` runs from the
+runner dir (no sudo):
+
+- `runner_config_register <dir> <url> <token> <labels> <name>` — `config.sh
+  --unattended` (writes the `.runner` marker). Propagates failure so
+  add-runner's ERR trap can rm the partial dir.
+- `runner_config_deregister <dir> <token>` — `config.sh remove`.
+
+add-runner.sh / remove-runner.sh call these instead of open-coding
+`pushd; ./config.sh ...; popd`.
+
+## Runner Service
+
+The **Runner Service** module (`lib/runner-service.sh`) is the sibling seam over
+a runner's systemd service. svc.sh ships inside each runner dir (from the
+actions/runner tarball), so every verb runs from that dir as root:
+
+- `runner_service_install` / `runner_service_start` — propagate failure (the
+  caller cares whether the service came up).
+- `runner_service_stop` / `runner_service_uninstall` — best-effort (teardown
+  must not abort because the service was already gone).
+- `runner_service_running` — is the unit active (uses the layout's
+  `runner_service_unit_pattern`).
+
+Consumers (`add-runner.sh`, `remove-runner.sh`, `update.sh`) call these instead
+of open-coding the `pushd; sudo ./svc.sh <verb>; popd` dance.
 
 ## GitHub adapter
 
