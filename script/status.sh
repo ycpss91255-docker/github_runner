@@ -109,8 +109,7 @@ collect_rows() {
       # repos_dispatch comment + #6). Surfaces as a column here so the
       # mismatch is visible at a glance.
       local flag
-      flag=$(_gh api "/orgs/${org}/actions/runner-groups/1" \
-        --jq '.allows_public_repositories' 2>/dev/null || echo "")
+      flag=$(github_public_dispatch_status "${org}")
       case ${flag} in
         true)  public_state="public-ok" ;;
         false) public_state="public-BLOCKED" ;;

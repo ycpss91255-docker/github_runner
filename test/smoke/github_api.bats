@@ -109,7 +109,7 @@ setup() {
   CAP=$(mktemp)
   run bash -c "
     source '${LIB}'
-    gh() { printf '%s\n' \"\$@\" > '${CAP}'; printf 'true\n'; }
+    _gh() { printf '%s\n' \"\$@\" > '${CAP}'; printf 'true\n'; }
     enable_public_repos_dispatch myorg
   "
   [ "${status}" -eq 0 ]
@@ -117,4 +117,16 @@ setup() {
   grep -qxF -- '/orgs/myorg/actions/runner-groups/1' "${CAP}"
   grep -qxF -- 'allows_public_repositories=true' "${CAP}"
   rm -f "${CAP}"
+}
+
+@test "github_public_dispatch_status echoes the runner-group flag via _gh" {
+  run bash -c "source '${LIB}'; _gh() { printf 'true\n'; }; github_public_dispatch_status myorg"
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "true" ]
+}
+
+@test "github_public_dispatch_status yields empty string when the API errors" {
+  run bash -c "source '${LIB}'; _gh() { return 1; }; github_public_dispatch_status myorg"
+  [ "${status}" -eq 0 ]
+  [ -z "${output}" ]
 }

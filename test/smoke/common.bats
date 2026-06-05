@@ -136,11 +136,14 @@ setup() {
 }
 
 @test "resolve_runner_version uses the latest gh release tag and strips a leading v" {
-  # gh present (a shadowing function makes 'command -v gh' succeed) exercises
-  # the dynamic-resolution branch: gh api ... | sed 's/^v//'.
+  # gh present (a `gh` shadow makes 'command -v gh' succeed) + the _gh seam
+  # returns a tag -> the dynamic branch: _gh api ... | sed 's/^v//'. _gh is
+  # shadowed (not gh) because _gh forwards through `command gh`, which bypasses
+  # a `gh` function shadow.
   run bash -c "
     source '${LIB}'
-    gh() { printf 'v2.341.0\n'; }
+    gh() { :; }
+    _gh() { printf 'v2.341.0\n'; }
     RUNNER_VERSION= resolve_runner_version
   "
   [ "${status}" -eq 0 ]
@@ -150,7 +153,8 @@ setup() {
 @test "resolve_runner_version falls back when gh returns an empty tag" {
   # shellcheck disable=SC1090
   source "${LIB}"               # bring RUNNER_VERSION_FALLBACK into scope
-  gh() { printf ''; }           # gh present but emits nothing (rate-limited/unauth)
+  gh() { :; }                   # gh present (command -v gh succeeds)
+  _gh() { printf ''; }          # but the api emits nothing (rate-limited/unauth)
   RUNNER_VERSION= run resolve_runner_version
   [ "${status}" -eq 0 ]
   [ "${output}" = "${RUNNER_VERSION_FALLBACK}" ]
@@ -444,17 +448,18 @@ setup() {
   [ -z "${output}" ]
 }
 
-# require_gh_auth: hard pre-gate used by the mutating scripts. gh is shadowed
-# so the auth probe's success/failure is what gets exercised, not real auth.
+# require_gh_auth: hard pre-gate used by the mutating scripts. The _gh seam is
+# shadowed so the auth probe's success/failure is what gets exercised, not real
+# auth.
 
 @test "require_gh_auth exits non-zero with guidance when gh auth fails" {
-  run bash -c "source '${LIB}'; gh() { return 1; }; require_gh_auth"
+  run bash -c "source '${LIB}'; _gh() { return 1; }; require_gh_auth"
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"not authenticated"* ]]
 }
 
 @test "require_gh_auth returns 0 when gh auth succeeds" {
-  run bash -c "source '${LIB}'; gh() { return 0; }; require_gh_auth && echo OK"
+  run bash -c "source '${LIB}'; _gh() { return 0; }; require_gh_auth && echo OK"
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"OK"* ]]
 }
