@@ -48,6 +48,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-layout.sh"
 # shellcheck source=lib/runner-service.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-service.sh"
 
+# Runner Release: the actions/runner release tarball (version, name, cache
+# path, download URL, integrity verify). Sourced after RUNNER_HOME; reaches
+# GitHub through the _gh seam at call time.
+# shellcheck source=lib/runner-release.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-release.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)
@@ -99,53 +105,10 @@ load_config() {
   LABELS="${LABELS:-gpu}"
 }
 
-# Static fallback used when dynamic resolution fails (offline, gh missing /
-# unauthenticated, GitHub rate-limited). Bump opportunistically when fresh
-# installs in those degraded states should not start months behind. GitHub
-# self-hosted runners always self-update on connect, so this is only the
-# bootstrap version, not the runtime one. Refs #10.
-readonly RUNNER_VERSION_FALLBACK="2.334.0"
+# (RUNNER_VERSION_FALLBACK + resolve_runner_version moved to
+# lib/runner-release.sh, with the rest of the release-tarball concern.)
 
-# Resolve the actions/runner version to download:
-#   1. If $RUNNER_VERSION is set, honour it verbatim (caller knows best).
-#   2. Otherwise ask GitHub for the latest released tag.
-#   3. If gh is missing / unauthenticated / network-unreachable / the
-#      response is empty for any other reason, fall back to
-#      $RUNNER_VERSION_FALLBACK.
-#
-# Output: bare version string (no leading 'v'), e.g. "2.334.0".
-resolve_runner_version() {
-  if [[ -n "${RUNNER_VERSION:-}" ]]; then
-    echo "${RUNNER_VERSION}"
-    return
-  fi
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "${RUNNER_VERSION_FALLBACK}"
-    return
-  fi
-  local resolved
-  resolved=$(_gh api /repos/actions/runner/releases/latest --jq .tag_name 2>/dev/null \
-             | sed 's/^v//' || true)
-  if [[ -z ${resolved} ]]; then
-    echo "${RUNNER_VERSION_FALLBACK}"
-    return
-  fi
-  echo "${resolved}"
-}
-
-# Return the path to the highest-version cached tarball under
-# ${RUNNER_HOME}/.bin/, or empty if none. Multiple tarballs may coexist
-# (e.g. after an update.sh bump that kept the prior one); add-runner.sh
-# uses the highest so newly-registered runners do not start behind.
-find_cached_tarball() {
-  shopt -s nullglob
-  local candidates=("${RUNNER_HOME}/.bin/"actions-runner-linux-x64-*.tar.gz)
-  shopt -u nullglob
-  if (( ${#candidates[@]} == 0 )); then
-    return
-  fi
-  printf '%s\n' "${candidates[@]}" | sort -V | tail -1
-}
+# (find_cached_tarball moved to lib/runner-release.sh.)
 
 # Enumerate every configured runner under RUNNER_HOME. Emits one
 # TAB-separated row per runner. Org-scoped rows have 4 fields; repo-scoped
@@ -325,57 +288,8 @@ require_gh_auth() {
   }
 }
 
-# --- Tarball integrity (SEC-5) ------------------------------------------
-# Supply-chain check at the DOWNLOAD point only: confirm a freshly-downloaded
-# actions/runner tarball matches the SHA-256 GitHub publishes for that release
-# asset. Orthogonal to the runner-user's docker-group privilege (which is
-# accepted, see README security model) -- this defends the download against a
-# tampered mirror / MITM, nothing else.
-
-# Compare a file's SHA-256 to an expected hex digest. 0 = match, 1 = not.
-# sha256sum is present on both alpine (busybox) and Ubuntu (coreutils).
-verify_sha256() {
-  local file=$1 expected=$2 actual
-  actual=$(sha256sum "${file}" 2>/dev/null | cut -d' ' -f1) || return 1
-  [[ -n ${expected} && ${actual} == "${expected}" ]]
-}
-
-# Print the expected SHA-256 (bare hex) for a release asset, or nothing when
-# it cannot be obtained (gh missing / unauthenticated / offline, or the asset
-# predates GitHub's per-asset digest field). Reaches GitHub via _gh so it is
-# shadowable in tests.
-runner_asset_digest() {
-  local version=$1 tarball=$2 d
-  d=$(_gh api "repos/actions/runner/releases/tags/v${version}" \
-        --jq ".assets[] | select(.name==\"${tarball}\") | .digest // empty" \
-        2>/dev/null) || return 0
-  printf '%s' "${d#sha256:}"
-}
-
-# Verify a downloaded tarball against its published digest.
-#   verify_runner_tarball <file> <version> <tarball_name> <strict|best-effort>
-# Returns 0 to proceed, 1 for the caller to abort (and rm the file). A SHA
-# mismatch always returns 1. When the expected digest cannot be obtained:
-# strict (init, where gh is a prereq) returns 1; best-effort (update's
-# degraded path) warns and returns 0.
-verify_runner_tarball() {
-  local file=$1 version=$2 tarball=$3 mode=$4 expected
-  expected=$(runner_asset_digest "${version}" "${tarball}")
-  if [[ -z ${expected} ]]; then
-    if [[ ${mode} == strict ]]; then
-      echo "FAIL: could not obtain the expected sha256 for ${tarball} from GitHub" >&2
-      return 1
-    fi
-    echo "WARN: no sha256 digest available for ${tarball}; skipping integrity check" >&2
-    return 0
-  fi
-  if verify_sha256 "${file}" "${expected}"; then
-    echo "verified ${tarball} (sha256 ok)"
-    return 0
-  fi
-  echo "FAIL: sha256 mismatch for ${tarball} (expected ${expected})" >&2
-  return 1
-}
+# (Tarball integrity SEC-5 -- verify_sha256 / runner_asset_digest /
+# verify_runner_tarball -- moved to lib/runner-release.sh.)
 
 # The runners collection path for a scope -- the single source of truth that
 # status.sh / set-labels.sh build their per-runner endpoints from, instead

@@ -96,22 +96,18 @@ enumerate_items() {
   # Silence shellcheck: scope is consumed positionally by `read`.
   : "${scope:-}"
 
-  # Tarball cache: keep the highest-version, drop the rest.
-  if [[ -d "${RUNNER_HOME}/.bin" ]]; then
-    local -a tarballs=()
-    while IFS= read -r line; do tarballs+=("${line}"); done < <(
-      shopt -s nullglob
-      printf '%s\n' "${RUNNER_HOME}/.bin/"actions-runner-linux-x64-*.tar.gz \
-        | sort -V
-    )
-    if (( ${#tarballs[@]} > 1 )); then
-      local last_index=$(( ${#tarballs[@]} - 1 ))
-      local i
-      for (( i=0; i<last_index; i++ )); do
-        printf '%s\t%s\n' "${tarballs[i]}" \
-          "old cached tarball $(basename "${tarballs[i]}")"
-      done
-    fi
+  # Tarball cache: keep the highest-version, drop the rest. runner_release_
+  # cached_list owns the .bin/ glob (ascending by version) and is empty-safe
+  # when .bin/ does not exist, so no -d guard is needed here.
+  local -a tarballs=()
+  while IFS= read -r line; do tarballs+=("${line}"); done < <(runner_release_cached_list)
+  if (( ${#tarballs[@]} > 1 )); then
+    local last_index=$(( ${#tarballs[@]} - 1 ))
+    local i
+    for (( i=0; i<last_index; i++ )); do
+      printf '%s\t%s\n' "${tarballs[i]}" \
+        "old cached tarball $(basename "${tarballs[i]}")"
+    done
   fi
 }
 

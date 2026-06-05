@@ -54,6 +54,26 @@ actions/runner tarball), so every verb runs from that dir as root:
 Consumers (`add-runner.sh`, `remove-runner.sh`, `update.sh`) call these instead
 of open-coding the `pushd; sudo ./svc.sh <verb>; popd` dance.
 
+## Runner Release
+
+The **Runner Release** module (`lib/runner-release.sh`) is the single source of
+truth for the actions/runner release tarball:
+
+- **version** (`resolve_runner_version`) — `RUNNER_VERSION` override, else the
+  latest GitHub tag, else `RUNNER_VERSION_FALLBACK`.
+- **name / cache path / download URL** (`runner_release_tarball_name`,
+  `runner_release_cache_path`, `runner_release_download_url`) — the
+  `actions-runner-linux-x64-<version>.tar.gz` convention, the `${RUNNER_HOME}/
+  .bin/` cache, and the GitHub release URL, each named once.
+- **download / cached list / find** (`runner_release_download`,
+  `runner_release_cached_list`, `find_cached_tarball`).
+- **integrity** (`verify_sha256`, `runner_asset_digest`,
+  `verify_runner_tarball`) — SEC-5 supply-chain check at the download point.
+
+init.sh and update.sh keep their own verify *policy* (strict on fresh download
+vs best-effort on every run, H1) but share these primitives; cleanup.sh and
+add-runner.sh derive the cache glob / highest cached tarball through the module.
+
 ## GitHub adapter
 
 - **`_gh` seam** — every GitHub call funnels through `_gh()` (a `gh` wrapper)
