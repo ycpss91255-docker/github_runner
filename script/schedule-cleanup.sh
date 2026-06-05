@@ -24,7 +24,7 @@
 #     the checkout or change RUNNER_HOME, re-run --install to refresh.
 set -euo pipefail
 
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 # shellcheck source=SCRIPTDIR/../lib/common.sh
 source "${SCRIPT_DIR}/../lib/common.sh"
 
@@ -298,4 +298,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+  main "$@"
+fi

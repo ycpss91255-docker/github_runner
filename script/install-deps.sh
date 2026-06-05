@@ -147,6 +147,6 @@ main() {
   echo "deps ready. Next: ./script/init.sh <org>"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
   main "$@"
 fi

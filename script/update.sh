@@ -12,7 +12,7 @@
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh"
 
 usage() {
   cat <<EOF
@@ -59,4 +59,6 @@ main() {
   echo "update complete. next job each runner picks up will report ${version}."
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+  main "$@"
+fi

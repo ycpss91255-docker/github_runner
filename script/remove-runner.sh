@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh"
 
 usage() {
   cat <<EOF
@@ -53,4 +53,6 @@ main() {
   echo "removed: ${TARGET_NAME}"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+  main "$@"
+fi

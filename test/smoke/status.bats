@@ -3,7 +3,6 @@
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../../script/status.sh"
-  LIB="${BATS_TEST_DIRNAME}/../../lib/common.sh"
   FAKE_RH=$(mktemp -d)
   # Point RUNNER_HOME at a non-existent subdir so the "missing dir" branch
   # fires; tests that want an empty dir create RUNNER_HOME explicitly.
@@ -15,19 +14,12 @@ teardown() {
 }
 
 # The rendering helpers (collect_rows / setup_colors / state_color) are unit-
-# testable only by sourcing status.sh, but the script ends in `main "$@"`.
-# Source it with that invocation -- and its own `source common.sh` line --
-# stripped, sourcing common.sh ourselves first. The shadows (systemctl, _gh)
-# are then in scope for collect_rows exactly as service.bats / github_api.bats
-# shadow the same names. collect_rows is driven via `rows=$(collect_rows)`,
-# matching how main() captures it, so its internal `row=$(...); rc=$?`
-# status-mapping survives `set -e`.
-_load_status() {
-  printf 'source %q\n' "${LIB}"
-  sed -e '/^main "\$@"$/d' \
-      -e '/^source .*common\.sh/d' \
-      -e '/shellcheck source/d' "${SCRIPT}"
-}
+# tested by sourcing status.sh directly: its `main "$@"` is guarded by
+# `[[ "${BASH_SOURCE[0]:-}" == "${0}" ]]` so sourcing defines the functions
+# without bootstrapping, and it resolves common.sh via ${BASH_SOURCE[0]} so
+# the source works whether the script is run or sourced. The shadows
+# (systemctl, _gh) are then in scope for collect_rows exactly as
+# service.bats / github_api.bats shadow the same names.
 
 @test "status.sh missing RUNNER_HOME directory -> exits 0 with message" {
   run "${SCRIPT}"
@@ -61,7 +53,7 @@ _load_status() {
 @test "collect_rows renders an online org runner: running/online/public-ok/labels" {
   mkdir -p "${RUNNER_HOME}/acme/_org"
   printf '{\n"agentName": "host-acme-org"\n}\n' > "${RUNNER_HOME}/acme/_org/.runner"
-  eval "$(_load_status)"
+  source "${SCRIPT}"
   # service loaded for this exact unit name -> svc 'running'
   systemctl() { printf '  actions.runner.acme.host-acme-org.service loaded active running\n'; }
   # status verb sees a matching runner (rc 0); runner-group dispatch enabled.
@@ -80,7 +72,7 @@ _load_status() {
 @test "collect_rows maps github_runner_status rc=2 to 'not-found'" {
   mkdir -p "${RUNNER_HOME}/acme/_org"
   printf '{\n"agentName": "host-acme-org"\n}\n' > "${RUNNER_HOME}/acme/_org/.runner"
-  eval "$(_load_status)"
+  source "${SCRIPT}"
   systemctl() { printf '  ssh.service loaded active running\n'; }   # not running
   # status verb: call succeeds but empty (no match) -> github_runner_status rc 2.
   _gh() {
@@ -98,7 +90,7 @@ _load_status() {
 @test "collect_rows maps github_runner_status rc=1/other to 'n/a'" {
   mkdir -p "${RUNNER_HOME}/acme/_org"
   printf '{\n"agentName": "host-acme-org"\n}\n' > "${RUNNER_HOME}/acme/_org/.runner"
-  eval "$(_load_status)"
+  source "${SCRIPT}"
   systemctl() { printf '  ssh.service loaded active running\n'; }
   # status verb: the gh call itself fails -> github_runner_status rc 1.
   # runner-group lookup also fails -> public_state 'n/a'.
@@ -112,7 +104,7 @@ _load_status() {
 @test "collect_rows gives a repo-scoped runner public-dispatch '-' (no runner-group flag)" {
   mkdir -p "${RUNNER_HOME}/acme/myrepo"
   printf '{\n"agentName": "host-acme-repo"\n}\n' > "${RUNNER_HOME}/acme/myrepo/.runner"
-  eval "$(_load_status)"
+  source "${SCRIPT}"
   systemctl() { printf '  actions.runner.acme.host-acme-repo.service loaded active running\n'; }
   # A runner-group reply must NOT be consulted for repo scope; return 'true'
   # so a regression that queried it would surface as 'public-ok'.
@@ -129,7 +121,7 @@ _load_status() {
 }
 
 @test "setup_colors/state_color emit empty codes under --no-color and real SGR under COLOR=always" {
-  eval "$(_load_status)"
+  source "${SCRIPT}"
   _probe() {
     COLOR=never;  setup_colors; local nocolor=$(state_color online); local ansi_off=${USE_ANSI}
     COLOR=always; setup_colors; local color=$(state_color online);   local ansi_on=${USE_ANSI}
