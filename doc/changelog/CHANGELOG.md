@@ -36,6 +36,10 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- Added `SECURITY.md` with a private vulnerability-reporting channel (GitHub
+  private advisories) and a threat-model summary (single-tenant + root-
+  equivalent posture, the two org safety knobs, supply-chain scope, and what is
+  out of scope). Linked from the README security model. (#54)
 - README (all locales): documented `status.sh`'s `--watch` / `--interval` /
   `--no-color` flags; expanded the English `init.sh` / `update.sh` rows to
   describe runner-version resolution (the translations already had it);
