@@ -124,7 +124,7 @@ resolve_runner_version() {
     return
   fi
   local resolved
-  resolved=$(gh api /repos/actions/runner/releases/latest --jq .tag_name 2>/dev/null \
+  resolved=$(_gh api /repos/actions/runner/releases/latest --jq .tag_name 2>/dev/null \
              | sed 's/^v//' || true)
   if [[ -z ${resolved} ]]; then
     echo "${RUNNER_VERSION_FALLBACK}"
@@ -228,10 +228,20 @@ list_runners() {
 # Safe to call after every add-runner.sh invocation.
 enable_public_repos_dispatch() {
   local org=$1
-  gh api -X PATCH \
+  _gh api -X PATCH \
     "/orgs/${org}/actions/runner-groups/1" \
     -F allows_public_repositories=true \
     --jq '.allows_public_repositories' >/dev/null
+}
+
+# Read whether an org's Default runner group allows public-repo workflow
+# dispatch -- the GET counterpart to enable_public_repos_dispatch. Echoes
+# "true" / "false", or empty on any API error (status.sh maps those to
+# public-ok / public-BLOCKED / n/a). Both spell the runner-group-1 endpoint
+# here so the _gh seam stays the single GitHub mock point.
+github_public_dispatch_status() {
+  _gh api "/orgs/$1/actions/runner-groups/1" \
+    --jq '.allows_public_repositories' 2>/dev/null || echo ""
 }
 
 # (runner_service_running moved to lib/runner-service.sh, alongside the
@@ -309,7 +319,7 @@ _gh() { command gh "$@"; }
 # of gh's raw error mid-operation (and, for remove-runner, before any service
 # teardown that could otherwise strand a half-deregistered runner).
 require_gh_auth() {
-  gh auth status >/dev/null 2>&1 || {
+  _gh auth status >/dev/null 2>&1 || {
     echo "FAIL: gh not authenticated (run: gh auth login --scopes admin:org)" >&2
     exit 1
   }
