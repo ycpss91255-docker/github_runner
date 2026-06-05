@@ -164,6 +164,11 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   machine-readable array (one object per runner) for piping into Prometheus
   textfile / Nagios-style checks. Notification is intentionally left to the
   caller's alerting (the exit code / JSON are the integration points). (#52)
+- `cleanup.sh` disk hygiene (#55): rotates `_diag/*.log` older than
+  `RUNNER_DIAG_KEEP_DAYS` (default 14, recent logs kept) and reports
+  `RUNNER_HOME` filesystem usage, warning at/above `RUNNER_DISK_WARN_PCT`
+  (default 90) that it does not reclaim `_work/<job-id>` job dirs (tracked in
+  #58). New `lib/common.sh` helper `disk_usage_percent`.
 - Substantial smoke-test coverage: the `status.sh` rendering pipeline, the
   `remove-runner.sh` rm-guard helper, `init.sh`'s `cache_tarball`, `update.sh`'s
   no-op + verify-fail paths, `uninstall.sh`'s cache-only run + failure summary,

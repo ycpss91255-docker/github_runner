@@ -170,6 +170,47 @@ fake_runner() {
   [ -f "${FAKE_RH}/.bin/actions-runner-linux-x64-2.334.0.tar.gz" ]
 }
 
+@test "cleanup.sh rotates _diag logs older than the retention window, keeps recent ones (#55)" {
+  fake_runner myorg 2.334.0
+  mkdir -p "${FAKE_RH}/myorg/_org/_diag"
+  # An old log (Jan 2020) is well past the 14-day window; a fresh one is not.
+  touch -t 202001010000 "${FAKE_RH}/myorg/_org/_diag/Worker_old.log"
+  touch "${FAKE_RH}/myorg/_org/_diag/Worker_recent.log"
+
+  run "${SCRIPT}" --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"old _diag log myorg/_org/Worker_old.log"* ]]
+  [[ "${output}" != *"Worker_recent.log"* ]]
+  # Dry-run leaves both in place.
+  [ -f "${FAKE_RH}/myorg/_org/_diag/Worker_old.log" ]
+  [ -f "${FAKE_RH}/myorg/_org/_diag/Worker_recent.log" ]
+}
+
+@test "cleanup.sh reports disk usage and warns at/above the threshold (#55)" {
+  mkdir -p "${FAKE_RH}"
+  # Force the warning deterministically regardless of the host's real usage.
+  RUNNER_DISK_WARN_PCT=0 run "${SCRIPT}" --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"disk: "* ]]
+  [[ "${output}" == *"WARN: at/above 0%"* ]]
+  [[ "${output}" == *"_work/<job-id>"* ]]
+}
+
+@test "cleanup.sh disk report stays quiet below the threshold (#55)" {
+  mkdir -p "${FAKE_RH}"
+  RUNNER_DISK_WARN_PCT=101 run "${SCRIPT}" --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"disk: "* ]]
+  [[ "${output}" != *"WARN: at/above"* ]]
+}
+
+@test "disk_usage_percent returns an integer for an existing path (#55)" {
+  source "${SCRIPT}"
+  run disk_usage_percent /tmp
+  [ "${status}" -eq 0 ]
+  [[ "${output}" =~ ^[0-9]+$ ]]
+}
+
 @test "cleanup.sh --yes a second time finds nothing to clean (idempotent)" {
   fake_runner myorg 2.334.0
   mkdir -p "${FAKE_RH}/myorg/_org/bin.2.319.1"
