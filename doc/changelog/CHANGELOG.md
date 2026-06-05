@@ -65,6 +65,10 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dispatch fails: the runner is already registered and online by that point, so
   the idempotent flag PATCH is now a warning (with retry guidance) instead of a
   fatal error that falsely signalled the registration had failed. (#51)
+- `cleanup.sh` no longer deletes a runner's in-use `bin.X` / `externals.X` when
+  the `bin` symlink is missing (e.g. a half-extracted runner): an empty active
+  version now skips variant pruning for that runner instead of marking every
+  version dir stale. The safe `_work/_update` remnant pruning still runs. (#50)
 - `update.sh` now verifies a cached tarball before extraction, not only on
   download: a cache hit no longer skips the integrity check (best-effort on the
   offline/no-gh path, but a mismatch still aborts + rm's the file). H1.
