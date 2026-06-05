@@ -38,6 +38,22 @@ Consumers (`resolve_target`, `list_runners`, `runner_service_running`,
 `cleanup.sh`) derive layout through this module rather than re-encoding it, so a
 layout change in actions/runner lands in one place.
 
+## Runner Service
+
+The **Runner Service** module (`lib/runner-service.sh`) is the single seam over
+a runner's systemd service. svc.sh ships inside each runner dir (from the
+actions/runner tarball), so every verb runs from that dir as root:
+
+- `runner_service_install` / `runner_service_start` — propagate failure (the
+  caller cares whether the service came up).
+- `runner_service_stop` / `runner_service_uninstall` — best-effort (teardown
+  must not abort because the service was already gone).
+- `runner_service_running` — is the unit active (uses the layout's
+  `runner_service_unit_pattern`).
+
+Consumers (`add-runner.sh`, `remove-runner.sh`, `update.sh`) call these instead
+of open-coding the `pushd; sudo ./svc.sh <verb>; popd` dance.
+
 ## GitHub adapter
 
 - **`_gh` seam** — every GitHub call funnels through `_gh()` (a `gh` wrapper)

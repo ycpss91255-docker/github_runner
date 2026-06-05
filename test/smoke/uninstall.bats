@@ -101,9 +101,9 @@ teardown() {
   fake_script_dir="${fake_root}/script"
   mkdir -p "${fake_script_dir}" "${fake_root}/lib"
   cp "${SCRIPT}" "${fake_script_dir}/uninstall.sh"
-  cp "${BATS_TEST_DIRNAME}/../../lib/common.sh" "${fake_root}/lib/common.sh"
-  # common.sh sources runner-layout.sh from the same lib/, so mirror it too.
-  cp "${BATS_TEST_DIRNAME}/../../lib/runner-layout.sh" "${fake_root}/lib/runner-layout.sh"
+  # Mirror the whole lib/ so common.sh's `source`d siblings (runner-layout,
+  # runner-service, ...) resolve under the fake root without per-file upkeep.
+  cp "${BATS_TEST_DIRNAME}/../../lib/"*.sh "${fake_root}/lib/"
 
   # Stub remove-runner.sh that always fails with a known exit code.
   cat >"${fake_script_dir}/remove-runner.sh" <<'STUB'
