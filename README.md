@@ -197,6 +197,9 @@ What *is* hardened in-repo: the downloaded actions/runner tarball is verified
 against the SHA-256 GitHub publishes for the release asset before it is
 extracted (a supply-chain check, orthogonal to the above).
 
+To report a security vulnerability, see [SECURITY.md](SECURITY.md) (use
+GitHub's private vulnerability reporting — not a public issue).
+
 ## Prerequisites
 
 **Host / hardware**
