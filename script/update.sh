@@ -50,11 +50,9 @@ main() {
   local runner_dir
   while IFS=$'\t' read -r _ _ _ runner_dir _; do
     echo "==> updating ${runner_dir} -> ${version}"
-    pushd "${runner_dir}" >/dev/null
-    sudo ./svc.sh stop || true
-    tar -xzf "${tarball_path}" --skip-old-files
-    sudo ./svc.sh start
-    popd >/dev/null
+    runner_service_stop "${runner_dir}"
+    tar -xzf "${tarball_path}" -C "${runner_dir}" --skip-old-files
+    runner_service_start "${runner_dir}"
   done < <(list_runners)
   echo "update complete. next job each runner picks up will report ${version}."
 }

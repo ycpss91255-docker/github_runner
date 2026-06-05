@@ -38,9 +38,9 @@ main() {
   local token
   token=$(github_runner_token "${TARGET_API_REMOVE_PATH}")
 
+  runner_service_stop "${TARGET_DIR}"
+  runner_service_uninstall "${TARGET_DIR}"
   pushd "${TARGET_DIR}" >/dev/null
-  sudo ./svc.sh stop || true
-  sudo ./svc.sh uninstall || true
   ./config.sh remove --token "${token}"
   popd >/dev/null
 

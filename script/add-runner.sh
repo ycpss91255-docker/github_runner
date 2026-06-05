@@ -39,10 +39,8 @@ main() {
       exit 0
     fi
     echo "runner at ${TARGET_DIR} is registered but its service is missing/stopped; (re)installing it." >&2
-    pushd "${TARGET_DIR}" >/dev/null
-    sudo ./svc.sh install "$(whoami)"
-    sudo ./svc.sh start
-    popd >/dev/null
+    runner_service_install "${TARGET_DIR}" "$(whoami)"
+    runner_service_start "${TARGET_DIR}"
     echo "service (re)installed for ${TARGET_NAME} at ${TARGET_DIR}"
     exit 0
   fi
@@ -76,10 +74,10 @@ main() {
     --labels "${LABELS}" \
     --name   "${TARGET_NAME}" \
     --work   _work
-  trap - ERR   # registration persisted (.runner written); keep the dir
-  sudo ./svc.sh install "$(whoami)"
-  sudo ./svc.sh start
   popd >/dev/null
+  trap - ERR   # registration persisted (.runner written); keep the dir
+  runner_service_install "${TARGET_DIR}" "$(whoami)"
+  runner_service_start "${TARGET_DIR}"
 
   # Unstick public-repo workflow dispatch (see lib/common.sh comment + #6).
   # Only meaningful for org-scoped runners; repo-scoped runners do not have

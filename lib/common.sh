@@ -42,6 +42,12 @@ readonly SETUP_CONF="${RUNNER_HOME}/setup.conf"
 # shellcheck source=lib/runner-layout.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-layout.sh"
 
+# Runner Service: the seam over a runner's systemd service (svc.sh lifecycle +
+# the running? check). Sourced after runner-layout.sh, whose
+# runner_service_unit_pattern it uses.
+# shellcheck source=lib/runner-service.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-service.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)
@@ -228,17 +234,8 @@ enable_public_repos_dispatch() {
     --jq '.allows_public_repositories' >/dev/null
 }
 
-# Is the systemd service for a registered runner currently loaded/running?
-#   runner_service_running <runner-name>
-# Owns the actions/runner unit-name convention -- actions.runner.<url-slug>.
-# <runner-name>.service -- in one place. The name is anchored between a dot
-# and ".service" so a runner whose name is a prefix of another's (myorg vs
-# myorg-2) cannot produce a false positive. Returns 0 (running) / 1 (not).
-runner_service_running() {
-  local name=$1
-  systemctl list-units --type=service --no-legend 2>/dev/null \
-    | grep -qE "$(runner_service_unit_pattern "${name}")"
-}
+# (runner_service_running moved to lib/runner-service.sh, alongside the
+# svc.sh lifecycle seam it belongs with.)
 
 # --- Destructive-action policy (C2) -------------------------------------
 # The flag/confirm/summary policy shared verbatim by cleanup.sh and
