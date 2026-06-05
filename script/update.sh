@@ -21,7 +21,23 @@ Usage:
   RUNNER_VERSION=<x.y.z> $(basename "$0")   # pin a specific version
 
 Upgrade the runner binary across all registered runners; preserves config.
+
+Each runner is upgraded independently: one runner's failure is reported and
+does not abort the rest. Exit code is non-zero if any runner failed.
 EOF
+}
+
+# Upgrade a single runner in place: stop -> re-seed binary -> start. Returns
+# non-zero if extraction or restart failed. We always attempt the restart even
+# when extraction failed, so a runner is never left silently stopped over a
+# transient extract hiccup -- it comes back on its existing binary and is still
+# reported as failed.
+update_one_runner() {
+  local dir=$1 tarball=$2 rc=0
+  runner_service_stop "${dir}"
+  tar -xzf "${tarball}" -C "${dir}" --skip-old-files || rc=1
+  runner_service_start "${dir}" || rc=1
+  return "${rc}"
 }
 
 main() {
@@ -41,14 +57,32 @@ main() {
   verify_runner_tarball "${tarball_path}" "${version}" "$(runner_release_tarball_name "${version}")" best-effort \
     || { rm -f "${tarball_path}"; exit 1; }
 
-  local runner_dir
+  # H1 (#49): upgrade each runner independently. A single runner's stop/extract/
+  # start failure must not abort the loop (which would leave earlier runners
+  # stopped and later ones untouched). Collect failures and report a summary,
+  # mirroring cleanup.sh / uninstall.sh.
+  local runner_dir updated=0 failed=0
+  local -a fail_lines=()
   while IFS=$'\t' read -r _ _ _ runner_dir _; do
     echo "==> updating ${runner_dir} -> ${version}"
-    runner_service_stop "${runner_dir}"
-    tar -xzf "${tarball_path}" -C "${runner_dir}" --skip-old-files
-    runner_service_start "${runner_dir}"
+    if update_one_runner "${runner_dir}" "${tarball_path}"; then
+      updated=$(( updated + 1 ))
+    else
+      echo "  FAILED: ${runner_dir}" >&2
+      fail_lines+=("${runner_dir}")
+      failed=$(( failed + 1 ))
+    fi
   done < <(list_runners)
-  echo "update complete. next job each runner picks up will report ${version}."
+
+  echo
+  if (( failed == 0 )); then
+    echo "Summary: ${updated} updated, 0 failed."
+    echo "update complete. next job each runner picks up will report ${version}."
+    exit 0
+  fi
+  echo "Summary: ${updated} updated, ${failed} failed."
+  printf '  %s\n' "${fail_lines[@]}"
+  exit 1
 }
 
 if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then

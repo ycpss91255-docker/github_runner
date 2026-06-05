@@ -64,3 +64,57 @@ EOF
   [ "${status}" -ne 0 ]
   [ ! -e "${TARBALL}" ]
 }
+
+@test "update.sh continues past a failing runner and reports a summary (#49)" {
+  # Two org runners; the first (a-org, visited first) fails on svc.sh start,
+  # the second (z-org) succeeds. The loop must NOT abort at the first failure:
+  # z-org still gets upgraded, and the run exits non-zero with a summary
+  # naming the failed runner. No gh on PATH (container) -> best-effort verify
+  # warns + proceeds. `tar` is stubbed because production extraction uses GNU
+  # `tar --skip-old-files`, unsupported by busybox tar (alpine test image) --
+  # the same reason the real extraction path is out of smoke scope. Failure is
+  # injected purely via svc.sh start, which is the regression #49 covers.
+  mkdir -p "${RUNNER_HOME}/.bin" \
+           "${RUNNER_HOME}/a-org/_org" "${RUNNER_HOME}/z-org/_org"
+  printf '{ "agentName": "a-runner" }' > "${RUNNER_HOME}/a-org/_org/.runner"
+  printf '{ "agentName": "z-runner" }' > "${RUNNER_HOME}/z-org/_org/.runner"
+  printf 'cached-tarball-bytes' > "${TARBALL}"
+
+  # Per-dir svc.sh: a-org fails `start`; z-org succeeds for every verb.
+  cat > "${RUNNER_HOME}/a-org/_org/svc.sh" <<'EOF'
+#!/bin/sh
+[ "$1" = "start" ] && exit 1
+exit 0
+EOF
+  printf '#!/bin/sh\nexit 0\n' > "${RUNNER_HOME}/z-org/_org/svc.sh"
+  chmod +x "${RUNNER_HOME}/a-org/_org/svc.sh" "${RUNNER_HOME}/z-org/_org/svc.sh"
+
+  STUB=$(mktemp -d)
+  # _runner_svc runs `sudo ./svc.sh <verb>`; stub sudo to just exec its args.
+  printf '#!/bin/sh\nexec "$@"\n' > "${STUB}/sudo"
+  # Stub tar: succeed and drop a marker into the `-C <dir>` target so we can
+  # assert the surviving runner was actually extracted into.
+  cat > "${STUB}/tar" <<'EOF'
+#!/bin/sh
+d=""
+while [ $# -gt 0 ]; do
+  [ "$1" = "-C" ] && { shift; d="$1"; }
+  shift
+done
+[ -n "$d" ] && : > "${d}/runner-bin"
+exit 0
+EOF
+  chmod +x "${STUB}/sudo" "${STUB}/tar"
+
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}"
+  rm -rf "${STUB}"
+
+  [ "${status}" -ne 0 ]
+  # Both runners were visited -- the loop did not abort at the first failure.
+  [[ "${output}" == *"updating ${RUNNER_HOME}/a-org/_org"* ]]
+  [[ "${output}" == *"updating ${RUNNER_HOME}/z-org/_org"* ]]
+  [[ "${output}" == *"Summary: 1 updated, 1 failed."* ]]
+  [[ "${output}" == *"${RUNNER_HOME}/a-org/_org"* ]]
+  # The surviving runner actually received the new binary.
+  [ -f "${RUNNER_HOME}/z-org/_org/runner-bin" ]
+}
