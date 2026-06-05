@@ -19,6 +19,10 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `status.sh` gains an `APPROVAL-GATE` column next to `PUBLIC-DISPATCH` so a
   one-sided configuration is visible and cannot drift silently. `lib/common.sh`
   gains `github_fork_pr_approval_policy` / `fork_pr_gate_is_safe`. (#48)
+- CI supply-chain hardening: third-party GitHub Actions are now pinned to a
+  commit SHA (with a trailing version comment) instead of a floating major tag
+  (`actions/checkout`, `codecov/codecov-action`), and the workflow declares a
+  least-privilege top-level `permissions: contents: read`. (#57)
 - The downloaded actions/runner tarball is now verified against the SHA-256
   GitHub publishes for the release asset before extraction (`init.sh` strict,
   `update.sh` best-effort on the offline/no-gh path; a mismatch always aborts).
