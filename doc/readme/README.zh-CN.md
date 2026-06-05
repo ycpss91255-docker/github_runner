@@ -24,7 +24,9 @@
 - [快速开始](#快速开始)
 - [验证 runner](#验证-runner)
 - [升级 runner 二进制](#升级-runner-二进制)
+- [卸载](#卸载)
 - [重建 SOP](#重建-sop)
+- [疑难排解](#疑难排解)
 - [参考资料](#参考资料)
 - [授权](#授权)
 
@@ -42,6 +44,15 @@ gh auth login --scopes admin:org        # 若尚未登录
 `<your-org>` 是**你自己的 GitHub organization**(账号名称,例如 `my-company`)
 ——不是 repo,也不是本项目名称。你需要一个你具有 **admin/owner** 权限的 GitHub
 org(org-scoped 是默认;个人 repo 请改用 `./script/add-runner.sh repo <owner> <repo>`)。
+
+有两件事要先设好,否则第一次跑会中断 / job 会卡住:
+
+- **核准闸门**——org runner 请先开启 *Settings → Actions → General →
+  「Require approval for all outside collaborators」*,否则 `add-runner.sh org`
+  会拒绝注册(可加 `--force` 略过)。详见安全性说明。
+- **标签**——默认标签是 `gpu`。非 GPU 主机请先设标签
+  (`./script/configure.sh --labels <label>`),否则 `runs-on` 没指定 `gpu` 的
+  job 会无声卡在 `queued`。
 
 Runner state 预设安装在 `<repo_root>/runners/`;要改位置用 `RUNNER_HOME=...`。
 
@@ -83,7 +94,7 @@ binary、回报本地与 GitHub 端状态、清理自动升级残料。一份 cl
 |---|---|
 | `script/install-deps.sh` | 在 apt/Ubuntu host 上安装 CLI 先决条件（`gh`、`jq`、`curl`、`sudo`）并跑 `gh auth login`。`-y` 接受所有安装提示;`--dry-run` 只报告缺什么。Docker 与 NVIDIA Container Toolkit 假设已安装。幂等 |
 | `script/init.sh` | 检查 host 先决条件；透过 GitHub API 解析 actions/runner 最新 release（当 gh 缺失 / 未认证 / 离线时退回内建 pinned 版本），下载并缓存至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆盖。若带 org 参数，会同时注册该 org 的第一个 runner |
-| `script/add-runner.sh` | 注册新 runner。用法：`org <org>` 或 `repo <owner> <repo>`。labels 取自 `setup.conf`（默认 `gpu`，详见配置）。`org` scope 会把 Default runner group 的 `allows_public_repositories=true` 打开，让 public repo 的 workflow 能 dispatch（详见下方安全性说明） |
+| `script/add-runner.sh` | 注册新 runner。用法：`[--force] org <org>` 或 `repo <owner> <repo>`。labels 取自 `setup.conf`（默认 `gpu`，详见配置）。`org` scope 会先验证外部贡献者 approval gate,再把 Default runner group 的 `allows_public_repositories=true` 打开让 public repo workflow 能 dispatch；gate 未设时会**拒绝**,除非加 `--force`(详见下方安全性说明） |
 | `script/configure.sh` | 生成／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 设定新注册 runner 的 labels；无参数则打印当前生效的配置 |
 | `script/set-labels.sh` | 通过 GitHub API 即时改既有 runner 的 labels（免 remove + 重新注册）。用法：`org <org> <csv>` 或 `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 取消注册 + uninstall systemd service + 删目录 |
@@ -165,8 +176,16 @@ maintainer 跟受信任 collaborator 可跑。只关一个的话：knob 2 关
 → public repo 工作再次卡死；knob 1 关 → fork PR 漏洞再开。原始分析详见
 #6。
 
-`script/status.sh` 多了一栏 `PUBLIC-DISPATCH` 显示每个 org 的 knob 2 状态，
-避免设定静默偏移。
+由于 knob 2 会降低 GitHub 的安全预设,`add-runner.sh org` 会**先验证 knob 1**:
+读取该 org 的 approval gate,若未设为「对所有外部贡献者要求核准」就**拒绝注册**,
+让工具不会只降低一边。要照样继续可加 `--force`(代表你接受 fork-PR 风险,
+例如纯内部 org)。
+
+`script/status.sh` 提供 `PUBLIC-DISPATCH` 栏(knob 2)**与 `APPROVAL-GATE` 栏
+(knob 1)**,让单边设定一眼可见、不会静默偏移。
+
+回报安全漏洞请见 [SECURITY.md](../../SECURITY.md)(使用 GitHub 私密漏洞回报,
+勿开公开 issue)。
 
 ### Runner-user 权限
 
@@ -250,16 +269,17 @@ org vs repo scope：org runner 服务该 org 下所有 repo；repo runner 只绑
 准备 host，再用 `script/add-runner.sh` 明确注册：
 
 ```bash
-./script/init.sh                                      # 只准备（不带 org 参数，同上）
-./script/add-runner.sh repo ycpss91255-docker my-repo # runner 绑定 ycpss91255-docker/my-repo
+./script/init.sh                            # 只准备（不带 org 参数，同上）
+./script/add-runner.sh repo <owner> <repo>  # runner 绑定 <owner>/<repo>
 ```
 
-`./script/status.sh` 预期输出：
+`./script/status.sh` 预期输出(`APPROVAL-GATE` 栏为 knob 1、`PUBLIC-DISPATCH`
+为 knob 2,详见安全性说明):
 
 ```
-NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC-DISPATCH  LABELS
-<hostname>-ycpss91255-docker-org         org        running    online     public-ok        self-hosted,Linux,X64,gpu
-<hostname>-ycpss91255-research-org       org        running    online     public-ok        self-hosted,Linux,X64,gpu
+NAME                               SCOPE  LOCAL-SVC  GITHUB   PUBLIC-DISPATCH   APPROVAL-GATE   LABELS
+<hostname>-<your-org>-org          org    running    online   public-ok         gate-ok         self-hosted,Linux,X64,gpu
+<hostname>-<other-org>-org         org    running    online   public-ok         gate-ok         self-hosted,Linux,X64,gpu
 ```
 
 ## 验证 runner
@@ -277,19 +297,49 @@ RUNNER_VERSION=<new-version> ./script/update.sh
 
 把新版的 versioned runner 文件 seed 到各 runner 目录（既有文件保留原状）；runner 会在下次连线时透过正常的 self-update 接手新版本。config 跟 credentials 保留。
 
+## 卸载
+
+移除**单一** runner(deregister + 卸载 systemd service + 删目录):
+
+```bash
+./script/remove-runner.sh org <your-org>          # org runner
+./script/remove-runner.sh repo <owner> <repo>     # repo runner
+```
+
+拆除这个 checkout 注册过的**全部** runner + 删 tarball cache(默认会 prompt,
+先预览再确认):
+
+```bash
+./script/uninstall.sh --dry-run   # 显示会移除什么
+./script/uninstall.sh --yes       # 实际移除(非 TTY 必须加)
+```
+
+`uninstall.sh` 刻意**不**做:重设 org 的 `allows_public_repositories` runner-group
+旗标(可能被其他主机共用)、或删除这个 checkout。主机消失后 GitHub 端残留的
+`offline` runner 请到 UI 移除(Settings → Actions → Runners → Remove)。卡住的
+状态见[疑难排解](#疑难排解)。
+
 ## 重建 SOP
 
 机器遗失 / 重装后：
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-./script/init.sh ycpss91255-docker
-./script/add-runner.sh org ycpss91255-research
+./script/init.sh <your-org>
+./script/add-runner.sh org <other-org>
 ```
 
 没有未记录的机器状态。注册 token 透过 `gh api` 重新申请，旧机器上的 runner
 entry 若无法回收，需在 GitHub UI 手动移除（Settings → Actions → Runners →
-Remove offline runners）。
+Remove offline runners）。注意 labels 存在 gitignored 的 `setup.conf`,主机重装
+后不会留存——用 `./script/configure.sh --labels ...` 重新设定(见疑难排解)。
+
+## 疑难排解
+
+on-call 对照表:把 `status.sh` 的每个状态(`offline` / `not-found` / `n/a` /
+`stopped` / `public-BLOCKED`),以及 job 卡 queued、磁盘满、`gh` auth 过期、
+重装后标签漂移等情境,对应到成因、第一步诊断指令与修法:
+**[doc/runbook/TROUBLESHOOTING.md](../runbook/TROUBLESHOOTING.md)**。
 
 ## 参考资料
 
