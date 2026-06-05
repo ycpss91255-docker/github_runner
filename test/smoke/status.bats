@@ -50,23 +50,25 @@ teardown() {
   [[ "${output}" == *"unknown option: -n"* ]]
 }
 
-@test "collect_rows renders an online org runner: running/online/public-ok/labels" {
+@test "collect_rows renders an online org runner: running/online/public-ok/gate-ok/labels" {
   mkdir -p "${RUNNER_HOME}/acme/_org"
   printf '{\n"agentName": "host-acme-org"\n}\n' > "${RUNNER_HOME}/acme/_org/.runner"
   source "${SCRIPT}"
   # service loaded for this exact unit name -> svc 'running'
   systemctl() { printf '  actions.runner.acme.host-acme-org.service loaded active running\n'; }
-  # status verb sees a matching runner (rc 0); runner-group dispatch enabled.
+  # status verb sees a matching runner (rc 0); runner-group dispatch enabled;
+  # fork-PR approval gate set to the safe policy -> gate-ok.
   _gh() {
     case " $* " in
-      *runner-groups*) printf 'true\n' ;;
-      *)               printf 'online\tgpu,cuda12\n' ;;
+      *runner-groups*)                 printf 'true\n' ;;
+      *fork-pr-contributor-approval*)  printf 'all_external_contributors\n' ;;
+      *)                               printf 'online\tgpu,cuda12\n' ;;
     esac
   }
   setup_colors
   run collect_rows
   [ "${status}" -eq 0 ]
-  [ "${output}" = $'host-acme-org\torg\trunning\tonline\tpublic-ok\tgpu,cuda12' ]
+  [ "${output}" = $'host-acme-org\torg\trunning\tonline\tpublic-ok\tgate-ok\tgpu,cuda12' ]
 }
 
 @test "collect_rows maps github_runner_status rc=2 to 'not-found'" {
@@ -75,16 +77,18 @@ teardown() {
   source "${SCRIPT}"
   systemctl() { printf '  ssh.service loaded active running\n'; }   # not running
   # status verb: call succeeds but empty (no match) -> github_runner_status rc 2.
+  # fork-PR gate is a weak (non-safe) policy -> gate-WEAK.
   _gh() {
     case " $* " in
-      *runner-groups*) printf 'false\n' ;;
-      *)               printf '' ;;
+      *runner-groups*)                 printf 'false\n' ;;
+      *fork-pr-contributor-approval*)  printf 'first_time_contributors\n' ;;
+      *)                               printf '' ;;
     esac
   }
   setup_colors
   run collect_rows
   [ "${status}" -eq 0 ]
-  [ "${output}" = $'host-acme-org\torg\tstopped\tnot-found\tpublic-BLOCKED\t-' ]
+  [ "${output}" = $'host-acme-org\torg\tstopped\tnot-found\tpublic-BLOCKED\tgate-WEAK\t-' ]
 }
 
 @test "collect_rows maps github_runner_status rc=1/other to 'n/a'" {
@@ -93,31 +97,33 @@ teardown() {
   source "${SCRIPT}"
   systemctl() { printf '  ssh.service loaded active running\n'; }
   # status verb: the gh call itself fails -> github_runner_status rc 1.
-  # runner-group lookup also fails -> public_state 'n/a'.
+  # runner-group + fork-PR lookups also fail -> public_state / gate 'n/a'.
   _gh() { return 1; }
   setup_colors
   run collect_rows
   [ "${status}" -eq 0 ]
-  [ "${output}" = $'host-acme-org\torg\tstopped\tn/a\tn/a\t-' ]
+  [ "${output}" = $'host-acme-org\torg\tstopped\tn/a\tn/a\tn/a\t-' ]
 }
 
-@test "collect_rows gives a repo-scoped runner public-dispatch '-' (no runner-group flag)" {
+@test "collect_rows gives a repo-scoped runner public-dispatch '-' and approval-gate '-' (no runner-group flag)" {
   mkdir -p "${RUNNER_HOME}/acme/myrepo"
   printf '{\n"agentName": "host-acme-repo"\n}\n' > "${RUNNER_HOME}/acme/myrepo/.runner"
   source "${SCRIPT}"
   systemctl() { printf '  actions.runner.acme.host-acme-repo.service loaded active running\n'; }
-  # A runner-group reply must NOT be consulted for repo scope; return 'true'
-  # so a regression that queried it would surface as 'public-ok'.
+  # Neither the runner-group flag nor the org fork-PR gate must be consulted
+  # for repo scope; return values that would surface as public-ok / gate-ok so
+  # a regression that queried them is caught.
   _gh() {
     case " $* " in
-      *runner-groups*) printf 'true\n' ;;
-      *)               printf 'online\tgpu\n' ;;
+      *runner-groups*)                 printf 'true\n' ;;
+      *fork-pr-contributor-approval*)  printf 'all_external_contributors\n' ;;
+      *)                               printf 'online\tgpu\n' ;;
     esac
   }
   setup_colors
   run collect_rows
   [ "${status}" -eq 0 ]
-  [ "${output}" = $'host-acme-repo\trepo\trunning\tonline\t-\tgpu' ]
+  [ "${output}" = $'host-acme-repo\trepo\trunning\tonline\t-\t-\tgpu' ]
 }
 
 @test "setup_colors/state_color emit empty codes under --no-color and real SGR under COLOR=always" {

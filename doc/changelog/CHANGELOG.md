@@ -8,6 +8,17 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- `add-runner.sh` now verifies the org's fork-PR approval gate before enabling
+  public-repo dispatch. Registering an org runner flips
+  `allows_public_repositories=true` (lowering GitHub's 2024+ safe default); the
+  complementary protection is the org's "Require approval for all outside
+  collaborators" gate. add-runner now reads that gate
+  (`fork-pr-contributor-approval`) and **refuses to register** unless it is
+  `all_external_contributors`, so the tool can no longer leave one knob lowered
+  without the other. `--force` opts out (accepting the fork-PR exposure).
+  `status.sh` gains an `APPROVAL-GATE` column next to `PUBLIC-DISPATCH` so a
+  one-sided configuration is visible and cannot drift silently. `lib/common.sh`
+  gains `github_fork_pr_approval_policy` / `fork_pr_gate_is_safe`. (#48)
 - The downloaded actions/runner tarball is now verified against the SHA-256
   GitHub publishes for the release asset before extraction (`init.sh` strict,
   `update.sh` best-effort on the offline/no-gh path; a mismatch always aborts).
@@ -31,6 +42,10 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `add-runner.sh` no longer fails the whole run when enabling org public-repo
+  dispatch fails: the runner is already registered and online by that point, so
+  the idempotent flag PATCH is now a warning (with retry guidance) instead of a
+  fatal error that falsely signalled the registration had failed. (#51)
 - `update.sh` now verifies a cached tarball before extraction, not only on
   download: a cache hit no longer skips the integrity check (best-effort on the
   offline/no-gh path, but a mismatch still aborts + rm's the file). H1.
