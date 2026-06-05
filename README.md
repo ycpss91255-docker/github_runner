@@ -25,6 +25,7 @@
 - [Verifying a runner](#verifying-a-runner)
 - [Upgrading the runner binary](#upgrading-the-runner-binary)
 - [Rebuild SOP](#rebuild-sop)
+- [Troubleshooting](#troubleshooting)
 - [References](#references)
 - [License](#license)
 
@@ -327,7 +328,16 @@ git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_ru
 No undocumented machine state. Registration tokens are fetched fresh via
 `gh api`, so previous tokens / runner entries on GitHub side need cleanup
 via the UI (Settings -> Actions -> Runners -> Remove offline runners) if
-the old machine is gone for good.
+the old machine is gone for good. Note labels live in the gitignored
+`setup.conf` and do not survive a host wipe — re-apply with
+`./script/configure.sh --labels ...` (see Troubleshooting).
+
+## Troubleshooting
+
+On-call reference mapping each `status.sh` state (`offline`, `not-found`,
+`n/a`, `stopped`, `public-BLOCKED`), plus queued-job / disk-full / `gh`-auth /
+rebuild-label-drift situations, to a cause, a first diagnostic command, and a
+fix: **[doc/runbook/TROUBLESHOOTING.md](doc/runbook/TROUBLESHOOTING.md)**.
 
 ## References
 

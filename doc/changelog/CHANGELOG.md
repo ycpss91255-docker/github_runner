@@ -46,6 +46,11 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   own GitHub organization (and how to use a repo-scoped runner for a personal
   account). Prerequisites now list "a GitHub org you have admin/owner rights
   on" as an explicit access requirement. (#53)
+- Added a troubleshooting runbook (`doc/runbook/TROUBLESHOOTING.md`, linked from
+  the README) mapping each `status.sh` state (`offline` / `not-found` / `n/a` /
+  `stopped` / `public-BLOCKED`) plus queued-job, disk-full, `gh`-auth-expiry and
+  host-rebuild label-drift situations to a cause, a first diagnostic command,
+  and a fix. (#56)
 - README (all locales): documented `status.sh`'s `--watch` / `--interval` /
   `--no-color` flags; expanded the English `init.sh` / `update.sh` rows to
   describe runner-version resolution (the translations already had it);
