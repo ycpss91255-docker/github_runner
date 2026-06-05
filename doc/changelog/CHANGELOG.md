@@ -169,6 +169,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `cleanup.sh --work-caches` (#58): opt-in pruning of entries under each runner's
+  reused `_work/_tool` / `_work/_actions` download caches older than
+  `RUNNER_WORK_CACHE_KEEP_DAYS` (default 7). Only runs for an **idle** runner —
+  one with no `Runner.Worker` process under its `bin/` — and treats a missing
+  `pgrep` as busy (fail-safe), so it never prunes a cache a live job is using.
+  The default / scheduled run still never touches `_work`; `_work/<repo>` build
+  trees are intentionally left to the operator.
 - `status.sh` health-check support: `--check` (`-c`) prints the table once then
   exits non-zero if any runner is unhealthy (not `online`, or its local service
   is not running), suitable for cron / monitoring; `--json` emits a

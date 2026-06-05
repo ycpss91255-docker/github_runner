@@ -101,7 +101,7 @@ binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 cl
 | `script/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態，以及目前的 labels。`-w`/`--watch` 持續刷新（`-i`/`--interval` 設定間隔，預設 5 秒），以列為單位高亮差異；`--no-color` 關閉顏色 |
 | `script/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定，與 init 相同的 fallback），cache 不存在則下載，再把新版的 versioned runner 檔案 seed 到各 runner 目錄（既有檔案保留原狀）；runner 會在下次連線時透過正常的 self-update 接手新版本。保留 config |
 | `script/uninstall.sh` | `script/init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
-| `script/cleanup.sh` | 清掉 GitHub 自動升級循環留下的占空間殘料：陳舊 `bin.X` / `externals.X` 版本目錄、`${RUNNER_HOME}/.bin/` 內的舊版 tarball、`_work/_update*` 殘留。可安全排程，**不**動 registration state、log、進行中的 job 目錄。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽 |
+| `script/cleanup.sh` | 清掉 GitHub 自動升級循環留下的占空間殘料：陳舊 `bin.X` / `externals.X` 版本目錄、`${RUNNER_HOME}/.bin/` 內的舊版 tarball、`_work/_update*` 殘留、過期的 `_diag/*.log`。可安全排程，**不**動 registration state、進行中的 job 目錄。預設 prompt 確認,`--yes` 跳過,`--dry-run` 預覽。選用 `--work-caches` 會額外修剪**閒置** runner 的 `_work/_tool` / `_work/_actions` 舊 cache 項目(正在跑 job 的 runner 會跳過;需要 `pgrep`) |
 | `script/schedule-cleanup.sh` | 安裝／移除 user crontab 內的排程，定時自動跑 `cleanup.sh`（daily / weekly / monthly 可選；時段、星期幾互動選擇）。沒帶參數會進互動模式，也可用 `--every` / `--at` / `--day` 一行帶完。`--status` 看目前排程，`--uninstall` 移除。輸出 append 到 `${RUNNER_HOME}/.cleanup.log`，`flock` 防併發重跑 |
 
 所有 script 皆為 idempotent。
