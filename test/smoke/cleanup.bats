@@ -71,6 +71,28 @@ fake_runner() {
   [ -d "${FAKE_RH}/myorg/_org/externals.2.319.1" ]
 }
 
+@test "cleanup.sh with a missing bin symlink keeps version dirs but still prunes _update remnants (#50)" {
+  # Half-extracted runner: .runner + version dirs present, but NO `bin`
+  # symlink, so runner_active_version is empty. cleanup must NOT treat the
+  # only bin.X / externals.X as stale (that would delete the in-use version);
+  # the safe _work/_update remnant pruning still runs.
+  local d="${FAKE_RH}/myorg/_org"
+  mkdir -p "${d}/bin.2.334.0" "${d}/externals.2.334.0" "${d}/_work/_update"
+  touch "${d}/.runner" "${d}/_work/_update.sh"
+  # deliberately no `ln -s bin.2.334.0 "${d}/bin"`
+
+  run "${SCRIPT}" --dry-run
+  [ "${status}" -eq 0 ]
+  # The in-use version dirs must NOT be listed as stale.
+  [[ "${output}" != *"stale myorg/_org -> bin.2.334.0"* ]]
+  [[ "${output}" != *"stale myorg/_org -> externals.2.334.0"* ]]
+  # But the safe _work/_update remnants are still pruned.
+  [[ "${output}" == *"self-update remnant myorg/_org/_work/_update/"* ]]
+  [[ "${output}" == *"self-update remnant myorg/_org/_work/_update.sh"* ]]
+  [ -d "${d}/bin.2.334.0" ]
+  [ -d "${d}/externals.2.334.0" ]
+}
+
 @test "cleanup.sh lists _work/_update remnants under --dry-run and leaves them" {
   fake_runner myorg 2.334.0
   mkdir -p "${FAKE_RH}/myorg/_org/_work/_update"

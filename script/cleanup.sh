@@ -69,19 +69,26 @@ enumerate_items() {
     # repo-scoped) so prune messages stay identical to the previous form.
     scope_label=$(basename "${runner_dir}")
     ver=$(runner_active_version "${runner_dir}")
-    for variant in bin externals; do
-      for cand in "${runner_dir}/${variant}".*; do
-        [[ -d "${cand}" ]] || continue
-        sub=$(basename "${cand}" | sed -n "s/^${variant}\\.\\(.*\\)$/\\1/p")
-        [[ -z ${sub} ]] && continue
-        if [[ -n ${ver} && ${sub} == "${ver}" ]]; then
-          continue
-        fi
-        printf '%s\t%s %s/%s -> %s.%s\n' \
-          "${cand%/}" "stale" "${org}" "${scope_label}" \
-          "${variant}" "${sub}"
+    # #50: an empty active version means the `bin` symlink is missing (e.g. a
+    # half-extracted runner). We CANNOT tell which variant dir is live, so
+    # pruning here would mark the in-use bin.X/externals.X as stale and delete
+    # it. Skip variant pruning entirely for such a runner; the _work/_update
+    # remnant pruning below is safe regardless and still runs.
+    if [[ -n ${ver} ]]; then
+      for variant in bin externals; do
+        for cand in "${runner_dir}/${variant}".*; do
+          [[ -d "${cand}" ]] || continue
+          sub=$(basename "${cand}" | sed -n "s/^${variant}\\.\\(.*\\)$/\\1/p")
+          [[ -z ${sub} ]] && continue
+          if [[ ${sub} == "${ver}" ]]; then
+            continue
+          fi
+          printf '%s\t%s %s/%s -> %s.%s\n' \
+            "${cand%/}" "stale" "${org}" "${scope_label}" \
+            "${variant}" "${sub}"
+        done
       done
-    done
+    fi
     work_update="${runner_dir}/_work/_update"
     work_update_sh="${runner_dir}/_work/_update.sh"
     if [[ -d ${work_update} ]]; then
