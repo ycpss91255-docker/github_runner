@@ -54,6 +54,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-service.sh"
 # shellcheck source=lib/runner-release.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-release.sh"
 
+# Runner Config: the seam over a runner's bundled config.sh (register /
+# deregister), sibling of runner-service.sh.
+# shellcheck source=lib/runner-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-config.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)
