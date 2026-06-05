@@ -54,6 +54,19 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The shared library was reorganized into focused modules, each behind its own
+  seam: `lib/runner-layout.sh` (on-disk layout — dir / agent name / `_org`
+  marker / `.runner` / systemd unit / active version), `lib/runner-service.sh`
+  (the `svc.sh` lifecycle + `runner_service_running`), `lib/runner-release.sh`
+  (the release tarball — `resolve_runner_version`, the cache name / path / URL,
+  `find_cached_tarball`, and the SEC-5 `verify_*` trio), and
+  `lib/runner-config.sh` (the `config.sh` register / deregister). Functions
+  other entries below describe as living in `lib/common.sh` (the `verify_*`
+  trio, `resolve_runner_version`, `find_cached_tarball`, the layout helpers,
+  `runner_service_running`) now live in those modules. Every entry script also
+  guards its `main "$@"` so it can be `source`d for unit tests, and every
+  GitHub call funnels through the single `_gh` seam. Behaviour is unchanged —
+  this is internal structure + testability (`CONTEXT.md` documents the modules).
 - README + zh-TW / zh-CN / ja docs corrected for `update.sh` semantics (it
   seeds the binary then lets each runner self-update on its next job, it does
   not "replace" the binaries in place) and for GPU verification being skipped
