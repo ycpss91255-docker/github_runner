@@ -7,11 +7,17 @@ on:
 env:
   TEST_TOOLS_IMAGE: ghcr.io/ycpss91255-docker/test-tools:latest
 
+# Least-privilege default token: this workflow only checks out, runs tests,
+# and uploads coverage (via a repo secret, not the GITHUB_TOKEN). Read-only
+# contents is all any job needs. #57.
+permissions:
+  contents: read
+
 jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: shellcheck
@@ -20,7 +26,7 @@ jobs:
   bats:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: bats smoke
@@ -43,14 +49,14 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: run kcov coverage
         run: make -f Makefile.ci coverage
       - name: upload to Codecov
         # fail_ci_if_error: false mirrors base/self-test.yaml — a Codecov
         # upload glitch (or a missing token on forks) must not fail the job.
         if: ${{ always() }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
         with:
           directory: ./coverage
           token: ${{ secrets.CODECOV_TOKEN }}
