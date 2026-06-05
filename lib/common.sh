@@ -293,6 +293,14 @@ print_summary() {
   exit 1
 }
 
+# Percent (integer, no `%`) of the filesystem that holds <path> currently in
+# use, via `df -P` (POSIX layout: the Use% is column 5 of the data row, which
+# df may wrap onto a second physical line for long device names -- `-P` keeps
+# it on one logical record). Echoes e.g. "87", or nothing if df fails. #55.
+disk_usage_percent() {
+  df -P "$1" 2>/dev/null | awk 'NR==2 { sub(/%$/, "", $5); print $5 }'
+}
+
 # --- GitHub API adapter (C1) --------------------------------------------
 # Every verb below reaches GitHub through this single private wrapper, so
 # the whole adapter is shadowable in one place: tests redefine _gh() after

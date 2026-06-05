@@ -13,12 +13,19 @@
 #      (the `update.finished` 0-byte marker is the trustworthy signal that
 #      these are stale; we never touch in-flight job dirs under `_work/`).
 #
+# Also rotated (#55):
+#   4. `_diag/*.log` older than RUNNER_DIAG_KEEP_DAYS (default 14). Kept for
+#      debugging, but rotated so they cannot grow without bound; recent logs
+#      stay.
+#
 # Out of scope (intentionally, so `cleanup.sh` is safe to schedule):
-#   - `_diag/*.log`              keep for debugging
+#   - recent `_diag/*.log` (within the retention window) -- debugging
 #   - `.credentials*` / `.runner` / `.path` / `.env` / `.service`
 #     registration state; nuking these turns the runner into a brick
 #   - current `bin`, `bin.<active>`, `externals`, `externals.<active>`
-#   - per-job dirs under `_work/<job-id>/`
+#   - per-job dirs under `_work/<job-id>/` -- these are the unbounded, multi-GB
+#     build dirs; reliably detecting an in-flight job before reclaiming them is
+#     tracked separately (#58). Monitor disk yourself; this run reports usage.
 #   - `update.finished` marker
 #
 # Usage:
@@ -41,13 +48,20 @@ Usage: $(basename "$0") [--yes | -y] [--dry-run | -n] [-h | --help]
 
 Prune stale runner artifacts left behind by GitHub's auto-update cycle:
 older bin.X / externals.X version dirs, older cached tarballs in
-\${RUNNER_HOME}/.bin/, and _work/_update remnants.
+\${RUNNER_HOME}/.bin/, _work/_update remnants, and _diag/*.log older than
+RUNNER_DIAG_KEEP_DAYS (default 14). Reports RUNNER_HOME disk usage and warns
+at/above RUNNER_DISK_WARN_PCT (default 90). Does NOT reclaim _work/<job-id>
+job dirs -- monitor those separately (#58).
 
 Options:
   -y, --yes        Skip the destructive-confirmation prompt. REQUIRED for
                    non-interactive runs (stdin is not a TTY).
   -n, --dry-run    Print the plan; do not touch anything.
   -h, --help       Show this help.
+
+Environment:
+  RUNNER_DIAG_KEEP_DAYS  Age (days) beyond which _diag/*.log are pruned (14).
+  RUNNER_DISK_WARN_PCT   Disk-usage %% at/above which a warning prints (90).
 
 Exit code:
   0  Success (or dry-run / no-op).
@@ -62,7 +76,8 @@ EOF
 enumerate_items() {
   shopt -s nullglob
   local scope org runner_dir scope_label ver variant cand sub
-  local work_update work_update_sh
+  local work_update work_update_sh diag_log
+  local keep_days=${RUNNER_DIAG_KEEP_DAYS:-14}
 
   while IFS=$'\t' read -r scope org _ runner_dir _; do
     # Re-derive the on-disk label (_org for org-scoped, repo name for
@@ -99,6 +114,14 @@ enumerate_items() {
       printf '%s\t%s\n' "${work_update_sh}" \
         "self-update remnant ${org}/${scope_label}/_work/_update.sh"
     fi
+    # #55: rotate _diag logs older than the retention window. find prints
+    # nothing (and the 2>/dev/null swallows the error) when _diag is absent.
+    while IFS= read -r diag_log; do
+      [[ -n ${diag_log} ]] || continue
+      printf '%s\t%s\n' "${diag_log}" \
+        "old _diag log ${org}/${scope_label}/$(basename "${diag_log}")"
+    done < <(find "${runner_dir}/_diag" -maxdepth 1 -type f -name '*.log' \
+               -mtime +"${keep_days}" 2>/dev/null)
   done < <(list_runners)
   # Silence shellcheck: scope is consumed positionally by `read`.
   : "${scope:-}"
@@ -123,6 +146,22 @@ human_size() {
   du -sh "$1" 2>/dev/null | cut -f1 || echo "?"
 }
 
+# Report RUNNER_HOME filesystem usage and warn at/above the threshold
+# (RUNNER_DISK_WARN_PCT, default 90). cleanup reclaims update leftovers + old
+# _diag logs but NOT _work/<job-id> job dirs (#58), so disk can stay high even
+# after a clean run -- this surfaces that so a time-driven schedule doesn't
+# mask a pressure problem. #55.
+report_disk_pressure() {
+  local pct threshold=${RUNNER_DISK_WARN_PCT:-90}
+  pct=$(disk_usage_percent "${RUNNER_HOME}")
+  [[ -n ${pct} ]] || return 0
+  echo "disk: ${pct}% used on the filesystem holding ${RUNNER_HOME}."
+  if (( pct >= threshold )); then
+    echo "WARN: at/above ${threshold}% -- cleanup does not reclaim _work/<job-id> job dirs (#58);" >&2
+    echo "      inspect those (e.g. du -sh ${RUNNER_HOME}/*/*/_work) if space stays low." >&2
+  fi
+}
+
 main() {
   parse_destructive_flags "$@"
 
@@ -130,6 +169,8 @@ main() {
     echo "Nothing to clean (no ${RUNNER_HOME})."
     exit 0
   fi
+
+  report_disk_pressure
 
   local items
   items=$(enumerate_items)
