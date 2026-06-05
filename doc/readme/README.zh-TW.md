@@ -34,12 +34,16 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 若尚未登入
 
-./script/init.sh ycpss91255-docker             # 準備 host + 註冊第一個 runner
-./script/add-runner.sh org ycpss91255-research # 註冊第二個 runner
-./script/status.sh                             # 本地 + GitHub 端狀態
+./script/init.sh <your-org>             # 準備 host + 註冊第一個 runner
+./script/add-runner.sh org <other-org>  # (選用) 為另一個 org 註冊 runner
+./script/status.sh                      # 本地 + GitHub 端狀態
 ```
 
-Runner state 預設安裝在 `<repo_root>/runners/`；要改位置用 `RUNNER_HOME=...`。
+`<your-org>` 是**你自己的 GitHub organization**(帳號名稱,例如 `my-company`)
+——不是 repo,也不是本專案名稱。你需要一個你具有 **admin/owner** 權限的 GitHub
+org(org-scoped 是預設;個人 repo 請改用 `./script/add-runner.sh repo <owner> <repo>`)。
+
+Runner state 預設安裝在 `<repo_root>/runners/`;要改位置用 `RUNNER_HOME=...`。
 
 ## 概述
 
@@ -198,6 +202,9 @@ release asset 公布的 SHA-256(供應鏈檢查,與上述正交)。
 
 **存取 / 網路**
 
+- 一個你具有 **admin/owner 權限的 GitHub organization** ——org-scoped 流程
+  (`init.sh <org>` / `add-runner.sh org <org>`)是預設。個人帳號請改註冊
+  repo-scoped runner(`add-runner.sh repo <owner> <repo>`)。
 - `gh` 已登入且 token 含 `admin:org` scope（`gh auth login --scopes admin:org`）
 - 對 `github.com`、`api.github.com`、`cli.github.com`、`objects.githubusercontent.com` 的對外 HTTPS（runner 下載 + 註冊）
 - `sudo` 權限（runner 以 systemd service 安裝）
@@ -218,16 +225,17 @@ Docker 與 NVIDIA Container Toolkit 須先自行安裝（牽涉 kernel driver / 
 
 ## 快速開始
 
-`script/init.sh <org>` 會準備好 host 並同時註冊第一個 runner。其他 runner 用
-`script/add-runner.sh` 新增：
+`script/init.sh <your-org>` 會準備好 host 並同時註冊第一個 runner。下面的
+`<your-org>` / `<other-org>` 請換成**你自己的 GitHub organization** 名稱
+——它們是佔位符,不是字面值。其他 runner 用 `script/add-runner.sh` 新增：
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-./script/install-deps.sh                       # 裝 gh/jq/curl/sudo + gh auth login
-                                               # （已設定好可略過;Docker+NVIDIA 須先存在）
+./script/install-deps.sh                # 裝 gh/jq/curl/sudo + gh auth login
+                                        # （已設定好可略過;Docker+NVIDIA 須先存在）
 
-./script/init.sh ycpss91255-docker             # 準備 + 第一個 runner（-docker org）
-./script/add-runner.sh org ycpss91255-research # 第二個 runner（-research org）
+./script/init.sh <your-org>             # 準備 + 為你的 org 註冊第一個 runner
+./script/add-runner.sh org <other-org>  # (選用) 為另一個 org 註冊 runner
 ./script/status.sh
 ```
 

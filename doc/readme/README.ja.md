@@ -34,10 +34,15 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 未ログインの場合
 
-./script/init.sh ycpss91255-docker             # ホスト準備 + 最初の runner を登録
-./script/add-runner.sh org ycpss91255-research # 2 つ目の runner を登録
-./script/status.sh                             # ローカル + GitHub 側の状態
+./script/init.sh <your-org>             # ホスト準備 + 最初の runner を登録
+./script/add-runner.sh org <other-org>  # (任意) 別の org 用の runner を登録
+./script/status.sh                      # ローカル + GitHub 側の状態
 ```
+
+`<your-org>` は**あなた自身の GitHub organization**(アカウント名、例:
+`my-company`)です——repo でも本プロジェクト名でもありません。**admin/owner**
+権限を持つ GitHub org が必要です(org-scoped がデフォルト。個人 repo は
+`./script/add-runner.sh repo <owner> <repo>` を使用)。
 
 runner state はデフォルトで `<repo_root>/runners/` に置かれます。変更は
 `RUNNER_HOME=...` で上書きします。
@@ -212,6 +217,10 @@ tarball は、展開前に GitHub が release asset 向けに公開する SHA-25
 
 **アクセス / ネットワーク**
 
+- **admin/owner 権限を持つ GitHub organization**。org-scoped フロー
+  (`init.sh <org>` / `add-runner.sh org <org>`)がデフォルトです。個人
+  アカウントの場合は repo-scoped runner（`add-runner.sh repo <owner> <repo>`）
+  を登録してください。
 - `gh` が認証済みで token に `admin:org` scope を含む（`gh auth login --scopes admin:org`）
 - `github.com`、`api.github.com`、`cli.github.com`、`objects.githubusercontent.com` への外向き HTTPS（runner のダウンロード + 登録）
 - `sudo` 権限（runner は systemd service として導入）
@@ -234,16 +243,18 @@ exit します（不足項目をすべて列挙）。
 
 ## クイックスタート
 
-`script/init.sh <org>` はホスト準備と同時に最初の runner を登録します。追加の
+`script/init.sh <your-org>` はホスト準備と同時に最初の runner を登録します。
+以下の `<your-org>` / `<other-org>` は**あなた自身の GitHub organization** 名に
+置き換えてください——プレースホルダであり、そのままの値ではありません。追加の
 runner は `script/add-runner.sh` で登録：
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-./script/install-deps.sh                       # gh/jq/curl/sudo + gh auth login を導入
-                                               # （設定済みならスキップ可；Docker+NVIDIA は事前に必要）
+./script/install-deps.sh                # gh/jq/curl/sudo + gh auth login を導入
+                                        # （設定済みならスキップ可；Docker+NVIDIA は事前に必要）
 
-./script/init.sh ycpss91255-docker             # 準備 + 最初の runner（-docker org）
-./script/add-runner.sh org ycpss91255-research # 2 つ目の runner（-research org）
+./script/init.sh <your-org>             # 準備 + あなたの org 用の最初の runner
+./script/add-runner.sh org <other-org>  # (任意) 別の org 用の runner
 ./script/status.sh
 ```
 

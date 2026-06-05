@@ -34,10 +34,15 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # if not already
 
-./script/init.sh ycpss91255-docker             # prep host + register first runner
-./script/add-runner.sh org ycpss91255-research # register second runner
-./script/status.sh                             # local + GitHub-side state
+./script/init.sh <your-org>             # prep host + register first runner
+./script/add-runner.sh org <other-org>  # (optional) register another org runner
+./script/status.sh                      # local + GitHub-side state
 ```
+
+`<your-org>` is **your own GitHub organization** (the account name, e.g.
+`my-company`) — not a repo and not this project's name. You need a GitHub org
+you have **admin/owner** rights on (org-scoped is the default; for a personal
+repo use `./script/add-runner.sh repo <owner> <repo>`).
 
 Runner state installs under `<repo_root>/runners/` by default; override with
 `RUNNER_HOME=...`.
@@ -221,6 +226,10 @@ GitHub's private vulnerability reporting — not a public issue).
 
 **Access / network**
 
+- A GitHub **organization you have admin/owner rights on** — the org-scoped
+  flow (`init.sh <org>` / `add-runner.sh org <org>`) is the default. For a
+  personal account, register a repo-scoped runner instead
+  (`add-runner.sh repo <owner> <repo>`).
 - `gh` authenticated with the `admin:org` scope (`gh auth login --scopes admin:org`)
 - Outbound HTTPS to `github.com`, `api.github.com`, `cli.github.com`, and
   `objects.githubusercontent.com` (runner download + registration)
@@ -245,16 +254,18 @@ this tool deliberately does not touch). Once those are in place,
 
 ## Quick start
 
-`script/init.sh <org>` prepares the host AND registers the first runner. Additional
-runners are added with `script/add-runner.sh`:
+`script/init.sh <your-org>` prepares the host AND registers the first runner.
+Replace `<your-org>` / `<other-org>` below with **your own GitHub organization**
+name(s) — they are placeholders, not literal values. Additional runners are
+added with `script/add-runner.sh`:
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-./script/install-deps.sh                       # install gh/jq/curl/sudo + gh auth login
-                                               # (skip if already set up; Docker+NVIDIA must pre-exist)
+./script/install-deps.sh                # install gh/jq/curl/sudo + gh auth login
+                                        # (skip if already set up; Docker+NVIDIA must pre-exist)
 
-./script/init.sh ycpss91255-docker             # prep + first runner (for -docker org)
-./script/add-runner.sh org ycpss91255-research # second runner (for -research org)
+./script/init.sh <your-org>             # prep + first runner for your org
+./script/add-runner.sh org <other-org>  # (optional) a runner for another org
 ./script/status.sh
 ```
 
