@@ -40,6 +40,12 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   private advisories) and a threat-model summary (single-tenant + root-
   equivalent posture, the two org safety knobs, supply-chain scope, and what is
   out of scope). Linked from the README security model. (#54)
+- README onboarding (all locales): the TL;DR and Quick start now use
+  `<your-org>` / `<other-org>` placeholders instead of the author's real org as
+  copy-paste command arguments, with an inline note that `<your-org>` is your
+  own GitHub organization (and how to use a repo-scoped runner for a personal
+  account). Prerequisites now list "a GitHub org you have admin/owner rights
+  on" as an explicit access requirement. (#53)
 - README (all locales): documented `status.sh`'s `--watch` / `--interval` /
   `--no-color` flags; expanded the English `init.sh` / `update.sh` rows to
   describe runner-version resolution (the translations already had it);
