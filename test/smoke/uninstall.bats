@@ -102,6 +102,8 @@ teardown() {
   mkdir -p "${fake_script_dir}" "${fake_root}/lib"
   cp "${SCRIPT}" "${fake_script_dir}/uninstall.sh"
   cp "${BATS_TEST_DIRNAME}/../../lib/common.sh" "${fake_root}/lib/common.sh"
+  # common.sh sources runner-layout.sh from the same lib/, so mirror it too.
+  cp "${BATS_TEST_DIRNAME}/../../lib/runner-layout.sh" "${fake_root}/lib/runner-layout.sh"
 
   # Stub remove-runner.sh that always fails with a known exit code.
   cat >"${fake_script_dir}/remove-runner.sh" <<'STUB'

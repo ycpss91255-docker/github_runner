@@ -34,6 +34,14 @@ readonly RUNNER_HOME
 # runner state, not the repo.
 readonly SETUP_CONF="${RUNNER_HOME}/setup.conf"
 
+# Runner Layout: the single source of truth for where runners live on disk
+# and how they are named (dir, agent name, _org sentinel, .runner marker,
+# systemd unit, active version). Sourced after RUNNER_HOME so its consumers
+# (resolve_target, list_runners, runner_service_running, cleanup.sh) can read
+# it at call time.
+# shellcheck source=lib/runner-layout.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-layout.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)
@@ -178,21 +186,17 @@ list_runners() {
     org=$(basename "${org_dir}")
     [[ ${org} == ".bin" ]] && continue
     for scope_dir in "${org_dir}"*/; do
-      [[ -f "${scope_dir}.runner" ]] || continue
+      [[ -f "$(runner_marker_file "${scope_dir}")" ]] || continue
+      scope=$(runner_scope_of "${scope_dir}")
       scope_id=$(basename "${scope_dir}")
-      if [[ ${scope_id} == "_org" ]]; then
-        scope="org"
-        scope_id=""
-      else
-        scope="repo"
-      fi
+      [[ ${scope} == "org" ]] && scope_id=""
       # actions/runner writes a UTF-8 BOM + pretty-printed JSON to
       # .runner. agentName lives on its own line; a bash-only regex
       # extractor avoids depending on jq (which keeps list_runners
       # testable in jq-less containers). Falls back to "?" so an empty
       # / corrupt .runner does not break consumers that IFS-split rows.
       name=$(sed -n 's/.*"agentName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-             "${scope_dir}.runner" | head -1)
+             "$(runner_marker_file "${scope_dir}")" | head -1)
       [[ -z ${name} ]] && name="?"
       if [[ -z ${scope_id} ]]; then
         printf '%s\t%s\t%s\t%s\n' \
@@ -233,7 +237,7 @@ enable_public_repos_dispatch() {
 runner_service_running() {
   local name=$1
   systemctl list-units --type=service --no-legend 2>/dev/null \
-    | grep -qE "actions\.runner\..*\.${name}\.service"
+    | grep -qE "$(runner_service_unit_pattern "${name}")"
 }
 
 # --- Destructive-action policy (C2) -------------------------------------
@@ -434,8 +438,8 @@ resolve_target() {
       local org=$1
       valid_owner "${org}" || { echo "invalid org: '${org}'" >&2; exit 1; }
       TARGET_URL="https://github.com/${org}"
-      TARGET_DIR="${RUNNER_HOME}/${org}/_org"
-      TARGET_NAME="$(hostname)-${org}-org"
+      TARGET_DIR="$(runner_dir org "${org}")"
+      TARGET_NAME="$(runner_agent_name org "${org}")"
       TARGET_API_TOKEN_PATH="/orgs/${org}/actions/runners/registration-token"
       TARGET_API_REMOVE_PATH="/orgs/${org}/actions/runners/remove-token"
       ;;
@@ -445,8 +449,8 @@ resolve_target() {
       { valid_owner "${owner}" && valid_repo "${repo}"; } \
         || { echo "invalid owner/repo: '${owner}/${repo}'" >&2; exit 1; }
       TARGET_URL="https://github.com/${owner}/${repo}"
-      TARGET_DIR="${RUNNER_HOME}/${owner}/${repo}"
-      TARGET_NAME="$(hostname)-${owner}-${repo}"
+      TARGET_DIR="$(runner_dir repo "${owner}" "${repo}")"
+      TARGET_NAME="$(runner_agent_name repo "${owner}" "${repo}")"
       TARGET_API_TOKEN_PATH="/repos/${owner}/${repo}/actions/runners/registration-token"
       TARGET_API_REMOVE_PATH="/repos/${owner}/${repo}/actions/runners/remove-token"
       ;;
