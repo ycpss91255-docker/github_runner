@@ -52,22 +52,18 @@ check_prereqs() {
 }
 
 cache_tarball() {
-  local version tarball path
+  local version path
   version=$(resolve_runner_version)
-  tarball="actions-runner-linux-x64-${version}.tar.gz"
-  path="${RUNNER_HOME}/.bin/${tarball}"
+  path=$(runner_release_cache_path "${version}")
   if [[ -f ${path} ]]; then
     echo "tarball cached: ${path}"
     return
   fi
-  mkdir -p "${RUNNER_HOME}/.bin"
-  echo "downloading ${tarball}..."
-  curl -fL -o "${path}" \
-    "https://github.com/actions/runner/releases/download/v${version}/${tarball}"
+  runner_release_download "${version}"
   # SEC-5: verify the freshly-downloaded tarball. gh is an init prereq, so
   # verification is strict here (a missing digest aborts); rm the file on any
   # failure so a later run can't silently trust an unverified cached copy.
-  verify_runner_tarball "${path}" "${version}" "${tarball}" strict \
+  verify_runner_tarball "${path}" "${version}" "$(runner_release_tarball_name "${version}")" strict \
     || { rm -f "${path}"; exit 1; }
 }
 

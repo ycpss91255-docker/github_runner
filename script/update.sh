@@ -26,17 +26,11 @@ EOF
 
 main() {
   case "${1:-}" in -h|--help) usage; exit 0 ;; esac
-  local version tarball tarball_path
+  local version tarball_path
   version=$(resolve_runner_version)
-  tarball="actions-runner-linux-x64-${version}.tar.gz"
-  tarball_path="${RUNNER_HOME}/.bin/${tarball}"
+  tarball_path=$(runner_release_cache_path "${version}")
 
-  if [[ ! -f ${tarball_path} ]]; then
-    echo "downloading ${tarball}..."
-    mkdir -p "${RUNNER_HOME}/.bin"
-    curl -fL -o "${tarball_path}" \
-      "https://github.com/actions/runner/releases/download/v${version}/${tarball}"
-  fi
+  [[ -f ${tarball_path} ]] || runner_release_download "${version}"
 
   # H1: verify before extraction, whether THIS run downloaded the tarball or
   # hit the cache -- a cache hit must not skip the integrity check. Done once
@@ -44,7 +38,7 @@ main() {
   # prereq and resolve_runner_version can fall back offline, so verification is
   # best-effort (a missing digest warns + proceeds); a mismatch still aborts +
   # rm's the file. SEC-5.
-  verify_runner_tarball "${tarball_path}" "${version}" "${tarball}" best-effort \
+  verify_runner_tarball "${tarball_path}" "${version}" "$(runner_release_tarball_name "${version}")" best-effort \
     || { rm -f "${tarball_path}"; exit 1; }
 
   local runner_dir
