@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh
-source "$(dirname "$(readlink -f "$0")")/../lib/common.sh"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh"
 
 WATCH=0
 INTERVAL=5
@@ -191,4 +191,6 @@ main() {
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+  main "$@"
+fi

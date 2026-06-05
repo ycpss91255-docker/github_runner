@@ -173,16 +173,10 @@ EOF
 }
 
 @test "schedule-cleanup parse_time zero-pads single-digit hours" {
-  # Source parse_time into the bats process (not a `bash -c` sub-shell): under
-  # kcov a sub-shell that runs this set -u script aborts on kcov's BASH_ENV
-  # instrumentation referencing an unbound BASH_SOURCE. parse_time needs
-  # neither main nor common.sh, so strip both from a copy and source the rest
-  # here -- the function then runs in the bats process where BASH_SOURCE is set.
-  local copy="${BATS_TEST_DIRNAME}/../../script/.parse_time_probe.sh"
-  grep -vE '^main "\$@"$|/lib/common\.sh"$' "${SCRIPT}" >"${copy}"
-  source "${copy}"
-  rm -f "${copy}"
-
+  # schedule-cleanup.sh guards `main "$@"` and resolves common.sh via
+  # ${BASH_SOURCE[0]}, so it sources cleanly here to unit-test parse_time --
+  # no copy-and-strip probe needed.
+  source "${SCRIPT}"
   run parse_time "3:05"
   [ "${status}" -eq 0 ]
   [ "${output}" = '03:05' ]

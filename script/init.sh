@@ -11,7 +11,7 @@
 #   ./script/add-runner.sh repo <owner> <repo>
 set -euo pipefail
 
-SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 # shellcheck source=SCRIPTDIR/../lib/common.sh
 source "${SCRIPT_DIR}/../lib/common.sh"
 
@@ -71,24 +71,30 @@ cache_tarball() {
     || { rm -f "${path}"; exit 1; }
 }
 
-# U2: intercept --help before $1 is treated as an org name (otherwise
-# `init.sh --help` would try to register a runner for org "--help").
-case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+main() {
+  # U2: intercept --help before $1 is treated as an org name (otherwise
+  # `init.sh --help` would try to register a runner for org "--help").
+  case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 
-HAS_GPU=0   # set by check_prereqs; default keeps set -u happy
-check_prereqs
-cache_tarball
+  HAS_GPU=0   # set by check_prereqs; default keeps set -u happy
+  check_prereqs
+  cache_tarball
 
-# #34: on a non-GPU host the default 'gpu' registration label is wrong; the
-# label is the routing key for runs-on, so flag it (we don't guess a label).
-if (( ! HAS_GPU )); then
-  echo "note: runners default to the 'gpu' label. For this non-GPU host, set labels first:" >&2
-  echo "      ./script/configure.sh --labels <label>   (then re-run add-runner)" >&2
-fi
+  # #34: on a non-GPU host the default 'gpu' registration label is wrong; the
+  # label is the routing key for runs-on, so flag it (we don't guess a label).
+  if (( ! HAS_GPU )); then
+    echo "note: runners default to the 'gpu' label. For this non-GPU host, set labels first:" >&2
+    echo "      ./script/configure.sh --labels <label>   (then re-run add-runner)" >&2
+  fi
 
-if [[ $# -gt 0 ]]; then
-  echo "==> bootstrapping first runner for org: $1"
-  "${SCRIPT_DIR}/add-runner.sh" org "$1"
-else
-  echo "init complete. Next: ./script/add-runner.sh org <org-name>"
+  if [[ $# -gt 0 ]]; then
+    echo "==> bootstrapping first runner for org: $1"
+    "${SCRIPT_DIR}/add-runner.sh" org "$1"
+  else
+    echo "init complete. Next: ./script/add-runner.sh org <org-name>"
+  fi
+}
+
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+  main "$@"
 fi
