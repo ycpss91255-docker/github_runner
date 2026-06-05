@@ -24,7 +24,9 @@
 - [クイックスタート](#クイックスタート)
 - [runner の検証](#runner-の検証)
 - [runner バイナリのアップグレード](#runner-バイナリのアップグレード)
+- [アンインストール](#アンインストール)
 - [再構築 SOP](#再構築-sop)
+- [トラブルシューティング](#トラブルシューティング)
 - [参考資料](#参考資料)
 - [ライセンス](#ライセンス)
 
@@ -43,6 +45,16 @@ gh auth login --scopes admin:org        # 未ログインの場合
 `my-company`)です——repo でも本プロジェクト名でもありません。**admin/owner**
 権限を持つ GitHub org が必要です(org-scoped がデフォルト。個人 repo は
 `./script/add-runner.sh repo <owner> <repo>` を使用)。
+
+先に設定すべき 2 点(さもないと初回実行が中断 / job が queued のまま):
+
+- **承認ゲート**——org runner では先に *Settings → Actions → General →
+  「Require approval for all outside collaborators」* を有効化してください。
+  さもないと `add-runner.sh org` は登録を拒否します(`--force` で上書き可)。
+  セキュリティモデル参照。
+- **ラベル**——デフォルトラベルは `gpu`。GPU の無いホストでは先にラベルを
+  設定(`./script/configure.sh --labels <label>`)してください。さもないと
+  `gpu` を指定しない job は無言で `queued` のままになります。
 
 runner state はデフォルトで `<repo_root>/runners/` に置かれます。変更は
 `RUNNER_HOME=...` で上書きします。
@@ -88,7 +100,7 @@ org）、ハードコードされていません。
 |---|---|
 | `script/install-deps.sh` | apt/Ubuntu ホストに CLI 前提条件（`gh`、`jq`、`curl`、`sudo`）をインストールし `gh auth login` を実行。`-y` ですべてのインストール確認を承認;`--dry-run` は不足分の報告のみ。Docker と NVIDIA Container Toolkit はインストール済み前提。冪等 |
 | `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（gh 不在 / 未認証 / オフライン時は同梱の pinned バージョンにフォールバック）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
-| `script/add-runner.sh` | 新しい runner を登録。使い方：`org <org>` または `repo <owner> <repo>`。labels は `setup.conf` から取得（デフォルト `gpu`、設定を参照）。`org` スコープでは Default runner group の `allows_public_repositories=true` も同時に有効化し、public リポジトリの workflow がディスパッチできるようにする（下記セキュリティモデルを参照） |
+| `script/add-runner.sh` | 新しい runner を登録。使い方：`[--force] org <org>` または `repo <owner> <repo>`。labels は `setup.conf` から取得（デフォルト `gpu`、設定を参照）。`org` スコープでは外部コントリビューター承認ゲートを検証してから Default runner group の `allows_public_repositories=true` を有効化し public リポジトリの workflow をディスパッチ可能にする；ゲート未設定なら**拒否**(`--force` で上書き、下記セキュリティモデル参照） |
 | `script/configure.sh` | `${RUNNER_HOME}/setup.conf` を生成／更新。`--labels <csv>` で新規登録 runner の labels を設定、引数なしで現在有効な設定を表示 |
 | `script/set-labels.sh` | GitHub API 経由で既存 runner の labels をライブで変更（remove + 再登録は不要）。使い方：`org <org> <csv>` または `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
@@ -175,8 +187,18 @@ Self-hosted runner 上での public リポジトリの workflow ディスパッ�
 で public リポジトリのジョブが再びストランドし、knob 1 オフで fork PR
 の穴が再び開きます。元の分析は #6 を参照。
 
-`script/status.sh` は `PUBLIC-DISPATCH` カラムを表示し、各 org の knob 2 状態
-を可視化することで設定の静かなドリフトを防ぎます。
+knob 2 は GitHub の安全なデフォルトを下げるため、`add-runner.sh org` は
+**まず knob 1 を検証**します:org の承認ゲートを読み取り、「すべての外部
+コントリビューターに承認を要求」に設定されていなければ**登録を拒否**します
+(片方だけ下げることがないように)。`--force` で続行可(fork-PR の露出を
+受け入れる場合 — 例:内部専用 org)。
+
+`script/status.sh` は `PUBLIC-DISPATCH` カラム(knob 2)**と `APPROVAL-GATE`
+カラム(knob 1)**を表示し、片側だけの設定が一目で分かり静かにドリフトしない
+ようにします。
+
+脆弱性の報告は [SECURITY.md](../../SECURITY.md) を参照(公開 issue ではなく
+GitHub のプライベート脆弱性報告を使用)。
 
 ### Runner ユーザーの権限
 
@@ -270,16 +292,17 @@ org スコープ vs repo スコープ：org runner は org 配下の全 repo を
 明示的に登録します：
 
 ```bash
-./script/init.sh                                      # 準備のみ（org 引数なし、上記と同じ）
-./script/add-runner.sh repo ycpss91255-docker my-repo # ycpss91255-docker/my-repo に紐づく runner
+./script/init.sh                            # 準備のみ（org 引数なし、上記と同じ）
+./script/add-runner.sh repo <owner> <repo>  # <owner>/<repo> に紐づく runner
 ```
 
-`./script/status.sh` の想定出力：
+`./script/status.sh` の想定出力(`APPROVAL-GATE` カラムが knob 1、
+`PUBLIC-DISPATCH` が knob 2、セキュリティモデル参照):
 
 ```
-NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC-DISPATCH  LABELS
-<hostname>-ycpss91255-docker-org         org        running    online     public-ok        self-hosted,Linux,X64,gpu
-<hostname>-ycpss91255-research-org       org        running    online     public-ok        self-hosted,Linux,X64,gpu
+NAME                               SCOPE  LOCAL-SVC  GITHUB   PUBLIC-DISPATCH   APPROVAL-GATE   LABELS
+<hostname>-<your-org>-org          org    running    online   public-ok         gate-ok         self-hosted,Linux,X64,gpu
+<hostname>-<other-org>-org         org    running    online   public-ok         gate-ok         self-hosted,Linux,X64,gpu
 ```
 
 ## runner の検証
@@ -301,20 +324,51 @@ versioned な新しい runner ファイルを各 runner ディレクトリに se
 （既存ファイルはそのまま残す）。runner は次回接続時に通常の self-update で
 新バージョンを取り込みます。config と credentials は保持されます。
 
+## アンインストール
+
+**単一**の runner を削除(登録解除 + systemd service の uninstall + ディレクトリ削除):
+
+```bash
+./script/remove-runner.sh org <your-org>          # org runner
+./script/remove-runner.sh repo <owner> <repo>     # repo runner
+```
+
+この checkout が登録した**すべて**の runner + キャッシュ tarball を撤去
+(デフォルトはプロンプト。まずプレビューしてから確定):
+
+```bash
+./script/uninstall.sh --dry-run   # 削除対象を表示
+./script/uninstall.sh --yes       # 実際に削除(非 TTY では必須)
+```
+
+`uninstall.sh` が意図的に**行わない**こと:org の `allows_public_repositories`
+runner-group フラグのリセット(他ホストと共有の可能性)、この checkout 自体の
+削除。ホスト消失後に GitHub 側へ残る `offline` runner は UI で削除してください
+(Settings → Actions → Runners → Remove)。詰まった状態は[トラブルシューティング](#トラブルシューティング)参照。
+
 ## 再構築 SOP
 
 マシン消失 / OS 再インストール後：
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-./script/init.sh ycpss91255-docker
-./script/add-runner.sh org ycpss91255-research
+./script/init.sh <your-org>
+./script/add-runner.sh org <other-org>
 ```
 
 未記録のマシン状態はありません。登録トークンは `gh api` で都度取得する
 ため、旧マシンの runner エントリーが残っている場合は GitHub UI から
 手動で削除してください（Settings → Actions → Runners → Remove offline
-runners）。
+runners）。labels は gitignore された `setup.conf` にあり、ホスト消去後は
+残らないため `./script/configure.sh --labels ...` で再設定してください
+(トラブルシューティング参照)。
+
+## トラブルシューティング
+
+on-call 向け対応表:`status.sh` の各状態(`offline` / `not-found` / `n/a` /
+`stopped` / `public-BLOCKED`)に加え、job が queued のまま・ディスク満杯・
+`gh` 認証切れ・再構築後のラベルドリフトなどの状況を、原因・最初の診断コマンド・
+対処にマッピング:**[doc/runbook/TROUBLESHOOTING.md](../runbook/TROUBLESHOOTING.md)**。
 
 ## 参考資料
 

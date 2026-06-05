@@ -24,6 +24,7 @@
 - [Quick start](#quick-start)
 - [Verifying a runner](#verifying-a-runner)
 - [Upgrading the runner binary](#upgrading-the-runner-binary)
+- [Uninstall](#uninstall)
 - [Rebuild SOP](#rebuild-sop)
 - [Troubleshooting](#troubleshooting)
 - [References](#references)
@@ -44,6 +45,16 @@ gh auth login --scopes admin:org        # if not already
 `my-company`) — not a repo and not this project's name. You need a GitHub org
 you have **admin/owner** rights on (org-scoped is the default; for a personal
 repo use `./script/add-runner.sh repo <owner> <repo>`).
+
+Two things to set up front, or the first run stops / your jobs sit queued:
+
+- **Approval gate** — for an org runner, first enable *Settings → Actions →
+  General → "Require approval for all outside collaborators"*, or
+  `add-runner.sh org` refuses to register (pass `--force` to override). See
+  Security model.
+- **Labels** — the default label is `gpu`. On a non-GPU host, set a label
+  first (`./script/configure.sh --labels <label>`) or jobs that don't target
+  `gpu` will stay `queued` with no error.
 
 Runner state installs under `<repo_root>/runners/` by default; override with
 `RUNNER_HOME=...`.
@@ -89,7 +100,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 |---|---|
 | `script/install-deps.sh` | Install the CLI prerequisites (`gh`, `jq`, `curl`, `sudo`) on an apt/Ubuntu host and run `gh auth login`. `-y` accepts every install prompt; `--dry-run` reports what's missing. Docker + the NVIDIA Container Toolkit are assumed already installed. Idempotent |
 | `script/init.sh` | Verify host prerequisites; resolve the actions/runner version (`RUNNER_VERSION=...` override, else the latest release via `gh api`, falling back to a pinned version when `gh` is missing / unauthenticated / offline), then download + cache the tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
-| `script/add-runner.sh` | Register a new runner. Usage: `org <org>` or `repo <owner> <repo>`. Labels come from `setup.conf` (default `gpu`, see Configuration). For `org` scope also flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch (see Security model below) |
+| `script/add-runner.sh` | Register a new runner. Usage: `[--force] org <org>` or `repo <owner> <repo>`. Labels come from `setup.conf` (default `gpu`, see Configuration). For `org` scope it verifies the outside-collaborator approval gate and then flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch; it **refuses** if the gate is not set unless `--force` is given (see Security model below) |
 | `script/configure.sh` | Generate / update `${RUNNER_HOME}/setup.conf`. `--labels <csv>` sets the labels for newly registered runners; no args prints the current effective config |
 | `script/set-labels.sh` | Relabel an already-registered runner live via the GitHub API (no remove + re-register). Usage: `org <org> <csv>` or `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
@@ -179,8 +190,15 @@ maintainer and trusted collaborators can. Closing one without the other
 either re-strands public-repo jobs (knob 2 off) or re-opens the fork-PR
 hole (knob 1 off). See #6 for the original analysis.
 
-`script/status.sh` surfaces a `PUBLIC-DISPATCH` column showing whether knob 2 is
-set on each org so the configuration cannot drift silently.
+Because knob 2 lowers GitHub's safe default, `add-runner.sh org` **verifies
+knob 1 first**: it reads the org's approval gate and *refuses to register*
+unless it is set to require approval for all outside collaborators, so the
+tool can never lower one knob without the other. Pass `--force` to proceed
+anyway (accepting the fork-PR exposure — e.g. an internal-only org).
+
+`script/status.sh` surfaces a `PUBLIC-DISPATCH` column (knob 2) **and an
+`APPROVAL-GATE` column (knob 1)** so a one-sided configuration is visible at a
+glance and cannot drift silently.
 
 ### Runner-user privilege
 
@@ -283,16 +301,17 @@ runners, so for a repo-scoped runner prep the host first, then add it explicitly
 with `script/add-runner.sh`:
 
 ```bash
-./script/init.sh                                      # prep-only (no org arg, as above)
-./script/add-runner.sh repo ycpss91255-docker my-repo # runner pinned to ycpss91255-docker/my-repo
+./script/init.sh                                # prep-only (no org arg, as above)
+./script/add-runner.sh repo <owner> <repo>      # runner pinned to <owner>/<repo>
 ```
 
-Expected output of `./script/status.sh`:
+Expected output of `./script/status.sh` (the `APPROVAL-GATE` column shows knob 1,
+`PUBLIC-DISPATCH` shows knob 2 — see Security model):
 
 ```
-NAME                                     SCOPE      LOCAL-SVC  GITHUB     PUBLIC-DISPATCH  LABELS
-<hostname>-ycpss91255-docker-org         org        running    online     public-ok        self-hosted,Linux,X64,gpu
-<hostname>-ycpss91255-research-org       org        running    online     public-ok        self-hosted,Linux,X64,gpu
+NAME                               SCOPE  LOCAL-SVC  GITHUB   PUBLIC-DISPATCH   APPROVAL-GATE   LABELS
+<hostname>-<your-org>-org          org    running    online   public-ok         gate-ok         self-hosted,Linux,X64,gpu
+<hostname>-<other-org>-org         org    running    online   public-ok         gate-ok         self-hosted,Linux,X64,gpu
 ```
 
 ## Verifying a runner
@@ -315,14 +334,38 @@ runner dir (existing files are left in place), restarts. The runner then
 picks up the new version via its normal self-update on next connect. Config
 and credentials are preserved.
 
+## Uninstall
+
+Remove a **single** runner (deregister + uninstall its systemd service +
+delete its dir):
+
+```bash
+./script/remove-runner.sh org <your-org>          # an org runner
+./script/remove-runner.sh repo <owner> <repo>     # a repo runner
+```
+
+Tear down **everything** this checkout registered, plus the cached tarball
+(prompts by default; preview first, then confirm):
+
+```bash
+./script/uninstall.sh --dry-run   # show what would be removed
+./script/uninstall.sh --yes       # actually remove (required for non-TTY)
+```
+
+`uninstall.sh` deliberately does **not**: reset the org's
+`allows_public_repositories` runner-group flag (it may be shared by other
+hosts), or delete this checkout. Runners left `offline` on the GitHub side
+after a host is gone are removed in the UI (Settings → Actions → Runners →
+Remove). See [Troubleshooting](#troubleshooting) for stuck states.
+
 ## Rebuild SOP
 
 After machine loss / reformat:
 
 ```bash
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
-./script/init.sh ycpss91255-docker
-./script/add-runner.sh org ycpss91255-research
+./script/init.sh <your-org>
+./script/add-runner.sh org <other-org>
 ```
 
 No undocumented machine state. Registration tokens are fetched fresh via

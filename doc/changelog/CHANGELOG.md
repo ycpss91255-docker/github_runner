@@ -36,6 +36,17 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- README accuracy + locale sync (#70): the `status.sh` sample output now shows
+  the `APPROVAL-GATE` column, the Security model documents that `add-runner.sh
+  org` verifies the approval gate before enabling public-repo dispatch (and the
+  `--force` override), and the quick-start path lists the approval-gate
+  prerequisite. The zh-TW / zh-CN / ja READMEs were brought up to parity with
+  the English one (APPROVAL-GATE, `--force`, and links to SECURITY.md and the
+  troubleshooting runbook, which they were missing).
+- README onboarding (#71): added an `Uninstall` section (TOC + walkthrough for
+  `remove-runner.sh` and `uninstall.sh`, including what teardown does not touch)
+  and a TL;DR reminder to set a non-`gpu` label on non-GPU hosts, across all
+  four locales.
 - Added `SECURITY.md` with a private vulnerability-reporting channel (GitHub
   private advisories) and a threat-model summary (single-tenant + root-
   equivalent posture, the two org safety knobs, supply-chain scope, and what is
