@@ -170,6 +170,57 @@ fake_runner() {
   [ -f "${FAKE_RH}/.bin/actions-runner-linux-x64-2.334.0.tar.gz" ]
 }
 
+@test "cleanup.sh --work-caches prunes old _tool/_actions on an idle runner, keeps recent (#58)" {
+  fake_runner myorg 2.334.0
+  local d="${FAKE_RH}/myorg/_org"
+  mkdir -p "${d}/_work/_tool/node_old" "${d}/_work/_tool/node_new" \
+           "${d}/_work/_actions/act_old"
+  touch -t 202001010000 "${d}/_work/_tool/node_old" "${d}/_work/_actions/act_old"
+  # idle: pgrep finds no Runner.Worker -> runner_busy returns false.
+  local STUB; STUB=$(mktemp -d)
+  printf '#!/bin/sh\nexit 1\n' > "${STUB}/pgrep"
+  chmod +x "${STUB}/pgrep"
+
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --work-caches --dry-run
+  rm -rf "${STUB}"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"stale _work/_tool myorg/_org/node_old"* ]]
+  [[ "${output}" == *"stale _work/_actions myorg/_org/act_old"* ]]
+  [[ "${output}" != *"node_new"* ]]
+  [ -d "${d}/_work/_tool/node_old" ]   # dry-run leaves it
+}
+
+@test "cleanup.sh --work-caches skips a busy runner and leaves its caches (#58)" {
+  fake_runner myorg 2.334.0
+  local d="${FAKE_RH}/myorg/_org"
+  mkdir -p "${d}/_work/_tool/node_old"
+  touch -t 202001010000 "${d}/_work/_tool/node_old"
+  # busy: pgrep reports a Runner.Worker running under this runner's bin/.
+  local STUB; STUB=$(mktemp -d)
+  cat > "${STUB}/pgrep" <<EOF
+#!/bin/sh
+echo "4242 ${d}/bin/Runner.Worker spawnclient 1 2"
+EOF
+  chmod +x "${STUB}/pgrep"
+
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --work-caches --dry-run
+  rm -rf "${STUB}"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"running a job; skipping its _work caches"* ]]
+  [[ "${output}" != *"stale _work/_tool"* ]]
+}
+
+@test "cleanup.sh without --work-caches never enumerates _work caches (#58)" {
+  fake_runner myorg 2.334.0
+  mkdir -p "${FAKE_RH}/myorg/_org/_work/_tool/node_old"
+  touch -t 202001010000 "${FAKE_RH}/myorg/_org/_work/_tool/node_old"
+
+  run "${SCRIPT}" --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"_work/_tool"* ]]
+  [[ "${output}" == *"Nothing to clean"* ]]
+}
+
 @test "cleanup.sh rotates _diag logs older than the retention window, keeps recent ones (#55)" {
   fake_runner myorg 2.334.0
   mkdir -p "${FAKE_RH}/myorg/_org/_diag"
@@ -193,7 +244,7 @@ fake_runner() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"disk: "* ]]
   [[ "${output}" == *"WARN: at/above 0%"* ]]
-  [[ "${output}" == *"_work/<job-id>"* ]]
+  [[ "${output}" == *"--work-caches"* ]]
 }
 
 @test "cleanup.sh disk report stays quiet below the threshold (#55)" {
