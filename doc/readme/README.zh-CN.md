@@ -36,16 +36,14 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 若尚未登录
 
-./script/init.sh <your-org>             # 准备 host + 注册第一个 org runner
-./script/init.sh repo <owner> <repo>    # ...或改为注册个人 repo runner
+./script/init.sh <your-org>             # 准备 host + 注册第一个 runner
 ./script/add-runner.sh org <other-org>  # (可选) 为另一个 org 注册 runner
 ./script/status.sh                      # 本地 + GitHub 端状态
 ```
 
 `<your-org>` 是**你自己的 GitHub organization**(账号名称,例如 `my-company`)
 ——不是 repo,也不是本项目名称。你需要一个你具有 **admin/owner** 权限的 GitHub
-org。org-scoped 是默认;若你没有 org(个人账号),改用上面的 `repo <owner> <repo>`
-形式即可。(`init.sh <your-org>` 是 `init.sh org <your-org>` 的简写。)
+org。若你没有 org(个人账号),改为注册 repo-scoped runner —— 见[快速开始](#快速开始)。
 
 有两件事要先设好,否则第一次跑会中断 / job 会卡住:
 
@@ -266,13 +264,16 @@ git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_ru
 ./script/init.sh   # 不带 org 参数 = 只 bootstrap
 ```
 
-org vs repo scope：org runner 服务该 org 下所有 repo；repo runner 只绑定单一 repo。
+org vs repo scope：org runner 服务该 org 下所有 repo;repo runner 只绑定单一 repo。
 `script/init.sh` 两种 scope 都接,所以 repo-level runner 也能一步到位 —— 带上
-`repo <owner> <repo>`,它会准备 host 并注册该 runner(转交给 `script/add-runner.sh`)：
+`repo <owner> <repo>`,它会准备 host 并注册该 runner(转交给 `script/add-runner.sh`)。
+没有 org 的个人账号就走这条路:
 
 ```bash
 ./script/init.sh repo <owner> <repo>  # 准备 host + runner 绑定 <owner>/<repo>
 ```
+
+(上面 org 示例里的 `init.sh <your-org>` 只是 `init.sh org <your-org>` 的简写。)
 
 `./script/status.sh` 预期输出(`APPROVAL-GATE` 栏为 knob 1、`PUBLIC-DISPATCH`
 为 knob 2,详见安全性说明):
