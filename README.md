@@ -36,17 +36,15 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # if not already
 
-./script/init.sh <your-org>             # prep host + register first org runner
-./script/init.sh repo <owner> <repo>    # ...or a personal repo runner instead
+./script/init.sh <your-org>             # prep host + register first runner
 ./script/add-runner.sh org <other-org>  # (optional) register another org runner
 ./script/status.sh                      # local + GitHub-side state
 ```
 
 `<your-org>` is **your own GitHub organization** (the account name, e.g.
 `my-company`) — not a repo and not this project's name. You need a GitHub org
-you have **admin/owner** rights on. Org-scoped is the default; if you don't
-have an org (a personal account), use the `repo <owner> <repo>` form shown
-above instead. (`init.sh <your-org>` is shorthand for `init.sh org <your-org>`.)
+you have **admin/owner** rights on. No org (a personal account)? Register a
+repo-scoped runner instead — see [Quick start](#quick-start).
 
 Two things to set up front, or the first run stops / your jobs sit queued:
 
@@ -300,11 +298,15 @@ later):
 Org- vs repo-scoped: an org runner serves every repo in the org; a repo runner
 is pinned to a single repo. `script/init.sh` takes either scope, so a repo-level
 runner is a one-shot too — pass `repo <owner> <repo>` and it preps the host then
-registers that runner (forwarded to `script/add-runner.sh`):
+registers that runner (forwarded to `script/add-runner.sh`). This is the path
+for a personal account that has no org:
 
 ```bash
 ./script/init.sh repo <owner> <repo>      # prep host + runner pinned to <owner>/<repo>
 ```
+
+(`init.sh <your-org>` in the org examples above is just shorthand for
+`init.sh org <your-org>`.)
 
 Expected output of `./script/status.sh` (the `APPROVAL-GATE` column shows knob 1,
 `PUBLIC-DISPATCH` shows knob 2 — see Security model):

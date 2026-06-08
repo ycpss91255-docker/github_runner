@@ -36,17 +36,15 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 未ログインの場合
 
-./script/init.sh <your-org>             # ホスト準備 + 最初の org runner を登録
-./script/init.sh repo <owner> <repo>    # ...または個人 repo runner を登録
+./script/init.sh <your-org>             # ホスト準備 + 最初の runner を登録
 ./script/add-runner.sh org <other-org>  # (任意) 別の org 用の runner を登録
 ./script/status.sh                      # ローカル + GitHub 側の状態
 ```
 
 `<your-org>` は**あなた自身の GitHub organization**(アカウント名、例:
 `my-company`)です——repo でも本プロジェクト名でもありません。**admin/owner**
-権限を持つ GitHub org が必要です。org-scoped がデフォルトで、org がない(個人
-アカウントの)場合は上記の `repo <owner> <repo>` 形式を使ってください。
-(`init.sh <your-org>` は `init.sh org <your-org>` の短縮形です。)
+権限を持つ GitHub org が必要です。org がない(個人アカウントの)場合は repo-scoped
+runner を登録してください ——[クイックスタート](#クイックスタート)を参照。
 
 先に設定すべき 2 点(さもないと初回実行が中断 / job が queued のまま):
 
@@ -291,11 +289,14 @@ git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_ru
 org スコープ vs repo スコープ：org runner は org 配下の全 repo を、repo runner は
 単一 repo のみを担当します。`script/init.sh` はどちらの scope も受け付けるため、
 repo レベルの runner も一括で登録できます —— `repo <owner> <repo>` を渡せば
-ホスト準備と runner 登録を同時に行います（`script/add-runner.sh` に転送）：
+ホスト準備と runner 登録を同時に行います（`script/add-runner.sh` に転送）。org を
+持たない個人アカウントはこの方法を使ってください：
 
 ```bash
 ./script/init.sh repo <owner> <repo>  # ホスト準備 + <owner>/<repo> に紐づく runner
 ```
+
+（上記 org の例の `init.sh <your-org>` は `init.sh org <your-org>` の短縮形です。）
 
 `./script/status.sh` の想定出力(`APPROVAL-GATE` カラムが knob 1、
 `PUBLIC-DISPATCH` が knob 2、セキュリティモデル参照):
