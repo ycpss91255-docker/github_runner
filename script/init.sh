@@ -3,10 +3,13 @@
 # and (optionally) register the first runner.
 #
 # Usage:
-#   ./script/init.sh <org>     -- bootstrap + register first org-level runner
-#   ./script/init.sh           -- bootstrap only (no runner registered)
+#   ./script/init.sh org <org>            -- bootstrap + register first org-level runner
+#   ./script/init.sh <org>                -- shorthand for the org form above
+#   ./script/init.sh repo <owner> <repo>  -- bootstrap + register a repo-level runner
+#   ./script/init.sh                      -- bootstrap only (no runner registered)
 #
-# After init, register additional runners with:
+# The scope arg is handed to add-runner.sh verbatim. After init, register
+# additional runners with:
 #   ./script/add-runner.sh org <another-org>
 #   ./script/add-runner.sh repo <owner> <repo>
 set -euo pipefail
@@ -18,8 +21,10 @@ source "${SCRIPT_DIR}/../lib/common.sh"
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") <org>   # bootstrap host + register the first org-level runner
-  $(basename "$0")         # bootstrap only (no runner registered)
+  $(basename "$0") org <org>            # bootstrap host + register an org-level runner
+  $(basename "$0") <org>                # shorthand for the org form above
+  $(basename "$0") repo <owner> <repo>  # bootstrap host + register a repo-level runner
+  $(basename "$0")                      # bootstrap only (no runner registered)
 EOF
 }
 
@@ -83,11 +88,18 @@ main() {
     echo "      ./script/configure.sh --labels <label>   (then re-run add-runner)" >&2
   fi
 
-  if [[ $# -gt 0 ]]; then
+  # Hand any runner args to add-runner.sh. An explicit scope (org/repo, or a
+  # leading --force) is forwarded verbatim so init can register a repo-level
+  # runner too; a bare first arg stays the historical shorthand for an org
+  # name (init.sh <org>). No args = bootstrap only.
+  if [[ $# -eq 0 ]]; then
+    echo "init complete. Next: ./script/add-runner.sh org <org-name>"
+  elif [[ $1 == org || $1 == repo || $1 == --force ]]; then
+    echo "==> bootstrapping first runner: $*"
+    "${SCRIPT_DIR}/add-runner.sh" "$@"
+  else
     echo "==> bootstrapping first runner for org: $1"
     "${SCRIPT_DIR}/add-runner.sh" org "$1"
-  else
-    echo "init complete. Next: ./script/add-runner.sh org <org-name>"
   fi
 }
 

@@ -36,15 +36,17 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 未ログインの場合
 
-./script/init.sh <your-org>             # ホスト準備 + 最初の runner を登録
+./script/init.sh <your-org>             # ホスト準備 + 最初の org runner を登録
+./script/init.sh repo <owner> <repo>    # ...または個人 repo runner を登録
 ./script/add-runner.sh org <other-org>  # (任意) 別の org 用の runner を登録
 ./script/status.sh                      # ローカル + GitHub 側の状態
 ```
 
 `<your-org>` は**あなた自身の GitHub organization**(アカウント名、例:
 `my-company`)です——repo でも本プロジェクト名でもありません。**admin/owner**
-権限を持つ GitHub org が必要です(org-scoped がデフォルト。個人 repo は
-`./script/add-runner.sh repo <owner> <repo>` を使用)。
+権限を持つ GitHub org が必要です。org-scoped がデフォルトで、org がない(個人
+アカウントの)場合は上記の `repo <owner> <repo>` 形式を使ってください。
+(`init.sh <your-org>` は `init.sh org <your-org>` の短縮形です。)
 
 先に設定すべき 2 点(さもないと初回実行が中断 / job が queued のまま):
 
@@ -99,7 +101,7 @@ org）、ハードコードされていません。
 | Script | 用途 |
 |---|---|
 | `script/install-deps.sh` | apt/Ubuntu ホストに CLI 前提条件（`gh`、`jq`、`curl`、`sudo`）をインストールし `gh auth login` を実行。`-y` ですべてのインストール確認を承認;`--dry-run` は不足分の報告のみ。Docker と NVIDIA Container Toolkit はインストール済み前提。冪等 |
-| `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（gh 不在 / 未認証 / オフライン時は同梱の pinned バージョンにフォールバック）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。org 引数を渡せば最初の runner も同時に登録 |
+| `script/init.sh` | ホストの前提条件チェック、GitHub API 経由で actions/runner の最新 release を解決し（gh 不在 / 未認証 / オフライン時は同梱の pinned バージョンにフォールバック）、`<repo_root>/runners/.bin/`（= `$RUNNER_HOME/.bin/`）にキャッシュ。`RUNNER_VERSION=...` で上書き可能。scope 引数を渡すとそのまま `add-runner.sh` に転送して最初の runner も登録：`org <org>`、`repo <owner> <repo>`、または org 名のみ（`org` 形式の短縮形）|
 | `script/add-runner.sh` | 新しい runner を登録。使い方：`[--force] org <org>` または `repo <owner> <repo>`。labels は `setup.conf` から取得（デフォルト `gpu`、設定を参照）。`org` スコープでは外部コントリビューター承認ゲートを検証してから Default runner group の `allows_public_repositories=true` を有効化し public リポジトリの workflow をディスパッチ可能にする；ゲート未設定なら**拒否**(`--force` で上書き、下記セキュリティモデル参照） |
 | `script/configure.sh` | `${RUNNER_HOME}/setup.conf` を生成／更新。`--labels <csv>` で新規登録 runner の labels を設定、引数なしで現在有効な設定を表示 |
 | `script/set-labels.sh` | GitHub API 経由で既存 runner の labels をライブで変更（remove + 再登録は不要）。使い方：`org <org> <csv>` または `repo <owner> <repo> <csv>` |
@@ -241,8 +243,8 @@ tarball は、展開前に GitHub が release asset 向けに公開する SHA-25
 
 - **admin/owner 権限を持つ GitHub organization**。org-scoped フロー
   (`init.sh <org>` / `add-runner.sh org <org>`)がデフォルトです。個人
-  アカウントの場合は repo-scoped runner（`add-runner.sh repo <owner> <repo>`）
-  を登録してください。
+  アカウントの場合は repo-scoped runner（`init.sh repo <owner> <repo>`、または
+  `add-runner.sh repo <owner> <repo>`）を登録してください。
 - `gh` が認証済みで token に `admin:org` scope を含む（`gh auth login --scopes admin:org`）
 - `github.com`、`api.github.com`、`cli.github.com`、`objects.githubusercontent.com` への外向き HTTPS（runner のダウンロード + 登録）
 - `sudo` 権限（runner は systemd service として導入）
@@ -287,13 +289,12 @@ git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_ru
 ```
 
 org スコープ vs repo スコープ：org runner は org 配下の全 repo を、repo runner は
-単一 repo のみを担当します。`script/init.sh` は org スコープの最初の runner しか
-登録しないため、repo スコープの runner はホスト準備後に `script/add-runner.sh` で
-明示的に登録します：
+単一 repo のみを担当します。`script/init.sh` はどちらの scope も受け付けるため、
+repo レベルの runner も一括で登録できます —— `repo <owner> <repo>` を渡せば
+ホスト準備と runner 登録を同時に行います（`script/add-runner.sh` に転送）：
 
 ```bash
-./script/init.sh                            # 準備のみ（org 引数なし、上記と同じ）
-./script/add-runner.sh repo <owner> <repo>  # <owner>/<repo> に紐づく runner
+./script/init.sh repo <owner> <repo>  # ホスト準備 + <owner>/<repo> に紐づく runner
 ```
 
 `./script/status.sh` の想定出力(`APPROVAL-GATE` カラムが knob 1、

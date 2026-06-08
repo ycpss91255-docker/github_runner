@@ -36,15 +36,17 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # if not already
 
-./script/init.sh <your-org>             # prep host + register first runner
+./script/init.sh <your-org>             # prep host + register first org runner
+./script/init.sh repo <owner> <repo>    # ...or a personal repo runner instead
 ./script/add-runner.sh org <other-org>  # (optional) register another org runner
 ./script/status.sh                      # local + GitHub-side state
 ```
 
 `<your-org>` is **your own GitHub organization** (the account name, e.g.
 `my-company`) — not a repo and not this project's name. You need a GitHub org
-you have **admin/owner** rights on (org-scoped is the default; for a personal
-repo use `./script/add-runner.sh repo <owner> <repo>`).
+you have **admin/owner** rights on. Org-scoped is the default; if you don't
+have an org (a personal account), use the `repo <owner> <repo>` form shown
+above instead. (`init.sh <your-org>` is shorthand for `init.sh org <your-org>`.)
 
 Two things to set up front, or the first run stops / your jobs sit queued:
 
@@ -99,7 +101,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 | Script | Purpose |
 |---|---|
 | `script/install-deps.sh` | Install the CLI prerequisites (`gh`, `jq`, `curl`, `sudo`) on an apt/Ubuntu host and run `gh auth login`. `-y` accepts every install prompt; `--dry-run` reports what's missing. Docker + the NVIDIA Container Toolkit are assumed already installed. Idempotent |
-| `script/init.sh` | Verify host prerequisites; resolve the actions/runner version (`RUNNER_VERSION=...` override, else the latest release via `gh api`, falling back to a pinned version when `gh` is missing / unauthenticated / offline), then download + cache the tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given an org arg, also registers the first runner for that org |
+| `script/init.sh` | Verify host prerequisites; resolve the actions/runner version (`RUNNER_VERSION=...` override, else the latest release via `gh api`, falling back to a pinned version when `gh` is missing / unauthenticated / offline), then download + cache the tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given a scope arg it also registers the first runner, forwarding it to `add-runner.sh` verbatim: `org <org>`, `repo <owner> <repo>`, or a bare org name as shorthand for the `org` form |
 | `script/add-runner.sh` | Register a new runner. Usage: `[--force] org <org>` or `repo <owner> <repo>`. Labels come from `setup.conf` (default `gpu`, see Configuration). For `org` scope it verifies the outside-collaborator approval gate and then flips the Default runner group's `allows_public_repositories=true` so public-repo workflows can dispatch; it **refuses** if the gate is not set unless `--force` is given (see Security model below) |
 | `script/configure.sh` | Generate / update `${RUNNER_HOME}/setup.conf`. `--labels <csv>` sets the labels for newly registered runners; no args prints the current effective config |
 | `script/set-labels.sh` | Relabel an already-registered runner live via the GitHub API (no remove + re-register). Usage: `org <org> <csv>` or `repo <owner> <repo> <csv>` |
@@ -248,7 +250,7 @@ GitHub's private vulnerability reporting — not a public issue).
 - A GitHub **organization you have admin/owner rights on** — the org-scoped
   flow (`init.sh <org>` / `add-runner.sh org <org>`) is the default. For a
   personal account, register a repo-scoped runner instead
-  (`add-runner.sh repo <owner> <repo>`).
+  (`init.sh repo <owner> <repo>`, or `add-runner.sh repo <owner> <repo>`).
 - `gh` authenticated with the `admin:org` scope (`gh auth login --scopes admin:org`)
 - Outbound HTTPS to `github.com`, `api.github.com`, `cli.github.com`, and
   `objects.githubusercontent.com` (runner download + registration)
@@ -296,13 +298,12 @@ later):
 ```
 
 Org- vs repo-scoped: an org runner serves every repo in the org; a repo runner
-is pinned to a single repo. `script/init.sh` only registers org-scoped first
-runners, so for a repo-scoped runner prep the host first, then add it explicitly
-with `script/add-runner.sh`:
+is pinned to a single repo. `script/init.sh` takes either scope, so a repo-level
+runner is a one-shot too — pass `repo <owner> <repo>` and it preps the host then
+registers that runner (forwarded to `script/add-runner.sh`):
 
 ```bash
-./script/init.sh                                # prep-only (no org arg, as above)
-./script/add-runner.sh repo <owner> <repo>      # runner pinned to <owner>/<repo>
+./script/init.sh repo <owner> <repo>      # prep host + runner pinned to <owner>/<repo>
 ```
 
 Expected output of `./script/status.sh` (the `APPROVAL-GATE` column shows knob 1,

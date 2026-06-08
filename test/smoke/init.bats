@@ -154,3 +154,33 @@ EOF
   [[ "${output}" == *"./script/configure.sh --labels"* ]]
   [[ "${output}" == *"init complete"* ]]   # no org arg -> no runner registered
 }
+
+@test "init.sh forwards an explicit 'repo <owner> <repo>' scope to add-runner.sh" {
+  # The new repo path: init recognises the explicit scope and hands ALL args to
+  # add-runner.sh verbatim (not the legacy bare-org path), so a personal-account
+  # repo runner can be bootstrapped in one shot. add-runner.sh then fails on the
+  # fake tarball, but init's dispatch line has already printed -- assert on that,
+  # not on exit status.
+  FAKE_RH=$(mktemp -d); export RUNNER_HOME="${FAKE_RH}"
+  make_prereq_stub
+  local cached="${RUNNER_HOME}/.bin/actions-runner-linux-x64-${TARBALL_VERSION}.tar.gz"
+  mkdir -p "${RUNNER_HOME}/.bin"
+  printf 'already-here\n' > "${cached}"   # cached -> reach dispatch
+
+  run env PATH="${STUB}:/bin:/usr/bin" "${SCRIPT}" repo octocat hello-world
+  [[ "${output}" == *"bootstrapping first runner: repo octocat hello-world"* ]]
+  [[ "${output}" != *"for org: repo"* ]]   # not misread as a bare org name
+}
+
+@test "init.sh keeps the legacy bare-org shorthand (init.sh <org> -> org scope)" {
+  # Backward compat: a bare first arg is still treated as an org name and mapped
+  # to 'add-runner.sh org <org>' (the form the TL;DR / Rebuild SOP document).
+  FAKE_RH=$(mktemp -d); export RUNNER_HOME="${FAKE_RH}"
+  make_prereq_stub
+  local cached="${RUNNER_HOME}/.bin/actions-runner-linux-x64-${TARBALL_VERSION}.tar.gz"
+  mkdir -p "${RUNNER_HOME}/.bin"
+  printf 'already-here\n' > "${cached}"
+
+  run env PATH="${STUB}:/bin:/usr/bin" "${SCRIPT}" my-org
+  [[ "${output}" == *"bootstrapping first runner for org: my-org"* ]]
+}

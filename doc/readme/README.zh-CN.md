@@ -36,14 +36,16 @@
 git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_runner
 gh auth login --scopes admin:org        # 若尚未登录
 
-./script/init.sh <your-org>             # 准备 host + 注册第一个 runner
+./script/init.sh <your-org>             # 准备 host + 注册第一个 org runner
+./script/init.sh repo <owner> <repo>    # ...或改为注册个人 repo runner
 ./script/add-runner.sh org <other-org>  # (可选) 为另一个 org 注册 runner
 ./script/status.sh                      # 本地 + GitHub 端状态
 ```
 
 `<your-org>` 是**你自己的 GitHub organization**(账号名称,例如 `my-company`)
 ——不是 repo,也不是本项目名称。你需要一个你具有 **admin/owner** 权限的 GitHub
-org(org-scoped 是默认;个人 repo 请改用 `./script/add-runner.sh repo <owner> <repo>`)。
+org。org-scoped 是默认;若你没有 org(个人账号),改用上面的 `repo <owner> <repo>`
+形式即可。(`init.sh <your-org>` 是 `init.sh org <your-org>` 的简写。)
 
 有两件事要先设好,否则第一次跑会中断 / job 会卡住:
 
@@ -93,7 +95,7 @@ binary、回报本地与 GitHub 端状态、清理自动升级残料。一份 cl
 | Script | 用途 |
 |---|---|
 | `script/install-deps.sh` | 在 apt/Ubuntu host 上安装 CLI 先决条件（`gh`、`jq`、`curl`、`sudo`）并跑 `gh auth login`。`-y` 接受所有安装提示;`--dry-run` 只报告缺什么。Docker 与 NVIDIA Container Toolkit 假设已安装。幂等 |
-| `script/init.sh` | 检查 host 先决条件；透过 GitHub API 解析 actions/runner 最新 release（当 gh 缺失 / 未认证 / 离线时退回内建 pinned 版本），下载并缓存至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆盖。若带 org 参数，会同时注册该 org 的第一个 runner |
+| `script/init.sh` | 检查 host 先决条件；透过 GitHub API 解析 actions/runner 最新 release（当 gh 缺失 / 未认证 / 离线时退回内建 pinned 版本），下载并缓存至 `<repo_root>/runners/.bin/`（即 `$RUNNER_HOME/.bin/`）。可用 `RUNNER_VERSION=...` 覆盖。若带 scope 参数，会原封不动转交给 `add-runner.sh` 并注册第一个 runner：`org <org>`、`repo <owner> <repo>`，或只给 org 名称作为 `org` 形式的简写 |
 | `script/add-runner.sh` | 注册新 runner。用法：`[--force] org <org>` 或 `repo <owner> <repo>`。labels 取自 `setup.conf`（默认 `gpu`，详见配置）。`org` scope 会先验证外部贡献者 approval gate,再把 Default runner group 的 `allows_public_repositories=true` 打开让 public repo workflow 能 dispatch；gate 未设时会**拒绝**,除非加 `--force`(详见下方安全性说明） |
 | `script/configure.sh` | 生成／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 设定新注册 runner 的 labels；无参数则打印当前生效的配置 |
 | `script/set-labels.sh` | 通过 GitHub API 即时改既有 runner 的 labels（免 remove + 重新注册）。用法：`org <org> <csv>` 或 `repo <owner> <repo> <csv>` |
@@ -223,7 +225,7 @@ release asset 公布的 SHA-256(供应链检查,与上述正交)。
 
 - 一个你具有 **admin/owner 权限的 GitHub organization** ——org-scoped 流程
   (`init.sh <org>` / `add-runner.sh org <org>`)是默认。个人账号请改注册
-  repo-scoped runner(`add-runner.sh repo <owner> <repo>`)。
+  repo-scoped runner(`init.sh repo <owner> <repo>`,或 `add-runner.sh repo <owner> <repo>`)。
 - `gh` 已登入且 token 含 `admin:org` scope（`gh auth login --scopes admin:org`）
 - 对 `github.com`、`api.github.com`、`cli.github.com`、`objects.githubusercontent.com` 的对外 HTTPS（runner 下载 + 注册）
 - `sudo` 权限（runner 以 systemd service 安装）
@@ -265,12 +267,11 @@ git clone https://github.com/ycpss91255-docker/github_runner.git && cd github_ru
 ```
 
 org vs repo scope：org runner 服务该 org 下所有 repo；repo runner 只绑定单一 repo。
-`script/init.sh` 只会注册 org-scoped 的第一个 runner，所以 repo-scoped runner 要先
-准备 host，再用 `script/add-runner.sh` 明确注册：
+`script/init.sh` 两种 scope 都接,所以 repo-level runner 也能一步到位 —— 带上
+`repo <owner> <repo>`,它会准备 host 并注册该 runner(转交给 `script/add-runner.sh`)：
 
 ```bash
-./script/init.sh                            # 只准备（不带 org 参数，同上）
-./script/add-runner.sh repo <owner> <repo>  # runner 绑定 <owner>/<repo>
+./script/init.sh repo <owner> <repo>  # 准备 host + runner 绑定 <owner>/<repo>
 ```
 
 `./script/status.sh` 预期输出(`APPROVAL-GATE` 栏为 knob 1、`PUBLIC-DISPATCH`
