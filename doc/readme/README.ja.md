@@ -216,6 +216,15 @@ runner ツリーを信頼します。将来このホストで信頼できない 
 Podman**（`docker` group 不要、daemon を非特権で実行）です —— 可能ですが GPU +
 docker-in-docker の摩擦があるため、その時点で別途評価してください。
 
+専用 CI ユーザーは**それ自体では境界になりません**。runner ユーザーが `docker`
+group に属する（上記のとおり root 相当）ため、ログインを分ける・home を空にする・
+`chmod 600 ~/.ssh` といった対策は見かけだけです:実行されるジョブは `docker run -v
+/:/host …` で operator の SSH 鍵・クラウド認証情報・トークンを所有者に関係なく読め
+ます。専用 CI ユーザーが本当の境界になるのは、**rootless**（ユーザーがもはや root
+でない）**または** **ホストに機密を置かない**（root が盗む物を持たない）と組み合わ
+せたときだけで、どちらか一方では不十分です。具体的な手順は
+[host hardening runbook](../runbook/HOST-HARDENING.md) を参照してください。
+
 リポジトリ内で**実施している**ハードニング:ダウンロードした actions/runner
 tarball は、展開前に GitHub が release asset 向けに公開する SHA-256 と照合され
 ます（サプライチェーンチェック、上記とは独立）。
