@@ -217,6 +217,15 @@ the upgrade path is **rootless Docker or rootless Podman** (no `docker` group;
 the daemon runs unprivileged) — doable but with GPU + docker-in-docker
 friction, so evaluate it separately at that point.
 
+A dedicated CI user is **not** a boundary on its own. Because the runner user is
+in the `docker` group (root-equivalent, above), a separate login, a clean home
+directory, or `chmod 600 ~/.ssh` are cosmetic: any job that runs can `docker run
+-v /:/host …` and read operator SSH keys, cloud credentials, and tokens
+regardless of file ownership. A dedicated CI user only becomes a real boundary
+when paired with **rootless** (the user is no longer root) *or* **host-no-secrets**
+(root has nothing to take) — never one without the other. For the operational
+steps, see the [host hardening runbook](doc/runbook/HOST-HARDENING.md).
+
 What *is* hardened in-repo: the downloaded actions/runner tarball is verified
 against the SHA-256 GitHub publishes for the release asset before it is
 extracted (a supply-chain check, orthogonal to the above).

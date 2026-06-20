@@ -200,6 +200,13 @@ runner 樹。若這台主機未來要跑不可信的 workflow 或變成多租戶
 **rootless Docker 或 rootless Podman**(不需 `docker` group，daemon 以非特權執行)
 —— 可行,但有 GPU + docker-in-docker 的摩擦,屆時再單獨評估。
 
+專用 CI user **本身不構成邊界**。因為 runner user 在 `docker` group(如上,等同
+root),另開一個登入帳號、清空 home、或 `chmod 600 ~/.ssh` 都只是裝飾:任何跑起來
+的 job 都能 `docker run -v /:/host …` 讀走 operator 的 SSH key、cloud 憑證與
+token,跟檔案擁有者無關。專用 CI user 只有在搭配 **rootless**(user 不再是 root)
+**或** **host 無機密**(root 沒東西可偷)時才會變成真正的邊界 —— 缺一不可。實際
+操作步驟見 [host hardening runbook](../runbook/HOST-HARDENING.md)。
+
 repo 內**有**做的硬化:下載的 actions/runner tarball 在解壓前會比對 GitHub 為該
 release asset 公布的 SHA-256(供應鏈檢查,與上述正交)。
 

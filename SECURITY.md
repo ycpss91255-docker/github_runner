@@ -33,6 +33,14 @@ not in scope. The full discussion lives in the README "Security model" section.
   runner user's local privilege. For untrusted or multi-tenant use, the upgrade
   path is rootless Docker / Podman.
 
+- **A dedicated CI user is not a boundary on its own.** Under the docker-group
+  model above, running the runner as a separate non-root user does *not* protect
+  host secrets: any job can `docker run -v /:/host` and read `~/.ssh`,
+  credentials, and tokens regardless of ownership. A CI user only becomes a real
+  boundary when paired with rootless (the user is no longer root) *or*
+  host-no-secrets (the box is CI-only). See the
+  [host hardening runbook](doc/runbook/HOST-HARDENING.md).
+
 - **Two org safety knobs must agree.** Public-repo dispatch depends on the
   outside-collaborator **approval gate** (`all_external_contributors`) plus the
   runner group's `allows_public_repositories` flag. `add-runner.sh` refuses to
