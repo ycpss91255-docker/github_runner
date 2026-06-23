@@ -361,6 +361,33 @@ github_runner_token() {
   _gh api -X POST "$1" --jq .token
 }
 
+# Generate a JIT config and print its .encoded_jit_config (ADR-0001, #80) --
+# the server-side, single-use runner configuration that replaces the
+# registration-token + config.sh-once path (no long-lived token on the host,
+# no .runner marker). The endpoint is scope-specific
+# (.../generate-jitconfig); the caller passes the full path (see
+# runner_config_jit_generate), so this verb stays scope-agnostic.
+#   github_jit_config_generate <jitconfig_path> <name> <runner_group_id> <labels> <work_folder>
+# Builds the repeated -f labels[]=<token> fields the endpoint expects (as
+# github_set_labels does), POSTs the name / runner_group_id / work_folder
+# JSON body, and extracts the one field a JIT runner consumes. Exits
+# non-zero if the gh call fails. Caller validates <labels> (validate_labels).
+github_jit_config_generate() {
+  local path=$1 name=$2 group_id=$3 csv=$4 work=$5
+  local -a fields=()
+  local tok
+  local IFS=','
+  for tok in ${csv}; do
+    fields+=(-f "labels[]=${tok}")
+  done
+  _gh api -X POST "${path}" \
+    -f "name=${name}" \
+    -F "runner_group_id=${group_id}" \
+    -f "work_folder=${work}" \
+    "${fields[@]}" \
+    --jq .encoded_jit_config
+}
+
 # Replace a runner's custom labels via PUT, printing the resulting label
 # set as one CSV line.
 #   github_set_labels <runners_base> <runner_id> <csv>
