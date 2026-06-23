@@ -8,12 +8,35 @@ terms verbatim in code, tests, and docs so names don't drift.
 - **Runner** — a registered self-hosted GitHub Actions runner: an on-disk
   actions/runner install plus a systemd service. "Configured" means its dir
   holds a **registration marker** (`.runner`).
+  > ⚠️ This describes the **persistent** model, which [ADR-0001](doc/adr/0001-ephemeral-jit-runners.md)
+  > supersedes. Under the target **ephemeral / JIT** model a runner is neither a
+  > long-lived systemd service nor identified by a persistent `.runner` marker.
+  > See the **Ephemeral / JIT** terms below; the persistent definition holds
+  > only until that migration lands.
 - **Scope** — a runner is either **org-scoped** (serves every repo in an org)
   or **repo-scoped** (pinned to one repo). The two differ in their on-disk dir,
   agent name, and GitHub API paths.
 - **RUNNER_HOME** — the single root that owns all runner state: the tarball
   cache (`.bin/`) and one dir per runner. Defaults to `<repo>/runners/`,
   overridable; validated once (SEC-3) as the `rm -rf` chokepoint.
+
+## Ephemeral / JIT (target model — ADR-0001)
+
+Vocabulary for the model that supersedes the persistent runner above. See
+[ADR-0001](doc/adr/0001-ephemeral-jit-runners.md) for the decision and trade-offs.
+
+- **Ephemeral runner** — a runner that serves **exactly one job** and then
+  de-registers itself. The opposite of a persistent runner; the unit of
+  isolation against cross-job state/secret residue.
+- **JIT config** — a single-use runner configuration generated server-side by
+  GitHub (no long-lived registration token on the host). Replaces the
+  `config.sh`-once registration + persistent `.runner` marker.
+- **Scale set** — a named, homogeneous group of ephemeral runners that workflows
+  target by name; the GitHub-side unit the orchestrator reports demand against.
+- **Runner Scale Set Client** — the official `actions/scaleset` (Go) module that
+  holds the outbound long-poll session and reports demand (`TotalAssignedJobs`).
+  It decides *when / how many* runners; the **per-job container** provisioning
+  (the actual isolation) is ours to implement.
 
 The `lib/runner-*.sh` modules below follow a runner's install lifecycle:
 **Layout** (where it lives) → **Release** (the tarball) → **Config** (register)
