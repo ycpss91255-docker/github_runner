@@ -65,6 +65,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-config.sh"
 # shellcheck source=lib/runner-run.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-run.sh"
 
+# Runner Container: the per-job container provisioner (ADR-0001 Phase 3, #82) --
+# wraps the ephemeral run in a fresh, single-use, rootless container (podman else
+# docker, --rm) so no state survives the job. Sourced after runner-run.sh (it
+# executes that same run.sh --jitconfig run, walled off inside the container).
+# shellcheck source=lib/runner-container.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-container.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)
