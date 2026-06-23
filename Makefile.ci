@@ -11,7 +11,7 @@ TEST_TOOLS_IMAGE ?= ghcr.io/ycpss91255-docker/test-tools:latest
 # Override with COVERAGE_IMAGE=... if you want to pin a tag.
 COVERAGE_IMAGE ?= kcov/kcov:latest
 
-SCRIPTS := script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh
+SCRIPTS := script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-run.sh
 
 DOCKER_RUN := docker run --rm -v "$$PWD:/source" -w /source $(TEST_TOOLS_IMAGE)
 

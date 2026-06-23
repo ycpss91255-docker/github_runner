@@ -59,6 +59,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-release.sh"
 # shellcheck source=lib/runner-config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-config.sh"
 
+# Runner Run: the ephemeral single-job run seam (ADR-0001) -- run.sh --jitconfig
+# once, no svc.sh / systemd. Sourced after runner-config.sh (it serves the JIT
+# config that runner_config_jit_generate mints).
+# shellcheck source=lib/runner-run.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-run.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)
