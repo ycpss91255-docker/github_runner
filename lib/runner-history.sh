@@ -13,6 +13,7 @@
 #
 #   Ledger  (append-only, one line per job; NEVER any secret/JIT config) -- #124
 #   Archive (container stdout/stderr + runner _diag, keyed by job id)     -- #125
+#   External-push seam (pluggable, no-op default, config-driven)          -- #128
 # shellcheck shell=bash
 
 # The history store root. Lives under RUNNER_HOME so it ports with the runner
@@ -31,6 +32,13 @@
 # also emitted to journald under this tag. Empty / missing systemd-cat = the
 # local file is the only sink (best-effort mirror, never fatal).
 : "${RUNNER_HISTORY_JOURNAL_TAG:=github-runner-history}"
+
+# External-push seam (#128): the name of a shell function invoked once per
+# captured job to ship its record/archive to an external store (Loki / ELK /
+# object storage). Empty (the default) = local store only, a pure no-op. Set it
+# to an operator-provided function name to enable shipping -- config-driven, not
+# hardcoded.
+: "${RUNNER_HISTORY_PUSH_HOOK:=}"
 
 # Sanitise a job id to the filesystem-safe [a-zA-Z0-9_.-] set (anything else
 # becomes '-'), matching runner_container_name's rule so the history dir and the
@@ -109,5 +117,26 @@ runner_history_archive() {
     cp -a -- "${runner_dir}/_diag" "${dest}/_diag" 2>/dev/null \
       || echo "history: failed to archive _diag for ${job_id}" >&2
   fi
+  return 0
+}
+
+# The external-push seam (#128): invoke the configured push hook (if any) for a
+# captured job, handing it the job id and its archive dir. The DEFAULT is a pure
+# NO-OP (RUNNER_HISTORY_PUSH_HOOK empty) -- local store only. Enabling it is
+# config-driven: set RUNNER_HISTORY_PUSH_HOOK to the name of a function that
+# ships the record/archive elsewhere. Best-effort: a hook failure (or an enabled-
+# but-undefined hook) is logged and swallowed so a flaky external store never
+# blocks capture/teardown.
+#   runner_history_push <job_id>
+runner_history_push() {
+  local job_id=$1 dest
+  [[ -n "${RUNNER_HISTORY_PUSH_HOOK}" ]] || return 0
+  if ! declare -F "${RUNNER_HISTORY_PUSH_HOOK}" >/dev/null 2>&1; then
+    echo "history: push hook '${RUNNER_HISTORY_PUSH_HOOK}' is not a defined function; skipping" >&2
+    return 0
+  fi
+  dest=$(runner_history_job_dir "${job_id}")
+  "${RUNNER_HISTORY_PUSH_HOOK}" "${job_id}" "${dest}" \
+    || echo "history: push hook failed for ${job_id} (local copy retained)" >&2
   return 0
 }

@@ -88,3 +88,33 @@ teardown() { rm -rf "${STORE}"; }
   [ "${status}" -eq 0 ]
   [ -d "${RUNNER_HISTORY_DIR}/jobs/job-empty" ]
 }
+
+# --- #128 external-push seam ---------------------------------------------
+
+@test "runner_history_push is a no-op by default (#128)" {
+  run runner_history_push job-np
+  [ "${status}" -eq 0 ]
+}
+
+@test "runner_history_push invokes a config-driven hook with id + archive dir (#128)" {
+  export RUNNER_HISTORY_PUSH_HOOK=_test_push
+  CAP="${STORE}/push.args"
+  _test_push() { printf '%s\n' "$@" > "${CAP}"; }
+  runner_history_push job-push
+  [ -f "${CAP}" ]
+  grep -qxF 'job-push' "${CAP}"
+  grep -qxF "${RUNNER_HISTORY_DIR}/jobs/job-push" "${CAP}"
+}
+
+@test "runner_history_push swallows a failing hook (#128 best-effort)" {
+  export RUNNER_HISTORY_PUSH_HOOK=_boom
+  _boom() { return 1; }
+  run runner_history_push job-boom
+  [ "${status}" -eq 0 ]
+}
+
+@test "runner_history_push tolerates an enabled-but-undefined hook (#128)" {
+  export RUNNER_HISTORY_PUSH_HOOK=no_such_function
+  run runner_history_push job-undef
+  [ "${status}" -eq 0 ]
+}
