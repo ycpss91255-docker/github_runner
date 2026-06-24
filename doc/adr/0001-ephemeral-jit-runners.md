@@ -106,7 +106,8 @@ is a new config entry, not a code change.
 ## Consequences
 
 - Go enters the repo but is **built/tested only in containers**; host needs no
-  Go. CI gains a Go job (#78 toolchain).
+  Go. CI gains a Go job (#78 toolchain). The Go/bash split — minimal Go surface,
+  one clean shell-out boundary — is recorded in [ADR-0003](0003-go-bash-boundary.md).
 - Provisioning + lifecycle (concurrency, supervision, container/temp reaping,
   job history) are **ours to implement**; the scale-set client only decides
   when / how many.
