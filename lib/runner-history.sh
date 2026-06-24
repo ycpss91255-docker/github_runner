@@ -13,6 +13,7 @@
 #
 #   Ledger  (append-only, one line per job; NEVER any secret/JIT config) -- #124
 #   Archive (container stdout/stderr + runner _diag, keyed by job id)     -- #125
+#   Capture hook (runs after the job exits, before --rm / temp-dir rm)    -- #123
 #   External-push seam (pluggable, no-op default, config-driven)          -- #128
 # shellcheck shell=bash
 
@@ -138,5 +139,27 @@ runner_history_push() {
   dest=$(runner_history_job_dir "${job_id}")
   "${RUNNER_HISTORY_PUSH_HOOK}" "${job_id}" "${dest}" \
     || echo "history: push hook failed for ${job_id} (local copy retained)" >&2
+  return 0
+}
+
+# The capture-before-teardown HOOK (#123): the single lifecycle step the
+# provisioner calls AFTER a job exits but BEFORE the container/temp dir is
+# removed, on EVERY job (success and failure). It writes the ledger record (#124,
+# secrets redacted), archives the logs (#125), and runs the external-push seam
+# (#128) -- in that order. The whole thing is BEST-EFFORT: it is wrapped so a
+# capture failure is logged and never propagates, so it can NEVER block teardown
+# (a failed capture must not strand a container or leave a temp dir).
+#   runner_history_capture <job_id> <exit_status> <job_log> <runner_dir> \
+#                          [KEY=VALUE ...]
+# The trailing KEY=VALUE pairs are extra ledger fields (image, digest, host,
+# runner type, devices, trigger, ...). exit_status is recorded as a field too.
+runner_history_capture() {
+  local job_id=$1 exit_status=$2 job_log=$3 runner_dir=$4
+  shift 4
+  {
+    runner_history_record "${job_id}" "exit_status=${exit_status}" "$@"
+    runner_history_archive "${job_id}" "${job_log}" "${runner_dir}"
+    runner_history_push "${job_id}"
+  } || echo "history: capture failed for ${job_id} (teardown continues)" >&2
   return 0
 }

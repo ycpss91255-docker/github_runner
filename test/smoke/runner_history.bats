@@ -89,6 +89,38 @@ teardown() { rm -rf "${STORE}"; }
   [ -d "${RUNNER_HISTORY_DIR}/jobs/job-empty" ]
 }
 
+# --- #123 capture hook ----------------------------------------------------
+
+@test "runner_history_capture records, archives, and is best-effort (#123)" {
+  rdir=$(mktemp -d)
+  mkdir -p "${rdir}/_diag"
+  echo "d" > "${rdir}/_diag/x.log"
+  echo "out" > "${STORE}/job.log"
+
+  run runner_history_capture job-cap 0 "${STORE}/job.log" "${rdir}" image=img runner_type=gpu
+  [ "${status}" -eq 0 ]
+  grep -q 'job_id=job-cap' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'exit_status=0' "${RUNNER_HISTORY_LEDGER}"
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-cap/job.log" ]
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-cap/_diag/x.log" ]
+}
+
+@test "runner_history_capture records the job's exit status on failure too (#123)" {
+  run runner_history_capture job-fail 7 "" "" image=img
+  [ "${status}" -eq 0 ]
+  grep -q 'job_id=job-fail' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'exit_status=7' "${RUNNER_HISTORY_LEDGER}"
+}
+
+@test "runner_history_capture never propagates a capture failure (#123 best-effort)" {
+  # Point the ledger at an unwritable location: the record write fails, but
+  # capture must still return 0 so it can never block teardown.
+  export RUNNER_HISTORY_DIR=/proc/nonexistent/history
+  export RUNNER_HISTORY_LEDGER=/proc/nonexistent/history/ledger.tsv
+  run runner_history_capture job-x 0 "" "" image=img
+  [ "${status}" -eq 0 ]
+}
+
 # --- #128 external-push seam ---------------------------------------------
 
 @test "runner_history_push is a no-op by default (#128)" {

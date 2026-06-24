@@ -19,6 +19,11 @@ setup() {
   export RUNNER_WORK_ROOT="${WORK}/work"
   mkdir -p "${RUNNER_WORK_ROOT}"
 
+  # The job-history store (ADR-0002) lands in a throwaway dir, never the real
+  # RUNNER_HOME, so the capture-before-teardown hook (#123) is exercised here.
+  export RUNNER_HISTORY_DIR="${WORK}/history"
+  export RUNNER_HISTORY_LEDGER="${RUNNER_HISTORY_DIR}/ledger.tsv"
+
   # The JIT config crosses the boundary as a FILE, never on argv (#133). The Go
   # listener writes it; here a helper drops the encoded value in a 0600 file and
   # echoes its path, so each test passes a PATH where the old contract passed the
@@ -40,6 +45,8 @@ setup() {
 #!/usr/bin/env bash
 echo "name=docker" >> "${CAP}"
 printf '%s\n' "\$@" >> "${CAP}"
+# Emit a recognisable line on stdout so the captured job log (#125) is non-empty.
+echo "JOB-CONTAINER-OUTPUT"
 exit \${CLI_RC:-0}
 EOF
   chmod +x "${STUB}/docker"
@@ -146,5 +153,72 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   [ "${status}" -eq 0 ]
   # The throwaway jit-<job> dir must not survive the run.
   run bash -c "ls -d '${RUNNER_WORK_ROOT}'/jit-job-abc.* 2>/dev/null | wc -l"
+  [ "${output}" = "0" ]
+}
+
+# --- capture-before-teardown (ADR-0002, #123/#124/#125) -------------------
+
+@test "provision-job.sh captures a ledger record BEFORE teardown, on success (#123/#124)" {
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-hist "${jf}" ghcr.io/acme/runner:1.2
+  [ "${status}" -eq 0 ]
+  # A ledger line was written for this job, with its exit status and image --
+  # the capture ran (and, since the runner dir is gone below, it ran BEFORE the
+  # teardown that removed it).
+  [ -f "${RUNNER_HISTORY_LEDGER}" ]
+  grep -q 'job_id=job-hist' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'exit_status=0' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'image=ghcr.io/acme/runner:1.2' "${RUNNER_HISTORY_LEDGER}"
+  # Teardown still happened: no per-job runner dir residue.
+  run bash -c "ls -d '${RUNNER_WORK_ROOT}'/jit-job-hist.* 2>/dev/null | wc -l"
+  [ "${output}" = "0" ]
+}
+
+@test "provision-job.sh captures a ledger record on FAILURE too (#123)" {
+  export CLI_RC=7
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-bad "${jf}" img
+  [ "${status}" -eq 7 ]
+  grep -q 'job_id=job-bad' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'exit_status=7' "${RUNNER_HISTORY_LEDGER}"
+}
+
+@test "provision-job.sh archives the container log + survives into the store (#125)" {
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-log "${jf}" img
+  [ "${status}" -eq 0 ]
+  # The container's stdout was teed into the durable per-job archive, keyed by id.
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-log/job.log" ]
+  grep -q 'JOB-CONTAINER-OUTPUT' "${RUNNER_HISTORY_DIR}/jobs/job-log/job.log"
+}
+
+@test "provision-job.sh never writes the JIT config into the history store (#124 redaction)" {
+  jf=$(jit_file 'ENCODEDxJITxSECRETx==')
+  run "${SCRIPT}" job-red "${jf}" img
+  [ "${status}" -eq 0 ]
+  ! grep -rqi 'ENCODEDxJITxSECRET' "${RUNNER_HISTORY_DIR}"
+}
+
+@test "provision-job.sh forwards the listener's forensic env as ledger fields (#124)" {
+  jf=$(jit_file ENC)
+  RUNNER_TYPE=gpu RUNNER_TRIGGER_REPO=octo/repo RUNNER_TRIGGER_ACTOR=octocat \
+    RUNNER_IMAGE_DIGEST=sha256:beef \
+    run "${SCRIPT}" job-env "${jf}" img
+  [ "${status}" -eq 0 ]
+  grep -q 'runner_type=gpu' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'trigger_repo=octo/repo' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'trigger_actor=octocat' "${RUNNER_HISTORY_LEDGER}"
+  grep -q 'image_digest=sha256:beef' "${RUNNER_HISTORY_LEDGER}"
+}
+
+@test "provision-job.sh capture failure does not block teardown or the job result (#123)" {
+  # An unwritable history store makes capture fail; the job's exit status must
+  # still propagate and the runner dir must still be torn down.
+  export RUNNER_HISTORY_DIR=/proc/nonexistent/history
+  export RUNNER_HISTORY_LEDGER=/proc/nonexistent/history/ledger.tsv
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-bestffort "${jf}" img
+  [ "${status}" -eq 0 ]
+  run bash -c "ls -d '${RUNNER_WORK_ROOT}'/jit-job-bestffort.* 2>/dev/null | wc -l"
   [ "${output}" = "0" ]
 }
