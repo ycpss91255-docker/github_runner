@@ -2,7 +2,10 @@ module github.com/ycpss91255-docker/github_runner/listener
 
 go 1.25.3
 
-require github.com/actions/scaleset v0.4.0
+require (
+	github.com/actions/scaleset v0.4.0
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
