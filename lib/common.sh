@@ -59,16 +59,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-release.sh"
 # shellcheck source=lib/runner-config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-config.sh"
 
-# Runner Run: the ephemeral single-job run seam (ADR-0001) -- run.sh --jitconfig
-# once, no svc.sh / systemd. Sourced after runner-config.sh (it serves the JIT
-# config that runner_config_jit_generate mints).
-# shellcheck source=lib/runner-run.sh
-source "$(dirname "${BASH_SOURCE[0]}")/runner-run.sh"
-
 # Runner Container: the per-job container provisioner (ADR-0001 Phase 3, #82) --
 # wraps the ephemeral run in a fresh, single-use, rootless container (podman else
-# docker, --rm) so no state survives the job. Sourced after runner-run.sh (it
-# executes that same run.sh --jitconfig run, walled off inside the container).
+# docker, --rm) so no state survives the job. It is the SINGLE place the
+# `run.sh --jitconfig <encoded>` invocation lives (the JIT config is minted by
+# the Go scale-set client, ADR-0001/ADR-0003).
 # shellcheck source=lib/runner-container.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-container.sh"
 

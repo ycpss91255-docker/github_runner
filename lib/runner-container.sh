@@ -5,12 +5,13 @@
 # residue/secret guarantees actually land -- is ours. Each ephemeral job runs in
 # a FRESH, single-use, rootless container that is torn down on exit, so no state
 # (a poisoned _work tree, leaked secrets in env/cache/disk) survives the job.
-# The container is the unit of isolation -- the runner-run.sh ephemeral run, but
-# walled off from the host and from every other job.
+# The container is the unit of isolation -- one ephemeral `run.sh --jitconfig`
+# run, walled off from the host and from every other job.
 #
-# Sourced by lib/common.sh after runner-run.sh: this wraps that same one-job
-# `run.sh --jitconfig <encoded>` (the runner_config_jit_generate config) so it
-# executes INSIDE the throwaway container rather than directly on the host.
+# Sourced by lib/common.sh. This is the SINGLE place the one-job
+# `run.sh --jitconfig <encoded>` invocation lives, executed INSIDE the throwaway
+# container rather than directly on the host. The encoded JIT config is minted
+# by the Go scale-set client (ADR-0001/ADR-0003), not by any bash seam.
 # shellcheck shell=bash
 
 # Pick the rootless container CLI: podman preferred over docker (rootless is
@@ -37,8 +38,8 @@ runner_container_cli() {
 # Rootless-appropriate: --init reaps the runner's child PIDs (no host init), and
 # --security-opt label=disable / no extra privileges keep it an unprivileged,
 # self-contained unit. PROPAGATES the in-container job's exit status (it is the
-# whole job lifecycle, like runner_run_jit). The runner dir is mounted so the
-# bundled run.sh runs from inside the container against the JIT config.
+# whole job lifecycle). The runner dir is mounted so the bundled run.sh runs
+# from inside the container against the JIT config.
 runner_container_run() {
   local dir=$1 encoded=$2 image=$3 cli
   cli=$(runner_container_cli) || {
