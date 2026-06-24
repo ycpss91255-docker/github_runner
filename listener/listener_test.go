@@ -406,6 +406,87 @@ func TestRealClientSatisfiesSession(t *testing.T) {
 	var _ Session = (*scaleset.MessageSessionClient)(nil)
 }
 
+// --- #103 auto-size pool from device count ------------------------------------
+
+// stubDetector is an injectable host-capacity detector: it returns a scripted
+// device count (and optional error) so pool auto-sizing can be unit-tested
+// without real hardware.
+type stubDetector struct {
+	count int
+	err   error
+}
+
+func (s stubDetector) DetectDevices() (int, error) { return s.count, s.err }
+
+// The pool bound must be DERIVED from the detected device count when a detector
+// is supplied and no explicit MaxRunners overrides it. A stub reporting 4
+// devices yields a bound of 4 -- proven by offering the full bound on the first
+// poll and capping concurrency at 4.
+func TestPoolBoundDerivedFromDeviceCount(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{messages: nil, cancel: cancel}
+	l := New(sess, &recordingMinter{config: "jit"}, &recordingProvisioner{},
+		Config{Image: "img", DeviceDetector: stubDetector{count: 4}})
+
+	_ = l.Listen(ctx)
+
+	if len(sess.reportedCap) < 1 {
+		t.Fatal("no GetMessage call recorded")
+	}
+	if sess.reportedCap[0] != 4 {
+		t.Errorf("auto-sized bound: first poll offered %d, want 4 (detected devices)", sess.reportedCap[0])
+	}
+}
+
+// An explicit MaxRunners must OVERRIDE detection (operator override wins over
+// auto-sizing).
+func TestExplicitMaxRunnersOverridesDetection(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{messages: nil, cancel: cancel}
+	l := New(sess, &recordingMinter{config: "jit"}, &recordingProvisioner{},
+		Config{Image: "img", MaxRunners: 2, DeviceDetector: stubDetector{count: 8}})
+
+	_ = l.Listen(ctx)
+
+	if sess.reportedCap[0] != 2 {
+		t.Errorf("explicit MaxRunners must override detection: got %d want 2", sess.reportedCap[0])
+	}
+}
+
+// When detection is unavailable (errors) and no MaxRunners is set, the bound
+// falls back to the sane default rather than zero/unbounded.
+func TestDetectionFailureFallsBackToDefault(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{messages: nil, cancel: cancel}
+	l := New(sess, &recordingMinter{config: "jit"}, &recordingProvisioner{},
+		Config{Image: "img", DeviceDetector: stubDetector{err: errors.New("no devices")}})
+
+	_ = l.Listen(ctx)
+
+	if sess.reportedCap[0] != defaultPoolBound {
+		t.Errorf("detection failure: bound %d, want defaultPoolBound %d", sess.reportedCap[0], defaultPoolBound)
+	}
+}
+
+// A detector reporting zero devices (or a negative count) also falls back to
+// the default -- a bound of zero would offer no capacity and never run a job.
+func TestZeroDeviceCountFallsBackToDefault(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{messages: nil, cancel: cancel}
+	l := New(sess, &recordingMinter{config: "jit"}, &recordingProvisioner{},
+		Config{Image: "img", DeviceDetector: stubDetector{count: 0}})
+
+	_ = l.Listen(ctx)
+
+	if sess.reportedCap[0] != defaultPoolBound {
+		t.Errorf("zero device count: bound %d, want defaultPoolBound %d", sess.reportedCap[0], defaultPoolBound)
+	}
+}
+
 // --- #102 locally-derived capacity --------------------------------------------
 
 // Capacity must be derived from the LOCAL in-flight count (pool bound minus

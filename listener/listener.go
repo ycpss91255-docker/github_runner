@@ -85,8 +85,21 @@ type JITConfigMinter interface {
 	Mint(ctx context.Context, name string, labels []string) (string, error)
 }
 
+// DeviceDetector reports how many host devices (e.g. GPUs) are available, so
+// the worker-pool bound can auto-size to hardware rather than a hardcoded
+// number (#103). It is a seam: the production implementation enumerates real
+// devices, tests inject a stub. DetectDevices returns the count, or an error
+// when detection is unavailable (the caller then falls back to a sane default).
+type DeviceDetector interface {
+	DetectDevices() (int, error)
+}
+
 // Config holds the listener's static knobs.
 type Config struct {
+	// DeviceDetector, when set and no explicit MaxRunners overrides it,
+	// auto-sizes the worker-pool bound from the detected device count (#103).
+	// A detection error or a non-positive count falls back to defaultPoolBound.
+	DeviceDetector DeviceDetector
 	// Image is the container image every ephemeral job runs in (passed to the
 	// Phase 3 provisioner).
 	Image string
@@ -121,13 +134,11 @@ type Listener struct {
 }
 
 // New wires a Session + JITConfigMinter + Provisioner + Config into a Listener.
-// The worker-pool bound is taken from Config.MaxRunners, falling back to
-// defaultPoolBound when unset, and the bounding semaphore is sized to it.
+// The worker-pool bound is resolved by resolveBound (explicit MaxRunners >
+// auto-detected device count > defaultPoolBound), and the bounding semaphore is
+// sized to it.
 func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) *Listener {
-	bound := cfg.MaxRunners
-	if bound <= 0 {
-		bound = defaultPoolBound
-	}
+	bound := resolveBound(cfg)
 	return &Listener{
 		session: session,
 		minter:  minter,
@@ -136,6 +147,26 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 		bound:   bound,
 		sem:     make(chan struct{}, bound),
 	}
+}
+
+// resolveBound picks the worker-pool bound with a clear precedence (#103):
+//
+//  1. an explicit Config.MaxRunners (> 0) -- an operator override always wins;
+//  2. otherwise the auto-detected host device count, when a DeviceDetector is
+//     supplied and reports a positive count;
+//  3. otherwise defaultPoolBound -- the sane fallback when detection is absent,
+//     errors, or reports a non-positive count (a zero bound would offer no
+//     capacity and never run a job).
+func resolveBound(cfg Config) int {
+	if cfg.MaxRunners > 0 {
+		return cfg.MaxRunners
+	}
+	if cfg.DeviceDetector != nil {
+		if n, err := cfg.DeviceDetector.DetectDevices(); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultPoolBound
 }
 
 // Listen runs the long-poll loop until the session drains or the context is

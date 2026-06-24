@@ -55,6 +55,15 @@ func main() {
 		}
 		maxRunners = n
 	}
+	// Optional auto-sizing (#103): when AUTO_SIZE_DEVICES is set and MAX_RUNNERS
+	// is not, the worker-pool bound is the detected device count (one line per
+	// device from the enumeration command, default nvidia-smi -L). A detection
+	// failure falls back to the listener's default bound, so a host without the
+	// tool still runs.
+	var detector listener.DeviceDetector
+	if os.Getenv("AUTO_SIZE_DEVICES") != "" {
+		detector = listener.CommandDeviceDetector{Name: envOr("DEVICE_DETECT_CMD", "nvidia-smi")}
+	}
 
 	client, err := scaleset.NewClientWithPersonalAccessToken(
 		scaleset.NewClientWithPersonalAccessTokenConfig{
@@ -82,7 +91,11 @@ func main() {
 	// minting lives on the Go side of the boundary).
 	minter := &listener.ClientJITMinter{Client: client, ScaleSetID: scaleSet.ID}
 	prov := &listener.ContainerProvisioner{Script: envOr("PROVISION_SCRIPT", "provision-job.sh")}
-	l := listener.New(session, minter, prov, listener.Config{Image: image, MaxRunners: maxRunners})
+	l := listener.New(session, minter, prov, listener.Config{
+		Image:          image,
+		MaxRunners:     maxRunners,
+		DeviceDetector: detector,
+	})
 
 	log.Printf("listener up: scale set %q (id=%d), image=%s", scaleSetName, scaleSet.ID, image)
 	if err := l.Listen(ctx); err != nil {
