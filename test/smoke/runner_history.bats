@@ -64,3 +64,27 @@ teardown() { rm -rf "${STORE}"; }
   ! grep -qi 'jit'                "${RUNNER_HISTORY_LEDGER}"
   ! grep -qi 'token'              "${RUNNER_HISTORY_LEDGER}"
 }
+
+# --- #125 archive ---------------------------------------------------------
+
+@test "runner_history_archive stores the job log + _diag keyed by job id (#125)" {
+  rdir=$(mktemp -d)
+  mkdir -p "${rdir}/_diag"
+  echo "diag line" > "${rdir}/_diag/Worker_1.log"
+  printf 'job output here\n' > "${STORE}/captured.log"
+
+  runner_history_archive job-arc "${STORE}/captured.log" "${rdir}"
+
+  jdir="${RUNNER_HISTORY_DIR}/jobs/job-arc"
+  [ -f "${jdir}/job.log" ]
+  grep -q 'job output here' "${jdir}/job.log"
+  [ -f "${jdir}/_diag/Worker_1.log" ]
+  grep -q 'diag line' "${jdir}/_diag/Worker_1.log"
+}
+
+@test "runner_history_archive is best-effort when sources are missing (#125)" {
+  # No job log, no _diag: it must still create the per-job dir and return 0.
+  run runner_history_archive job-empty "" "${STORE}/nope"
+  [ "${status}" -eq 0 ]
+  [ -d "${RUNNER_HISTORY_DIR}/jobs/job-empty" ]
+}

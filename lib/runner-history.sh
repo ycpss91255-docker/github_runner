@@ -12,6 +12,7 @@
 # capture-before-teardown hook, and by script/history.sh for query + retention.
 #
 #   Ledger  (append-only, one line per job; NEVER any secret/JIT config) -- #124
+#   Archive (container stdout/stderr + runner _diag, keyed by job id)     -- #125
 # shellcheck shell=bash
 
 # The history store root. Lives under RUNNER_HOME so it ports with the runner
@@ -86,4 +87,27 @@ runner_history_record() {
 runner_history_journal() {
   command -v systemd-cat >/dev/null 2>&1 || return 0
   printf '%s\n' "$1" | systemd-cat -t "${RUNNER_HISTORY_JOURNAL_TAG}" 2>/dev/null || true
+}
+
+# Archive a job's container stdout/stderr and runner _diag logs into its per-job
+# history dir, keyed by job id (#125), BEFORE the container/temp dir is removed.
+#   runner_history_archive <job_id> <job_log> <runner_dir>
+# <job_log>    a file holding the captured container stdout+stderr (may be absent)
+# <runner_dir> the per-job runner dir mounted into the container; its _diag/
+#              subtree (if any) is copied verbatim.
+# Best-effort: a missing source is skipped, an individual copy failure is logged
+# and swallowed, so archiving never blocks teardown.
+runner_history_archive() {
+  local job_id=$1 job_log=${2:-} runner_dir=${3:-} dest
+  dest=$(runner_history_job_dir "${job_id}")
+  mkdir -p "${dest}" || { echo "history: cannot create ${dest}" >&2; return 0; }
+  if [[ -n "${job_log}" && -f "${job_log}" ]]; then
+    cp -f -- "${job_log}" "${dest}/job.log" 2>/dev/null \
+      || echo "history: failed to archive job log for ${job_id}" >&2
+  fi
+  if [[ -n "${runner_dir}" && -d "${runner_dir}/_diag" ]]; then
+    cp -a -- "${runner_dir}/_diag" "${dest}/_diag" 2>/dev/null \
+      || echo "history: failed to archive _diag for ${job_id}" >&2
+  fi
+  return 0
 }
