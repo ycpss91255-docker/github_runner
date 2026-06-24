@@ -107,10 +107,13 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 //
 //  1. GetMessage, reporting current spare capacity (ceiling - assigned) so
 //     reported capacity FOLLOWS demand and GitHub never over-assigns.
-//  2. For every ASSIGNED job in the message, acquire it and shell out to the
-//     per-job container provisioner with the job's single-use JIT config -- the
-//     fresh-container isolation the scale set client does not provide.
-//  3. Ack the message (DeleteMessage) so it is not redelivered.
+//  2. For every ASSIGNED job in the message, acquire it and mint its single-use
+//     JIT config -- claiming the work that is ours to run.
+//  3. Ack the message (DeleteMessage) so it is not redelivered. The ack lands
+//     once the jobs are acquired/dispatched, BEFORE the (potentially long)
+//     container run, so a slow job never leaves its message unacked.
+//  4. Shell out to the per-job container provisioner for each acquired job --
+//     the fresh-container isolation the scale set client does not provide.
 //
 // A provisioner error is returned (and the session still torn down). A clean
 // drain returns nil.
@@ -150,44 +153,63 @@ func (l *Listener) Listen(ctx context.Context) (err error) {
 			assigned = msg.Statistics.TotalAssignedJobs
 		}
 
-		if perr := l.handle(ctx, msg); perr != nil {
-			return perr
+		// Acquire + mint every assigned job FIRST, so the message can be acked
+		// before we run any container.
+		reqs, aerr := l.acquire(ctx, msg)
+		if aerr != nil {
+			return aerr
 		}
 
+		// Ack the message now that its jobs are acquired/dispatched -- before
+		// the (potentially long) provisioning below -- so a slow job never
+		// leaves the message unacked for its whole duration.
 		if msg.MessageID > 0 {
 			if derr := l.session.DeleteMessage(ctx, msg.MessageID); derr != nil {
 				return derr
 			}
 			lastMessageID = msg.MessageID
 		}
+
+		if perr := l.provision(ctx, reqs); perr != nil {
+			return perr
+		}
 	}
 }
 
-// handle provisions a container for every ASSIGNED job in the message. Only
-// assigned jobs are ours to run; available-but-unassigned jobs are left for the
-// scale set to assign, so we never over-provision on availability.
-func (l *Listener) handle(ctx context.Context, msg *scaleset.RunnerScaleSetMessage) error {
+// acquire claims every ASSIGNED job in the message and mints its single-use JIT
+// config, returning a ready-to-run ProvisionRequest per job. Only assigned jobs
+// are ours to run; available-but-unassigned jobs are left for the scale set to
+// assign, so we never over-provision on availability.
+func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMessage) ([]ProvisionRequest, error) {
+	var reqs []ProvisionRequest
 	for _, ja := range msg.JobAssignedMessages {
 		if ja == nil {
 			continue
 		}
 		// Claim the job so its JIT config is ours to run.
 		if _, err := l.session.AcquireJobs(ctx, []int64{ja.RunnerRequestID}); err != nil {
-			return err
+			return nil, err
 		}
 		// Mint the single-use JIT config for this job via the Go client
 		// (ADR-0001: minting lives on the Go side of the boundary).
 		jit, err := l.minter.Mint(ctx, ja.JobID, ja.RequestLabels)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		req := ProvisionRequest{
+		reqs = append(reqs, ProvisionRequest{
 			JobID:            ja.JobID,
 			RequestID:        ja.RunnerRequestID,
 			Labels:           ja.RequestLabels,
 			EncodedJITConfig: jit,
 			Image:            l.cfg.Image,
-		}
+		})
+	}
+	return reqs, nil
+}
+
+// provision runs the per-job container for each acquired job.
+func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) error {
+	for _, req := range reqs {
 		if err := l.prov.Provision(ctx, req); err != nil {
 			return err
 		}

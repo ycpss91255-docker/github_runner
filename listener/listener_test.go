@@ -3,7 +3,9 @@ package listener
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/actions/scaleset"
 )
@@ -16,6 +18,7 @@ import (
 // client satisfies the same Session interface (proven by the compile-time
 // assertion in listener.go), so the listener cannot tell them apart.
 type fakeSession struct {
+	mu             sync.Mutex
 	messages       []*scaleset.RunnerScaleSetMessage // scripted, drained front-to-back
 	getErr         error                             // returned once messages are drained (a real transport error)
 	cancel         context.CancelFunc                // if set, called when messages drain to end the loop via ctx
@@ -51,8 +54,17 @@ func (f *fakeSession) AcquireJobs(_ context.Context, requestIDs []int64) ([]int6
 }
 
 func (f *fakeSession) DeleteMessage(_ context.Context, messageID int) error {
+	f.mu.Lock()
 	f.deletedIDs = append(f.deletedIDs, messageID)
+	f.mu.Unlock()
 	return nil
+}
+
+// ackedIDs returns the messageIDs acked so far, race-free.
+func (f *fakeSession) ackedIDs() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.deletedIDs...)
 }
 
 func (f *fakeSession) Session() scaleset.RunnerScaleSetSession {
@@ -87,17 +99,35 @@ func (m *recordingMinter) Mint(_ context.Context, name string, _ []string) (stri
 // ASSIGNED job triggered the shell-out, and with which JIT config), and can be
 // told to fail to exercise the error path.
 type recordingProvisioner struct {
+	mu      sync.Mutex
 	jobs    []ProvisionRequest
-	failOn  string // RequestID-bearing JobID to fail; "" never fails
-	failErr error
+	failOn  string        // RequestID-bearing JobID to fail; "" never fails
+	failErr error         // returned by every Provision when set
+	started chan struct{} // if set, closed/signalled when Provision begins
+	block   chan struct{} // if set, Provision blocks until this is closed
 }
 
 func (r *recordingProvisioner) Provision(_ context.Context, req ProvisionRequest) error {
+	r.mu.Lock()
 	r.jobs = append(r.jobs, req)
+	r.mu.Unlock()
+	if r.started != nil {
+		r.started <- struct{}{}
+	}
+	if r.block != nil {
+		<-r.block
+	}
 	if r.failErr != nil {
 		return r.failErr
 	}
 	return nil
+}
+
+// jobCount returns how many jobs have been provisioned so far, race-free.
+func (r *recordingProvisioner) jobCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.jobs)
 }
 
 func assigned(requestID int64, jobID string, labels ...string) *scaleset.JobAssigned {
@@ -206,6 +236,57 @@ func TestProcessedMessageIsAcked(t *testing.T) {
 	if len(sess.deletedIDs) != 1 || sess.deletedIDs[0] != 7 {
 		t.Errorf("expected message 7 to be acked, got %v", sess.deletedIDs)
 	}
+}
+
+// The message must be acked (DeleteMessage) once its jobs are acquired/
+// dispatched, NOT after the container exits -- otherwise a long-running job
+// would leave the message unacked for its whole duration. With a provisioner
+// that blocks (a slow job), the ack must still land.
+func TestMessageAckedOnAcquireNotAfterJobFinishes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(9, 1, assigned(1, "slow-job")),
+		},
+		cancel: cancel,
+	}
+	prov := &recordingProvisioner{
+		started: make(chan struct{}, 1),
+		block:   make(chan struct{}),
+	}
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Wait until the (blocking) provisioner has begun the long job.
+	select {
+	case <-prov.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provisioner never started")
+	}
+
+	// While the job is STILL blocked, the message must already be acked.
+	acked := false
+	for i := 0; i < 100; i++ {
+		if len(sess.ackedIDs()) == 1 {
+			acked = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !acked {
+		t.Fatal("message was not acked while the job was still running (ack waits for job to finish)")
+	}
+	if got := sess.ackedIDs(); got[0] != 9 {
+		t.Errorf("acked wrong message: got %v want [9]", got)
+	}
+
+	// Let the slow job finish and the loop wind down.
+	close(prov.block)
+	cancel()
+	<-done
 }
 
 // A failing provisioner (e.g. the container shell-out returns non-zero) must
