@@ -43,7 +43,12 @@ runner_types:
   - name: gpu
     scale_set: gpu-runners
     labels: [self-hosted, linux, x64, gpu, cuda]
-    # Self-built from a SEC-5 verified runner tarball; pin by digest.
+    # Self-built GPU image (#121): the CUDA/device stack layered on the SEC-5
+    # base (images/runner-gpu.Dockerfile -> images/runner-base.Dockerfile, whose
+    # runner tarball passed verify_runner_tarball before being baked in). Build
+    # it with images/build-runner-image.sh (base) + a docker build of the GPU
+    # Dockerfile, push to your registry, and pin THIS by the resulting digest --
+    # never :latest. The 0000... below is a placeholder for the operator to fill.
     image: ghcr.io/your-org/gpu-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000
     devices:
       - /dev/nvidia0
