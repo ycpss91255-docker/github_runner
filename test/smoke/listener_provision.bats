@@ -19,6 +19,18 @@ setup() {
   export RUNNER_WORK_ROOT="${WORK}/work"
   mkdir -p "${RUNNER_WORK_ROOT}"
 
+  # The JIT config crosses the boundary as a FILE, never on argv (#133). The Go
+  # listener writes it; here a helper drops the encoded value in a 0600 file and
+  # echoes its path, so each test passes a PATH where the old contract passed the
+  # encoded value directly.
+  jit_file() {
+    local f
+    f=$(mktemp "${WORK}/jit.XXXXXX")
+    chmod 600 "${f}"
+    printf '%s' "$1" > "${f}"
+    printf '%s' "${f}"
+  }
+
   STUB=$(mktemp -d)
   CAP="${WORK}/cli.args"
   # A docker stub records the cli name + full argv (one token per line so --rm /
@@ -42,8 +54,12 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   [ -x "${SCRIPT}" ]
 }
 
-@test "provision-job.sh shells out to a single-use container (--rm) with the JIT config" {
-  run "${SCRIPT}" job-abc ENCODEDxJITxCONFIGx== ghcr.io/acme/runner:latest
+@test "provision-job.sh reads the JIT config from a FILE and never puts it on argv (#133)" {
+  # The encoded config arrives as a file PATH; the script reads the file and
+  # hands the value to the container seam (--jitconfig) -- but the encoded value
+  # must NOT appear anywhere on the container CLI argv (the process table).
+  jf=$(jit_file 'ENCODEDxJITxCONFIGx==')
+  run "${SCRIPT}" job-abc "${jf}" ghcr.io/acme/runner:latest
   [ "${status}" -eq 0 ]
   grep -qxF -- '--rm' "${CAP}"
   grep -qxF -- '--jitconfig' "${CAP}"
@@ -51,14 +67,24 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   grep -qxF -- 'ghcr.io/acme/runner:latest' "${CAP}"
 }
 
+@test "provision-job.sh rejects a JIT config passed inline (no encoded value on argv, #133)" {
+  # An encoded-looking value that is NOT a readable file path must be rejected,
+  # proving the script no longer accepts the JIT config directly on argv.
+  run "${SCRIPT}" job-abc ENCODEDxJITxCONFIGx== img
+  [ "${status}" -ne 0 ]
+  [ ! -f "${CAP}" ]
+}
+
 @test "provision-job.sh issues a container 'run' (it provisions, not exec)" {
-  run "${SCRIPT}" job-abc ENC img
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-abc "${jf}" img
   [ "${status}" -eq 0 ]
   grep -qxF -- 'run' "${CAP}"
 }
 
 @test "provision-job.sh names + labels the container by job id (#104)" {
-  run "${SCRIPT}" job-abc ENC img
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-abc "${jf}" img
   [ "${status}" -eq 0 ]
   grep -qxF -- '--name' "${CAP}"
   grep -qxF -- 'gha-jit-job-abc' "${CAP}"
@@ -71,7 +97,8 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   # The widened shell-out contract: the listener sets RUNNER_DEVICES in the
   # provisioner's environment; the entrypoint must carry it into the container
   # seam so each declared node lands as a precise --device (no --privileged).
-  RUNNER_DEVICES=$'/dev/nvidia0\n/dev/nvidiactl' run "${SCRIPT}" job-gpu ENC img
+  jf=$(jit_file ENC)
+  RUNNER_DEVICES=$'/dev/nvidia0\n/dev/nvidiactl' run "${SCRIPT}" job-gpu "${jf}" img
   [ "${status}" -eq 0 ]
   grep -qxF -- '--device' "${CAP}"
   grep -qxF -- '/dev/nvidia0' "${CAP}"
@@ -81,21 +108,30 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
 }
 
 @test "provision-job.sh passes NO --device when the type declares none (#117)" {
-  run "${SCRIPT}" job-cpu ENC img
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-cpu "${jf}" img
   [ "${status}" -eq 0 ]
   ! grep -qxF -- '--device' "${CAP}"
 }
 
 @test "provision-job.sh propagates the container's exit status (the job's result)" {
   export CLI_RC=7
-  run "${SCRIPT}" job-abc ENC img
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-abc "${jf}" img
   [ "${status}" -eq 7 ]
 }
 
-@test "provision-job.sh rejects an empty JIT config" {
-  run "${SCRIPT}" job-abc "" img
+@test "provision-job.sh rejects an empty JIT config file" {
+  jf=$(jit_file "")
+  run "${SCRIPT}" job-abc "${jf}" img
   [ "${status}" -ne 0 ]
   # Never reached the container CLI for an empty config.
+  [ ! -f "${CAP}" ]
+}
+
+@test "provision-job.sh rejects a missing JIT config file" {
+  run "${SCRIPT}" job-abc "${WORK}/does-not-exist" img
+  [ "${status}" -ne 0 ]
   [ ! -f "${CAP}" ]
 }
 
@@ -105,7 +141,8 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
 }
 
 @test "provision-job.sh removes the per-job runner dir after the job (no residue)" {
-  run "${SCRIPT}" job-abc ENC img
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-abc "${jf}" img
   [ "${status}" -eq 0 ]
   # The throwaway jit-<job> dir must not survive the run.
   run bash -c "ls -d '${RUNNER_WORK_ROOT}'/jit-job-abc.* 2>/dev/null | wc -l"

@@ -6,7 +6,13 @@
 # runner_container_run), so that seam stays the single source of truth for the
 # fresh, single-use, rootless-container isolation.
 #
-#   provision-job.sh <job-id> <encoded-jit-config> <image>
+#   provision-job.sh <job-id> <jit-config-file> <image>
+#
+# The single-use JIT config crosses the Go->bash boundary as a FILE, never on
+# argv (ADR-0003 / #133): the encoded runner credential would otherwise be
+# visible in the host process table (ps / /proc) for the whole job. This script
+# reads the file's content; the Go listener writes it mode 0600 in a per-job
+# temp dir and removes it at teardown, so only the path appears on argv.
 #
 # The widened shell-out contract (ADR-0003; #117/#119) carries the per-type
 # fields as EXPLICIT environment (kept off the process table), read by the
@@ -30,12 +36,16 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=SCRIPTDIR/../lib/runner-container.sh
 source "${SCRIPT_DIR}/../lib/runner-container.sh"
 
-usage() { echo "usage: provision-job.sh <job-id> <encoded-jit-config> <image>" >&2; }
+usage() { echo "usage: provision-job.sh <job-id> <jit-config-file> <image>" >&2; }
 
 [[ $# -eq 3 ]] || { usage; exit 2; }
 job_id=$1
-encoded=$2
+jit_file=$2
 image=$3
+# The JIT config arrives as a FILE PATH, never on argv (ADR-0003 / #133). Read
+# its content here so the encoded credential stays off the host process table.
+[[ -f "${jit_file}" ]] || { echo "FAIL: JIT config file not found for job ${job_id}: ${jit_file}" >&2; exit 2; }
+encoded=$(cat -- "${jit_file}")
 [[ -n "${encoded}" ]] || { echo "FAIL: empty JIT config for job ${job_id}" >&2; exit 2; }
 
 # A throwaway, per-job runner dir mounted into the container. It holds no

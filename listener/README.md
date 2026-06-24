@@ -35,9 +35,12 @@ to [`provision-job.sh`](provision-job.sh), which bridges to the Phase 3 seam
 - [`provisioner.go`](provisioner.go) — `ContainerProvisioner`, the production
   `Provisioner` that shells out to `provision-job.sh`.
 - [`provision-job.sh`](provision-job.sh) — the per-job container entrypoint
-  (`provision-job.sh <job-id> <encoded-jit-config> <image>`); sources the
-  Phase 3 seam, runs one throwaway container, propagates its exit status, and
-  removes the per-job runner dir so no residue survives.
+  (`provision-job.sh <job-id> <jit-config-file> <image>`). The JIT config
+  crosses the boundary as a **file**, never on argv (ADR-0003 / #133), so the
+  single-use credential is not exposed in the host process table; the script
+  reads the file, sources the Phase 3 seam, runs one throwaway container,
+  propagates its exit status, and removes the per-job runner dir so no residue
+  survives.
 - [`cmd/scaleset-listener`](cmd/scaleset-listener) — the production entrypoint
   that wires the real client into the listener (the **live** path).
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -23,9 +24,16 @@ type ContainerProvisioner struct {
 }
 
 // Provision runs one ephemeral job by exec'ing the entrypoint script with the
-// job's runner dir name, single-use JIT config, and container image on argv:
+// job id, the PATH to a single-use JIT config FILE, and the container image on
+// argv:
 //
-//	provision-job.sh <job-id> <encoded-jit-config> <image>
+//	provision-job.sh <job-id> <jit-config-file> <image>
+//
+// The encoded JIT config crosses the Go->bash boundary as a FILE, never on argv
+// (ADR-0003 / #133): the single-use runner credential would otherwise be visible
+// in the host process table (ps / /proc) for the whole job. The file is written
+// mode 0600 in a per-job temp dir and removed when this method returns, so no
+// credential survives teardown.
 //
 // The widened shell-out contract (ADR-0003; #117/#119) carries the per-type
 // fields the bash provisioner needs as EXPLICIT environment -- not argv, so they
@@ -43,7 +51,22 @@ func (c *ContainerProvisioner) Provision(ctx context.Context, req ProvisionReque
 	if script == "" {
 		script = "provision-job.sh"
 	}
-	cmd := exec.CommandContext(ctx, script, req.JobID, req.EncodedJITConfig, req.Image)
+
+	// Write the single-use JIT config to a mode-0600 file in a per-job temp dir
+	// and pass only the PATH to the provisioner; the encoded config never lands
+	// on argv (ADR-0003 / #133). The whole dir is removed on return so neither
+	// the file nor its parent survives the job.
+	jitDir, err := os.MkdirTemp("", "jit-"+req.JobID+"-")
+	if err != nil {
+		return fmt.Errorf("provision job %s: jit dir: %w", req.JobID, err)
+	}
+	defer os.RemoveAll(jitDir)
+	jitFile := filepath.Join(jitDir, "jitconfig")
+	if err := os.WriteFile(jitFile, []byte(req.EncodedJITConfig), 0o600); err != nil {
+		return fmt.Errorf("provision job %s: write jit file: %w", req.JobID, err)
+	}
+
+	cmd := exec.CommandContext(ctx, script, req.JobID, jitFile, req.Image)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	// Widen the contract via env: explicit, stable, and kept off the process
