@@ -60,6 +60,24 @@ func (f *fakeSession) Close(_ context.Context) error {
 // standing in for "the test is done" rather than a real session error.
 var errDrained = errors.New("drained")
 
+// recordingMinter is a mock of the JIT minter seam (the production
+// implementation calls the scale-set client's GenerateJitRunnerConfig). It
+// returns a scripted encoded config per job name and records every mint call so
+// a test can assert the assigned job was minted with the expected name.
+type recordingMinter struct {
+	config   string   // encoded JIT config to return
+	mintErr  error    // returned instead, if set
+	gotNames []string // job names passed to Mint
+}
+
+func (m *recordingMinter) Mint(_ context.Context, name string, _ []string) (string, error) {
+	m.gotNames = append(m.gotNames, name)
+	if m.mintErr != nil {
+		return "", m.mintErr
+	}
+	return m.config, nil
+}
+
 // recordingProvisioner is a mock of the per-job container provisioner glue.
 // It records every job it was asked to provision (so a test can assert an
 // ASSIGNED job triggered the shell-out, and with which JIT config), and can be
@@ -103,7 +121,8 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 		},
 	}
 	prov := &recordingProvisioner{}
-	l := New(sess, prov, Config{Image: "ghcr.io/acme/runner:latest"})
+	minter := &recordingMinter{config: "ENCODED-JIT-job-abc"}
+	l := New(sess, minter, prov, Config{Image: "ghcr.io/acme/runner:latest"})
 
 	if err := l.Listen(context.Background()); err != nil && !errors.Is(err, errDrained) {
 		t.Fatalf("Listen returned unexpected error: %v", err)
@@ -115,8 +134,14 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 	if got.JobID != "job-abc" {
 		t.Errorf("provisioned wrong job: got %q want %q", got.JobID, "job-abc")
 	}
-	if got.EncodedJITConfig == "" {
-		t.Error("expected a JIT config to be passed through to the provisioner, got empty")
+	// The config handed to the provisioner must be the one the minter produced
+	// for this job -- proving the Go-client JIT mint is wired through, not a
+	// placeholder.
+	if got.EncodedJITConfig != "ENCODED-JIT-job-abc" {
+		t.Errorf("provisioner got wrong JIT config: got %q want the minted %q", got.EncodedJITConfig, "ENCODED-JIT-job-abc")
+	}
+	if len(minter.gotNames) != 1 {
+		t.Errorf("expected exactly 1 mint call, got %d", len(minter.gotNames))
 	}
 	if got.Image != "ghcr.io/acme/runner:latest" {
 		t.Errorf("provisioner got wrong image: %q", got.Image)
@@ -133,7 +158,7 @@ func TestReportedCapacityFollowsDemand(t *testing.T) {
 		},
 	}
 	prov := &recordingProvisioner{}
-	l := New(sess, prov, Config{Image: "img", MaxRunners: 5})
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img", MaxRunners: 5})
 
 	_ = l.Listen(context.Background())
 
@@ -161,7 +186,7 @@ func TestProcessedMessageIsAcked(t *testing.T) {
 		},
 	}
 	prov := &recordingProvisioner{}
-	l := New(sess, prov, Config{Image: "img"})
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
 
 	_ = l.Listen(context.Background())
 
@@ -181,7 +206,7 @@ func TestProvisionerErrorIsSurfacedAndSessionTornDown(t *testing.T) {
 	}
 	wantErr := errors.New("container exited 1")
 	prov := &recordingProvisioner{failErr: wantErr}
-	l := New(sess, prov, Config{Image: "img"})
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
 
 	err := l.Listen(context.Background())
 	if !errors.Is(err, wantErr) {
@@ -197,7 +222,7 @@ func TestProvisionerErrorIsSurfacedAndSessionTornDown(t *testing.T) {
 func TestSessionTornDownOnCleanExit(t *testing.T) {
 	sess := &fakeSession{messages: nil, getErr: errDrained}
 	prov := &recordingProvisioner{}
-	l := New(sess, prov, Config{Image: "img"})
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
 
 	_ = l.Listen(context.Background())
 
@@ -216,7 +241,7 @@ func TestAvailableButUnassignedDoesNotProvision(t *testing.T) {
 		},
 	}
 	prov := &recordingProvisioner{}
-	l := New(sess, prov, Config{Image: "img"})
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
 
 	_ = l.Listen(context.Background())
 

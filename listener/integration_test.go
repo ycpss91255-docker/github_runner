@@ -58,7 +58,8 @@ func TestLiveScaleSetSession(t *testing.T) {
 	// A recording provisioner so the live test observes demand without actually
 	// pulling images / running containers; the real run path is provision-job.sh.
 	prov := &recordingProvisioner{}
-	l := New(session, prov, Config{Image: os.Getenv("RUNNER_IMAGE"), MaxRunners: 1})
+	minter := &ClientJITMinter{Client: client, ScaleSetID: ss.ID}
+	l := New(session, minter, prov, Config{Image: os.Getenv("RUNNER_IMAGE"), MaxRunners: 1})
 	if err := l.Listen(ctx); err != nil && ctx.Err() == nil {
 		t.Fatalf("live Listen failed: %v", err)
 	}

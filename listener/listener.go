@@ -64,6 +64,19 @@ type Provisioner interface {
 	Provision(ctx context.Context, req ProvisionRequest) error
 }
 
+// JITConfigMinter mints the single-use, server-side JIT config a given runner
+// consumes once (`run.sh --jitconfig <encoded>`) and then de-registers. The
+// production implementation (ClientJITMinter, wired in main.go) calls the
+// scale-set Go client's GenerateJitRunnerConfig -- a method on *Client, not on
+// the message session -- so it is injected here as its own seam, mirroring the
+// Session / Provisioner pattern, and mocked in tests. ADR-0001/ADR-0003 put
+// minting on the Go side of the boundary; nothing in bash mints any more.
+type JITConfigMinter interface {
+	// Mint returns the encoded JIT config for a runner named name with the
+	// given labels (the job's requested labels).
+	Mint(ctx context.Context, name string, labels []string) (string, error)
+}
+
 // Config holds the listener's static knobs.
 type Config struct {
 	// Image is the container image every ephemeral job runs in (passed to the
@@ -79,13 +92,14 @@ type Config struct {
 // demand->provision loop.
 type Listener struct {
 	session Session
+	minter  JITConfigMinter
 	prov    Provisioner
 	cfg     Config
 }
 
-// New wires a Session + Provisioner + Config into a Listener.
-func New(session Session, prov Provisioner, cfg Config) *Listener {
-	return &Listener{session: session, prov: prov, cfg: cfg}
+// New wires a Session + JITConfigMinter + Provisioner + Config into a Listener.
+func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) *Listener {
+	return &Listener{session: session, minter: minter, prov: prov, cfg: cfg}
 }
 
 // Listen runs the long-poll loop until the session drains or the context is
@@ -160,11 +174,17 @@ func (l *Listener) handle(ctx context.Context, msg *scaleset.RunnerScaleSetMessa
 		if _, err := l.session.AcquireJobs(ctx, []int64{ja.RunnerRequestID}); err != nil {
 			return err
 		}
+		// Mint the single-use JIT config for this job via the Go client
+		// (ADR-0001: minting lives on the Go side of the boundary).
+		jit, err := l.minter.Mint(ctx, ja.JobID, ja.RequestLabels)
+		if err != nil {
+			return err
+		}
 		req := ProvisionRequest{
 			JobID:            ja.JobID,
 			RequestID:        ja.RunnerRequestID,
 			Labels:           ja.RequestLabels,
-			EncodedJITConfig: l.jitConfigFor(ja),
+			EncodedJITConfig: jit,
 			Image:            l.cfg.Image,
 		}
 		if err := l.prov.Provision(ctx, req); err != nil {
@@ -189,17 +209,6 @@ func (l *Listener) capacity(assigned int) int {
 		return 0
 	}
 	return spare
-}
-
-// jitConfigFor returns the single-use JIT config for an assigned job. The real
-// scale-set client surfaces the encoded JIT config on the assigned message;
-// v0.4.0 carries it indirectly, so production mints it via the client's
-// GenerateJitRunnerConfig before provisioning. For the glue's purposes the
-// non-empty marker below stands in until that wiring lands in main.go; the
-// provisioner only needs a non-empty single-use config to pass to the
-// container. Keyed by JobID so each job gets a distinct value.
-func (l *Listener) jitConfigFor(ja *scaleset.JobAssigned) string {
-	return "jitconfig-for-" + ja.JobID
 }
 
 // ignoreDrain maps the test drain sentinel to a clean exit (nil) while passing

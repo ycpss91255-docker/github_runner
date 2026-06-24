@@ -78,8 +78,11 @@ func main() {
 		log.Fatalf("open scale-set session: %v", err)
 	}
 
+	// Mint each job's single-use JIT config via the Go client (ADR-0001:
+	// minting lives on the Go side of the boundary).
+	minter := &listener.ClientJITMinter{Client: client, ScaleSetID: scaleSet.ID}
 	prov := &listener.ContainerProvisioner{Script: envOr("PROVISION_SCRIPT", "provision-job.sh")}
-	l := listener.New(session, prov, listener.Config{Image: image, MaxRunners: maxRunners})
+	l := listener.New(session, minter, prov, listener.Config{Image: image, MaxRunners: maxRunners})
 
 	log.Printf("listener up: scale set %q (id=%d), image=%s", scaleSetName, scaleSet.ID, image)
 	if err := l.Listen(ctx); err != nil {
