@@ -57,6 +57,16 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   grep -qxF -- 'run' "${CAP}"
 }
 
+@test "provision-job.sh names + labels the container by job id (#104)" {
+  run "${SCRIPT}" job-abc ENC img
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '--name' "${CAP}"
+  grep -qxF -- 'gha-jit-job-abc' "${CAP}"
+  grep -qxF -- '--label' "${CAP}"
+  grep -qxF -- 'managed-by=github-runner-listener' "${CAP}"
+  grep -qxF -- 'job-id=job-abc' "${CAP}"
+}
+
 @test "provision-job.sh propagates the container's exit status (the job's result)" {
   export CLI_RC=7
   run "${SCRIPT}" job-abc ENC img

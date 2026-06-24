@@ -38,7 +38,9 @@ work_root="${RUNNER_WORK_ROOT:-${TMPDIR:-/tmp}}"
 runner_dir="$(mktemp -d "${work_root%/}/jit-${job_id}.XXXXXX")"
 trap 'rm -rf "${runner_dir}"' EXIT
 
-# Hand the single-use JIT config + image to the Phase 3 seam; it runs
+# Hand the single-use JIT config + image + job id to the Phase 3 seam; it runs
 # `<cli> run --rm ...` so the container is single-use and torn down on exit,
-# executing run.sh --jitconfig <encoded> inside it. Propagate its exit status.
-runner_container_run "${runner_dir}" "${encoded}" "${image}"
+# executing run.sh --jitconfig <encoded> inside it. The job id gives the
+# container a deterministic name + managed-by/job-id labels (#104) so the reaper
+# can correlate it. Propagate its exit status.
+runner_container_run "${runner_dir}" "${encoded}" "${image}" "${job_id}"

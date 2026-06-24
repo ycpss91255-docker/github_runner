@@ -97,6 +97,30 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   [ "${status}" -eq 7 ]
 }
 
+@test "runner_container_run names the container deterministically by job id (#104)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag job-abc
+  [ "${status}" -eq 0 ]
+  # --name and its value land as adjacent argv tokens; the name is deterministic
+  # and carries the job id so the reaper can correlate it.
+  grep -qxF -- '--name' "${CAP}"
+  grep -qxF -- "$(runner_container_name job-abc)" "${CAP}"
+}
+
+@test "runner_container_run labels the container managed-by + job id (#104)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag job-abc
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '--label' "${CAP}"
+  grep -qxF -- "managed-by=${RUNNER_MANAGED_BY}" "${CAP}"
+  grep -qxF -- 'job-id=job-abc' "${CAP}"
+}
+
+@test "runner_container_name is deterministic for a given job id (#104)" {
+  [ "$(runner_container_name job-abc)" = "$(runner_container_name job-abc)" ]
+  [ "$(runner_container_name job-abc)" != "$(runner_container_name job-xyz)" ]
+}
+
 @test "runner_container_run fails clearly when no container CLI is available" {
   # Neither stub created: PATH holds only system bins, no docker/podman.
   run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
