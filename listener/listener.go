@@ -67,6 +67,16 @@ type ProvisionRequest struct {
 	Labels           []string // the job's requested labels
 	EncodedJITConfig string   // single-use server-minted JIT config for this job
 	Image            string   // container image to run the job in
+	// Devices are the host device nodes this runner type declares for precise
+	// --device passthrough (no --privileged -- #117). Empty for a plain CPU type.
+	Devices []string
+	// HardeningProfile is the container hardening posture this runner type
+	// selected (e.g. "device", "default"). Empty = the provisioner default.
+	HardeningProfile string
+	// BuildTool is the daemonless image builder this runner type offers jobs
+	// ("kaniko"/"buildkit"), or empty for none -- routes build jobs to the
+	// daemonless build seam (#119).
+	BuildTool string
 }
 
 // Provisioner runs one ephemeral job in a throwaway container. The production
@@ -125,6 +135,17 @@ type Config struct {
 	// Image is the container image every ephemeral job runs in (passed to the
 	// Phase 3 provisioner).
 	Image string
+	// Devices are this runner type's host device nodes for precise --device
+	// passthrough (#117); empty for a plain CPU type. Carried into every
+	// ProvisionRequest so the bash provisioner passes exactly these as --device.
+	Devices []string
+	// HardeningProfile is this type's container hardening posture (#114/#115),
+	// carried into every ProvisionRequest. Empty = the provisioner default.
+	HardeningProfile string
+	// BuildTool is this type's daemonless image builder ("kaniko"/"buildkit"),
+	// carried into every ProvisionRequest to route build jobs to the daemonless
+	// seam (#119). Empty = none.
+	BuildTool string
 	// MaxRunners is the worker-pool bound: the ceiling on concurrently-
 	// provisioned runners and the basis for locally-derived capacity (#102 --
 	// capacity reported to GitHub is this bound minus the local in-flight count).
@@ -307,6 +328,9 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 			Labels:           ja.RequestLabels,
 			EncodedJITConfig: jit,
 			Image:            l.cfg.Image,
+			Devices:          l.cfg.Devices,
+			HardeningProfile: l.cfg.HardeningProfile,
+			BuildTool:        l.cfg.BuildTool,
 		})
 	}
 	return reqs, nil

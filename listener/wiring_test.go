@@ -34,6 +34,15 @@ func TestRunnerTypeToConfigAuto(t *testing.T) {
 	if inst.Config.DeviceDetector == nil {
 		t.Error("auto concurrency should attach the device detector")
 	}
+	// The type's precise device passthrough (#117) crosses into the listener
+	// Config so the provisioner can pass exactly these as --device.
+	if len(inst.Config.Devices) != 1 || inst.Config.Devices[0] != "/dev/nvidia0" {
+		t.Errorf("Config.Devices = %v, want [/dev/nvidia0]", inst.Config.Devices)
+	}
+	// The type's hardening profile is carried across too (#114/#115 posture).
+	if inst.Config.HardeningProfile != "device" {
+		t.Errorf("Config.HardeningProfile = %q, want device", inst.Config.HardeningProfile)
+	}
 	// The resolved bound should come from the detector (GPU count -> 3).
 	l := New(nil, nil, nil, inst.Config)
 	if l.bound != 3 {

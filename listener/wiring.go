@@ -32,7 +32,12 @@ type Instance struct {
 // (#113: GPU count). det may be nil for an auto type, in which case the
 // listener falls back to its conservative default bound.
 func (rt RunnerType) Instance(det DeviceDetector) Instance {
-	cfg := Config{Image: rt.Image}
+	cfg := Config{
+		Image:            rt.Image,
+		Devices:          rt.Devices,
+		HardeningProfile: rt.HardeningProfile,
+		BuildTool:        rt.BuildTool,
+	}
 	if rt.Concurrency.Auto() {
 		cfg.DeviceDetector = det
 	} else {

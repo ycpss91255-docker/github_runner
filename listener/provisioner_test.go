@@ -53,6 +53,56 @@ func TestContainerProvisionerShellsOutWithJITConfig(t *testing.T) {
 	}
 }
 
+// The widened shell-out contract (#117): the per-type precise device list and
+// hardening profile cross the boundary as EXPLICIT environment, not argv (so
+// they are not in the process table), where the bash provisioner reads them
+// (RUNNER_DEVICES -> --device, RUNNER_HARDENING_PROFILE -> posture). A stub
+// script dumps the relevant env to a file for the assertion.
+func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
+	capFile := filepath.Join(t.TempDir(), "env")
+	script := writeScript(t, "#!/usr/bin/env bash\n{ echo \"DEV=$RUNNER_DEVICES\"; echo \"HP=$RUNNER_HARDENING_PROFILE\"; } > '"+capFile+"'\n")
+
+	p := &ContainerProvisioner{Script: script}
+	err := p.Provision(context.Background(), ProvisionRequest{
+		JobID:            "job-dev",
+		EncodedJITConfig: "ENC",
+		Image:            "img",
+		Devices:          []string{"/dev/nvidia0", "/dev/nvidiactl"},
+		HardeningProfile: "device",
+	})
+	if err != nil {
+		t.Fatalf("Provision returned error: %v", err)
+	}
+	got, rerr := os.ReadFile(capFile)
+	if rerr != nil {
+		t.Fatalf("read capture: %v", rerr)
+	}
+	out := string(got)
+	// Devices are whitespace-separated so the bash word-split maps each to one
+	// --device; the order is preserved.
+	if !strings.Contains(out, "DEV=/dev/nvidia0") || !strings.Contains(out, "/dev/nvidiactl") {
+		t.Errorf("RUNNER_DEVICES not passed through: %q", out)
+	}
+	if !strings.Contains(out, "HP=device") {
+		t.Errorf("RUNNER_HARDENING_PROFILE not passed through: %q", out)
+	}
+}
+
+// With no devices configured (a plain CPU type), RUNNER_DEVICES must be empty so
+// the provisioner passes NO --device -- least privilege by default.
+func TestContainerProvisionerEmptyDevicesByDefault(t *testing.T) {
+	capFile := filepath.Join(t.TempDir(), "env")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"DEV=[$RUNNER_DEVICES]\" > '"+capFile+"'\n")
+	p := &ContainerProvisioner{Script: script}
+	if err := p.Provision(context.Background(), ProvisionRequest{JobID: "j", Image: "img", EncodedJITConfig: "ENC"}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	got, _ := os.ReadFile(capFile)
+	if strings.TrimSpace(string(got)) != "DEV=[]" {
+		t.Errorf("expected empty RUNNER_DEVICES, got %q", string(got))
+	}
+}
+
 // A non-zero exit from the container script (the job failed) must surface as a
 // non-nil error so the listener can tear the session down.
 func TestContainerProvisionerPropagatesFailure(t *testing.T) {

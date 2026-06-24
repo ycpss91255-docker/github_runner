@@ -8,6 +8,14 @@
 #
 #   provision-job.sh <job-id> <encoded-jit-config> <image>
 #
+# The widened shell-out contract (ADR-0003; #117/#119) carries the per-type
+# fields as EXPLICIT environment (kept off the process table), read by the
+# container seam in lib/runner-container.sh:
+#   RUNNER_DEVICES            space-separated host device nodes -> precise
+#                             --device passthrough (never --privileged, #117)
+#   RUNNER_HARDENING_PROFILE  container hardening posture (#114/#115)
+#   RUNNER_BUILD_TOOL         daemonless image builder (kaniko/buildkit), #119
+#
 # Each invocation runs EXACTLY ONE ephemeral job in a throwaway container that
 # is torn down on exit (--rm), then returns the in-container job's exit status
 # so the listener can surface a failed job and tear its session down. No state

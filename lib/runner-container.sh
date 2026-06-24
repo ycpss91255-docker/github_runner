@@ -45,6 +45,13 @@
 # = no socket mount (the secure default).
 : "${RUNNER_DOCKER_SOCKET:=}"
 
+# Precise device passthrough (#117). The host device nodes a runner type declares
+# (RunnerType.Devices in the config, e.g. /dev/nvidia0), passed as the listener's
+# shell-out parameter. Each becomes one `--device <node>` -- least-privilege, and
+# NEVER --privileged. Whitespace-separated (newline or space) so the listener can
+# pass the type's device list verbatim. Empty (a plain CPU type) = no --device.
+: "${RUNNER_DEVICES:=}"
+
 # Emit the baseline hardening argv (#114) one token per array element, for the
 # caller to splice into `<cli> run`. cap-drop=ALL + optional minimal add-back,
 # no-new-privileges, and a pids-limit. Deliberately does NOT touch seccomp (the
@@ -131,11 +138,19 @@ runner_container_run() {
   if [[ -n "${RUNNER_DOCKER_SOCKET}" ]]; then
     socket_args=(-v "${RUNNER_DOCKER_SOCKET}:${RUNNER_DOCKER_SOCKET}:Z")
   fi
+  # Precise --device passthrough (#117): one --device per declared host node, no
+  # --privileged. Word-splitting RUNNER_DEVICES on whitespace is intentional so a
+  # newline- or space-separated device list maps to exactly those nodes.
+  local -a device_args=() dev
+  for dev in ${RUNNER_DEVICES}; do
+    device_args+=(--device "${dev}")
+  done
   # Bind the runner dir with :Z so the engine relabels it for this container
   # (#115) -- MAC (SELinux/AppArmor) stays ENFORCED; we never disable it.
   "${cli}" run --rm --init \
     "${hardening_args[@]}" \
     "${socket_args[@]}" \
+    "${device_args[@]}" \
     "${id_args[@]}" \
     -v "${dir}:/runner:Z" -w /runner \
     "${image}" \

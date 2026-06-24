@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // ContainerProvisioner is the production Provisioner: it shells out to the
@@ -22,9 +23,17 @@ type ContainerProvisioner struct {
 }
 
 // Provision runs one ephemeral job by exec'ing the entrypoint script with the
-// job's runner dir name, single-use JIT config, and container image:
+// job's runner dir name, single-use JIT config, and container image on argv:
 //
 //	provision-job.sh <job-id> <encoded-jit-config> <image>
+//
+// The widened shell-out contract (ADR-0003; #117/#119) carries the per-type
+// fields the bash provisioner needs as EXPLICIT environment -- not argv, so they
+// stay out of the process table:
+//
+//	RUNNER_DEVICES            space-separated device nodes -> precise --device
+//	RUNNER_HARDENING_PROFILE  container hardening posture
+//	RUNNER_BUILD_TOOL         daemonless builder (kaniko/buildkit) or empty
 //
 // The script's stdout/stderr are inherited so the container's job log streams
 // straight through, and a non-zero exit becomes a non-nil error so the listener
@@ -37,6 +46,14 @@ func (c *ContainerProvisioner) Provision(ctx context.Context, req ProvisionReque
 	cmd := exec.CommandContext(ctx, script, req.JobID, req.EncodedJITConfig, req.Image)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// Widen the contract via env: explicit, stable, and kept off the process
+	// table. Devices are space-joined so the bash provisioner word-splits them
+	// into one --device per node.
+	cmd.Env = append(os.Environ(),
+		"RUNNER_DEVICES="+strings.Join(req.Devices, " "),
+		"RUNNER_HARDENING_PROFILE="+req.HardeningProfile,
+		"RUNNER_BUILD_TOOL="+req.BuildTool,
+	)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("provision job %s: %w", req.JobID, err)
 	}

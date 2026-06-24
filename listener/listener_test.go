@@ -163,7 +163,11 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 	}
 	prov := &recordingProvisioner{}
 	minter := &recordingMinter{config: "ENCODED-JIT-job-abc"}
-	l := New(sess, minter, prov, Config{Image: "ghcr.io/acme/runner:latest"})
+	l := New(sess, minter, prov, Config{
+		Image:            "ghcr.io/acme/runner:latest",
+		Devices:          []string{"/dev/nvidia0", "/dev/nvidiactl"},
+		HardeningProfile: "device",
+	})
 
 	if err := l.Listen(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("Listen returned unexpected error: %v", err)
@@ -186,6 +190,15 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 	}
 	if got.Image != "ghcr.io/acme/runner:latest" {
 		t.Errorf("provisioner got wrong image: %q", got.Image)
+	}
+	// The widened shell-out contract (#117): the type's precise device list and
+	// hardening profile flow from Config into every ProvisionRequest, so the
+	// bash provisioner can pass exactly these as --device under the right posture.
+	if len(got.Devices) != 2 || got.Devices[0] != "/dev/nvidia0" || got.Devices[1] != "/dev/nvidiactl" {
+		t.Errorf("provisioner got wrong devices: %v", got.Devices)
+	}
+	if got.HardeningProfile != "device" {
+		t.Errorf("provisioner got wrong hardening profile: %q", got.HardeningProfile)
 	}
 }
 

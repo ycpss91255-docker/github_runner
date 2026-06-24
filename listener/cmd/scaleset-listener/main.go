@@ -87,6 +87,12 @@ func main() {
 		scaleSetName string
 		image        string
 		maxRunners   int
+		// Per-type provisioning fields carried across the widened shell-out
+		// (#117/#119): devices for precise --device passthrough, the hardening
+		// posture, and the daemonless build tool. Empty in the discrete-env path.
+		devices          []string
+		hardeningProfile string
+		buildTool        string
 	)
 	if cfgPath := os.Getenv("RUNNER_TYPES_CONFIG"); cfgPath != "" {
 		inst, err := selectInstance(cfgPath, os.Getenv("RUNNER_TYPE"), detector)
@@ -96,6 +102,9 @@ func main() {
 		scaleSetName = inst.ScaleSet
 		image = inst.Config.Image
 		maxRunners = inst.Config.MaxRunners
+		devices = inst.Config.Devices
+		hardeningProfile = inst.Config.HardeningProfile
+		buildTool = inst.Config.BuildTool
 		if inst.Config.DeviceDetector == nil {
 			// A fixed-concurrency type pins MaxRunners and must not be auto-sized.
 			detector = nil
@@ -148,10 +157,13 @@ func main() {
 	prov := &listener.ContainerProvisioner{Script: envOr("PROVISION_SCRIPT", "provision-job.sh")}
 	reaper := &listener.ScriptReaper{Script: envOr("REAP_SCRIPT", "reap.sh")}
 	l := listener.New(session, minter, prov, listener.Config{
-		Image:          image,
-		MaxRunners:     maxRunners,
-		DeviceDetector: detector,
-		Reaper:         reaper,
+		Image:            image,
+		MaxRunners:       maxRunners,
+		DeviceDetector:   detector,
+		Reaper:           reaper,
+		Devices:          devices,
+		HardeningProfile: hardeningProfile,
+		BuildTool:        buildTool,
 	})
 
 	log.Printf("listener up: scale set %q (id=%d), image=%s", scaleSetName, scaleSet.ID, image)

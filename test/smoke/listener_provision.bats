@@ -67,6 +67,25 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   grep -qxF -- 'job-id=job-abc' "${CAP}"
 }
 
+@test "provision-job.sh passes the listener's RUNNER_DEVICES through as --device (#117)" {
+  # The widened shell-out contract: the listener sets RUNNER_DEVICES in the
+  # provisioner's environment; the entrypoint must carry it into the container
+  # seam so each declared node lands as a precise --device (no --privileged).
+  RUNNER_DEVICES=$'/dev/nvidia0\n/dev/nvidiactl' run "${SCRIPT}" job-gpu ENC img
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '--device' "${CAP}"
+  grep -qxF -- '/dev/nvidia0' "${CAP}"
+  grep -qxF -- '/dev/nvidiactl' "${CAP}"
+  [ "$(grep -cxF -- '--device' "${CAP}")" -eq 2 ]
+  ! grep -qxF -- '--privileged' "${CAP}"
+}
+
+@test "provision-job.sh passes NO --device when the type declares none (#117)" {
+  run "${SCRIPT}" job-cpu ENC img
+  [ "${status}" -eq 0 ]
+  ! grep -qxF -- '--device' "${CAP}"
+}
+
 @test "provision-job.sh propagates the container's exit status (the job's result)" {
   export CLI_RC=7
   run "${SCRIPT}" job-abc ENC img

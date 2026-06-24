@@ -204,3 +204,38 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   # runner type that genuinely needs the daemon can ask for it explicitly.
   grep -qF -- '/var/run/docker.sock:/var/run/docker.sock' "${CAP}"
 }
+
+# --- #117 precise --device passthrough driven by the per-type config ---
+
+@test "runner_container_run passes NO --device by default (#117)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # A plain CPU type declares no devices: nothing should be passed through.
+  ! grep -qxF -- '--device' "${CAP}"
+}
+
+@test "runner_container_run passes exactly the configured devices as --device (#117)" {
+  make_cli docker
+  RUNNER_DEVICES=$'/dev/nvidia0\n/dev/nvidiactl' \
+    run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # Only the declared devices, each as a precise --device <node> pair.
+  grep -qxF -- '--device' "${CAP}"
+  grep -qxF -- '/dev/nvidia0' "${CAP}"
+  grep -qxF -- '/dev/nvidiactl' "${CAP}"
+  # Exactly two --device flags -- no broad/extra passthrough.
+  [ "$(grep -cxF -- '--device' "${CAP}")" -eq 2 ]
+  # And never --privileged for device access.
+  ! grep -qxF -- '--privileged' "${CAP}"
+}
+
+@test "runner_container_run accepts space-separated devices too (#117)" {
+  make_cli docker
+  RUNNER_DEVICES='/dev/kvm /dev/dri/card0' \
+    run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '/dev/kvm' "${CAP}"
+  grep -qxF -- '/dev/dri/card0' "${CAP}"
+  [ "$(grep -cxF -- '--device' "${CAP}")" -eq 2 ]
+}
