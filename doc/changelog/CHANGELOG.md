@@ -6,8 +6,36 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Ephemeral / just-in-time (JIT) runner mode** (ADR-0001/0002/0003, PRD #132):
+  a Go scale-set listener (official `actions/scaleset`, built in-container so the
+  host needs no Go) provisions one fresh single-use container per job, minting
+  the JIT config via the client's `GenerateJitRunnerConfig`. Per-runner-type YAML
+  config (one scale set per type: labels, image, devices, runtime, build tool,
+  hardening profile, auto-sized concurrency), starting with GPU. Bounded worker
+  pool auto-sized from host device count; container + temp-dir reaper; a systemd
+  unit supervises the listener as a non-privileged user. (#84-#90, #92, #94)
+- **Job history / audit trail** (ADR-0002): every job's metadata is recorded to
+  an append-only, secret-redacted ledger plus a full log / `_diag` archive,
+  captured before teardown under `RUNNER_HOME/history`; `history.sh` queries by
+  id / time / repo / outcome; retention bounded by size (GB) + age (days). (#93)
+
+### Changed
+
+- `add-runner.sh` now defaults to the ephemeral / scale-set path; the legacy
+  persistent `config.sh`-once + `svc.sh` systemd runner is kept behind an
+  explicit `--persistent` opt-in. (#84)
+
 ### Security
 
+- Per-job containers are hardened by default: `--cap-drop=ALL`,
+  `--security-opt no-new-privileges`, seccomp + MAC kept enforced (no
+  `label=disable`; `:Z` relabel), `--pids-limit`, and the Docker socket is
+  **not** mounted into jobs by default. Device access is least-privilege via
+  precise `--device` passthrough (no `--privileged`); image builds are daemonless
+  (Kaniko / BuildKit). The single-use JIT credential crosses the Go→bash boundary
+  as a mode-0600 file, never on argv. (#89, #90, #133)
 - `add-runner.sh` now verifies the org's fork-PR approval gate before enabling
   public-repo dispatch. Registering an org runner flips
   `allows_public_repositories=true` (lowering GitHub's 2024+ safe default); the
