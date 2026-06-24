@@ -56,7 +56,17 @@ func (c *ContainerProvisioner) Provision(ctx context.Context, req ProvisionReque
 	// and pass only the PATH to the provisioner; the encoded config never lands
 	// on argv (ADR-0003 / #133). The whole dir is removed on return so neither
 	// the file nor its parent survives the job.
-	jitDir, err := os.MkdirTemp("", "jit-"+req.JobID+"-")
+	//
+	// The per-job temp dir defaults UNDER RUNNER_HOME (#130) -- the same SEC-3 rm
+	// chokepoint the bash provisioner's work root and the history store live in --
+	// rather than /tmp, so the single-use credential file never lands outside the
+	// runner-state tree. workRoot resolves the parent (RUNNER_HOME/work, created
+	// if absent); an empty parent falls back to the OS temp dir.
+	parent, err := c.workRoot()
+	if err != nil {
+		return fmt.Errorf("provision job %s: work root: %w", req.JobID, err)
+	}
+	jitDir, err := os.MkdirTemp(parent, "jit-"+req.JobID+"-")
 	if err != nil {
 		return fmt.Errorf("provision job %s: jit dir: %w", req.JobID, err)
 	}
@@ -81,4 +91,22 @@ func (c *ContainerProvisioner) Provision(ctx context.Context, req ProvisionReque
 		return fmt.Errorf("provision job %s: %w", req.JobID, err)
 	}
 	return nil
+}
+
+// workRoot resolves the parent dir for the per-job JIT temp dir (#130). It
+// defaults to RUNNER_HOME/work -- the SEC-3 rm chokepoint the bash provisioner's
+// work root and the history store also live under -- creating it if absent so
+// MkdirTemp can land the per-job dir there. When RUNNER_HOME is unset it returns
+// "" so os.MkdirTemp falls back to the OS temp dir (the prior behaviour),
+// keeping the provisioner usable without a configured RUNNER_HOME.
+func (c *ContainerProvisioner) workRoot() (string, error) {
+	home := os.Getenv("RUNNER_HOME")
+	if home == "" {
+		return "", nil
+	}
+	root := filepath.Join(home, "work")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	return root, nil
 }

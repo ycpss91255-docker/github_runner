@@ -175,6 +175,37 @@ func TestContainerProvisionerEmptyDevicesByDefault(t *testing.T) {
 	}
 }
 
+// The single-use JIT config file must be written under RUNNER_HOME (#130), so
+// the per-job temp dir the provisioner creates sits within the same SEC-3 rm
+// chokepoint as the rest of the runner state instead of scattering under /tmp.
+// A stub records the JIT file PATH; the test asserts it is parented by
+// RUNNER_HOME/work.
+func TestContainerProvisionerJITFileUnderRunnerHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RUNNER_HOME", home)
+
+	capFile := filepath.Join(t.TempDir(), "cap")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"$2\" > '"+capFile+"'\n")
+
+	p := &ContainerProvisioner{Script: script}
+	if err := p.Provision(context.Background(), ProvisionRequest{
+		JobID:            "job-home",
+		EncodedJITConfig: "ENC",
+		Image:            "img",
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	got, rerr := os.ReadFile(capFile)
+	if rerr != nil {
+		t.Fatalf("read capture: %v", rerr)
+	}
+	jitPath := strings.TrimSpace(string(got))
+	wantPrefix := filepath.Join(home, "work") + string(os.PathSeparator)
+	if !strings.HasPrefix(jitPath, wantPrefix) {
+		t.Errorf("JIT file %q must be under RUNNER_HOME/work (%q)", jitPath, wantPrefix)
+	}
+}
+
 // A non-zero exit from the container script (the job failed) must surface as a
 // non-nil error so the listener can tear the session down.
 func TestContainerProvisionerPropagatesFailure(t *testing.T) {

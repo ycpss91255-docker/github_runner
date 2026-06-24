@@ -147,6 +147,39 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   [ "${status}" -ne 0 ]
 }
 
+# --- per-job work root defaults under RUNNER_HOME (SEC-3 chokepoint, #130) ---
+
+@test "provision-job.sh defaults the per-job work root under RUNNER_HOME, not /tmp (#130)" {
+  # With RUNNER_WORK_ROOT unset, the per-job runner dir must be created under
+  # RUNNER_HOME/work (the SEC-3 rm-root chokepoint) rather than scattered in
+  # /tmp. A stub container records the bind-mount source so we can prove where
+  # the runner dir actually lived.
+  unset RUNNER_WORK_ROOT
+  export RUNNER_HOME="${WORK}/home"
+  mkdir -p "${RUNNER_HOME}"
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-home "${jf}" img
+  [ "${status}" -eq 0 ]
+  # The runner dir bound into the container (-v <dir>:/runner:Z) was under
+  # RUNNER_HOME/work -- captured argv carries the source path before the ':'.
+  grep -qE "^${RUNNER_HOME}/work/jit-job-home\." "${CAP}"
+}
+
+@test "provision-job.sh per-job work root stays within the SEC-3 chokepoint (#130)" {
+  # The mounted runner dir -- and therefore the rm -rf teardown target -- must
+  # be lexically anchored under RUNNER_HOME/work, never outside it.
+  unset RUNNER_WORK_ROOT
+  export RUNNER_HOME="${WORK}/home"
+  mkdir -p "${RUNNER_HOME}"
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-choke "${jf}" img
+  [ "${status}" -eq 0 ]
+  # No bound source path escaped the chokepoint (every -v source line for our
+  # runner dir is prefixed by RUNNER_HOME/).
+  ! grep -qE '^/tmp/jit-job-choke\.' "${CAP}"
+  grep -qE "^${RUNNER_HOME}/" "${CAP}"
+}
+
 @test "provision-job.sh removes the per-job runner dir after the job (no residue)" {
   jf=$(jit_file ENC)
   run "${SCRIPT}" job-abc "${jf}" img

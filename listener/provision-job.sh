@@ -54,9 +54,21 @@ encoded=$(cat -- "${jit_file}")
 
 # A throwaway, per-job runner dir mounted into the container. It holds no
 # persistent state -- the JIT config makes the runner single-use -- and is
-# removed on exit so nothing from this job can poison the next. RUNNER_HOME (or
-# /tmp) parents it; the dir name carries the job id for traceability.
-work_root="${RUNNER_WORK_ROOT:-${TMPDIR:-/tmp}}"
+# removed on exit so nothing from this job can poison the next. The dir name
+# carries the job id for traceability.
+#
+# The per-job work root DEFAULTS under RUNNER_HOME (#130), so the runner dir --
+# and therefore the rm -rf teardown target below -- sits within the SEC-3 rm
+# chokepoint rooted at RUNNER_HOME, beside the rest of the runner state, rather
+# than scattered under /tmp. RUNNER_HOME is resolved the same way common.sh does
+# (repo_root/runners) when unset, so the direct-source path (this script does
+# not source common.sh) still anchors under the same tree. RUNNER_WORK_ROOT
+# overrides it for tests / alternate layouts.
+: "${RUNNER_HOME:=$(cd -- "${SCRIPT_DIR}/.." && pwd -P)/runners}"
+work_root="${RUNNER_WORK_ROOT:-${RUNNER_HOME%/}/work}"
+# Create the work root so mktemp -d can land the per-job dir under it on a fresh
+# host (RUNNER_HOME/work may not exist yet).
+mkdir -p "${work_root}"
 runner_dir="$(mktemp -d "${work_root%/}/jit-${job_id}.XXXXXX")"
 trap 'rm -rf "${runner_dir}"' EXIT
 
