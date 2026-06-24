@@ -6,6 +6,9 @@ on:
 
 env:
   TEST_TOOLS_IMAGE: ghcr.io/ycpss91255-docker/test-tools:latest
+  # Pin the Go toolchain image the listener build/vet/test job runs in, mirroring
+  # the containerized command used locally (listener/go.mod's go 1.25.3). #129.
+  GO_IMAGE: golang:1.25.3
 
 # Least-privilege default token: this workflow only checks out, runs tests,
 # and uploads coverage (via a repo secret, not the GITHUB_TOKEN). Read-only
@@ -31,6 +34,23 @@ jobs:
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: bats smoke
         run: make -f Makefile.ci test
+
+  go:
+    # Containerized Go build + vet + test for the listener module (#129),
+    # mirroring the command run locally:
+    #   docker run --rm -v "$PWD:/src" -w /src golang:<ver> \
+    #     sh -c 'go build ./... && go vet ./... && go test -race ./...'
+    # Run inside the pinned golang image so CI matches the local toolchain
+    # exactly; -race is the local idiom and catches data races in the
+    # concurrent listen/provision loop. This job gates merges via ci-rollup.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: go build + vet + test (containerized)
+        working-directory: listener
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src "${GO_IMAGE}" \
+            sh -c 'go build ./... && go vet ./... && go test -race ./...'
 
   coverage:
     # Main-push only. kcov instrumentation is 2-5x slower than plain bats
@@ -64,13 +84,13 @@ jobs:
 
   ci-rollup:
     # Single aggregator that branch protection requires, mirroring base's
-    # self-test.yaml ci-rollup. shellcheck + bats join this `needs:` list
-    # so branch protection tracks one stable check name regardless of how
-    # the sub-jobs are renamed or split later. `coverage` is intentionally
+    # self-test.yaml ci-rollup. shellcheck + bats + go join this `needs:`
+    # list so branch protection tracks one stable check name regardless of
+    # how the sub-jobs are renamed or split later. `coverage` is intentionally
     # excluded: it is a main-push-only metric, not a PR gate, so a coverage
     # hiccup must never block a merge. SKIPPED folds into pass so future
     # conditionally-gated sub-jobs don't wedge doc-only PRs.
-    needs: [shellcheck, bats]
+    needs: [shellcheck, bats, go]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -78,12 +98,14 @@ jobs:
         env:
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
           BATS_RESULT: ${{ needs.bats.result }}
+          GO_RESULT: ${{ needs.go.result }}
         run: |
           set -euo pipefail
           echo "shellcheck: ${SHELLCHECK_RESULT}"
           echo "bats:       ${BATS_RESULT}"
+          echo "go:         ${GO_RESULT}"
           fail=0
-          for r in "${SHELLCHECK_RESULT}" "${BATS_RESULT}"; do
+          for r in "${SHELLCHECK_RESULT}" "${BATS_RESULT}" "${GO_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"
