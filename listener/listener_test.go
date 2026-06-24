@@ -17,20 +17,28 @@ import (
 // assertion in listener.go), so the listener cannot tell them apart.
 type fakeSession struct {
 	messages       []*scaleset.RunnerScaleSetMessage // scripted, drained front-to-back
-	getErr         error                             // returned once messages are drained
+	getErr         error                             // returned once messages are drained (a real transport error)
+	cancel         context.CancelFunc                // if set, called when messages drain to end the loop via ctx
 	reportedCap    []int                             // maxCapacity passed to each GetMessage
 	deletedIDs     []int                             // messageIDs acked via DeleteMessage
 	acquiredReqIDs [][]int64                         // requestIDs passed to each AcquireJobs
 	closed         bool                              // Close was called (teardown)
 }
 
-func (f *fakeSession) GetMessage(_ context.Context, _ int, maxCapacity int) (*scaleset.RunnerScaleSetMessage, error) {
+func (f *fakeSession) GetMessage(ctx context.Context, _ int, maxCapacity int) (*scaleset.RunnerScaleSetMessage, error) {
 	f.reportedCap = append(f.reportedCap, maxCapacity)
 	if len(f.messages) == 0 {
+		// A genuine transport error ends the loop with that error.
 		if f.getErr != nil {
 			return nil, f.getErr
 		}
-		return nil, errDrained
+		// Otherwise the scripted run is done: cancel the context (as a real
+		// shutdown/SIGTERM would) so the loop terminates the only sanctioned
+		// way -- via ctx -- and surface the resulting context error.
+		if f.cancel != nil {
+			f.cancel()
+		}
+		return nil, ctx.Err()
 	}
 	msg := f.messages[0]
 	f.messages = f.messages[1:]
@@ -55,10 +63,6 @@ func (f *fakeSession) Close(_ context.Context) error {
 	f.closed = true
 	return nil
 }
-
-// errDrained ends the loop cleanly once the scripted messages are exhausted,
-// standing in for "the test is done" rather than a real session error.
-var errDrained = errors.New("drained")
 
 // recordingMinter is a mock of the JIT minter seam (the production
 // implementation calls the scale-set client's GenerateJitRunnerConfig). It
@@ -115,16 +119,19 @@ func msgWithAssigned(id int, totalAssigned int, jobs ...*scaleset.JobAssigned) *
 // An ASSIGNED job must shell out to the per-job container provisioner, and the
 // JIT config that the listener minted for that job must be handed through.
 func TestAssignedJobTriggersProvisioner(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sess := &fakeSession{
 		messages: []*scaleset.RunnerScaleSetMessage{
 			msgWithAssigned(1, 1, assigned(42, "job-abc", "gpu")),
 		},
+		cancel: cancel,
 	}
 	prov := &recordingProvisioner{}
 	minter := &recordingMinter{config: "ENCODED-JIT-job-abc"}
 	l := New(sess, minter, prov, Config{Image: "ghcr.io/acme/runner:latest"})
 
-	if err := l.Listen(context.Background()); err != nil && !errors.Is(err, errDrained) {
+	if err := l.Listen(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("Listen returned unexpected error: %v", err)
 	}
 	if len(prov.jobs) != 1 {
@@ -152,15 +159,18 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 // runners it can serve via maxCapacity, derived from the session's
 // TotalAssignedJobs statistic so GitHub never assigns beyond what we provision.
 func TestReportedCapacityFollowsDemand(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sess := &fakeSession{
 		messages: []*scaleset.RunnerScaleSetMessage{
 			msgWithAssigned(1, 3, assigned(1, "j1")),
 		},
+		cancel: cancel,
 	}
 	prov := &recordingProvisioner{}
 	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img", MaxRunners: 5})
 
-	_ = l.Listen(context.Background())
+	_ = l.Listen(ctx)
 
 	if len(sess.reportedCap) < 2 {
 		t.Fatalf("expected at least 2 GetMessage calls (initial + post-demand), got %d", len(sess.reportedCap))
@@ -180,15 +190,18 @@ func TestReportedCapacityFollowsDemand(t *testing.T) {
 // Each processed message must be acked (DeleteMessage) so the long-poll does
 // not redeliver it -- the at-least-once message protocol the client expects.
 func TestProcessedMessageIsAcked(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sess := &fakeSession{
 		messages: []*scaleset.RunnerScaleSetMessage{
 			msgWithAssigned(7, 1, assigned(1, "j1")),
 		},
+		cancel: cancel,
 	}
 	prov := &recordingProvisioner{}
 	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
 
-	_ = l.Listen(context.Background())
+	_ = l.Listen(ctx)
 
 	if len(sess.deletedIDs) != 1 || sess.deletedIDs[0] != 7 {
 		t.Errorf("expected message 7 to be acked, got %v", sess.deletedIDs)
@@ -217,17 +230,39 @@ func TestProvisionerErrorIsSurfacedAndSessionTornDown(t *testing.T) {
 	}
 }
 
-// A clean drain (session has no more messages) must still tear the session
-// down -- the normal teardown path, not just the error path.
-func TestSessionTornDownOnCleanExit(t *testing.T) {
-	sess := &fakeSession{messages: nil, getErr: errDrained}
+// The loop terminates ONLY via context cancellation (no string sentinel), and
+// that teardown path must still close the session.
+func TestContextCancellationEndsLoopAndTearsDownSession(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{messages: nil, cancel: cancel}
 	prov := &recordingProvisioner{}
 	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
 
-	_ = l.Listen(context.Background())
-
+	err := l.Listen(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected ctx cancellation to surface as context.Canceled, got %v", err)
+	}
 	if !sess.closed {
-		t.Error("expected the session to be torn down (Close) on a clean exit")
+		t.Error("expected the session to be torn down (Close) on ctx cancellation")
+	}
+}
+
+// A non-context GetMessage error (a genuine transport/session failure) is
+// FATAL: it must be returned from the loop, not swallowed, and the session is
+// still torn down.
+func TestTransportErrorIsFatal(t *testing.T) {
+	wantErr := errors.New("transport boom")
+	sess := &fakeSession{messages: nil, getErr: wantErr}
+	prov := &recordingProvisioner{}
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
+
+	err := l.Listen(context.Background())
+	if !errors.Is(err, wantErr) {
+		t.Errorf("expected the transport error to surface, got %v", err)
+	}
+	if !sess.closed {
+		t.Error("expected the session to be torn down (Close) on a transport error")
 	}
 }
 
@@ -235,15 +270,18 @@ func TestSessionTornDownOnCleanExit(t *testing.T) {
 // entries) must NOT shell out -- only ASSIGNED jobs get a container, since
 // only those are ours to run. Guards against over-provisioning on availability.
 func TestAvailableButUnassignedDoesNotProvision(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sess := &fakeSession{
 		messages: []*scaleset.RunnerScaleSetMessage{
 			msgWithAssigned(1, 0 /* no assigned jobs */),
 		},
+		cancel: cancel,
 	}
 	prov := &recordingProvisioner{}
 	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
 
-	_ = l.Listen(context.Background())
+	_ = l.Listen(ctx)
 
 	if len(prov.jobs) != 0 {
 		t.Errorf("expected no provisioning for an unassigned message, got %d", len(prov.jobs))

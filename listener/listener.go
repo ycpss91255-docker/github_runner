@@ -137,9 +137,10 @@ func (l *Listener) Listen(ctx context.Context) (err error) {
 		capacity := l.capacity(assigned)
 		msg, gerr := l.session.GetMessage(ctx, lastMessageID, capacity)
 		if gerr != nil {
-			// A drained fake / a real session error both end the loop; only a
-			// genuine error is surfaced (the test sentinel drains cleanly).
-			return ignoreDrain(gerr)
+			// The loop terminates ONLY on context cancellation (shutdown /
+			// SIGTERM). Every other GetMessage error is a genuine
+			// transport/session failure and is fatal -- surfaced as-is.
+			return gerr
 		}
 		if msg == nil {
 			continue
@@ -209,14 +210,4 @@ func (l *Listener) capacity(assigned int) int {
 		return 0
 	}
 	return spare
-}
-
-// ignoreDrain maps the test drain sentinel to a clean exit (nil) while passing
-// every real error through. The sentinel is matched by message text so the test
-// package can define its own sentinel without importing it here.
-func ignoreDrain(err error) error {
-	if err != nil && err.Error() == "drained" {
-		return nil
-	}
-	return err
 }
