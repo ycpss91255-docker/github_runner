@@ -61,11 +61,19 @@ runner_types:
       mode: auto
 
   # --- A second type, shown to prove "two types, no code change" (#112) -----
-  # Plain CPU runners on an upstream image pinned by digest, with a fixed pool.
+  # Plain CPU runners on the OFFICIAL upstream actions-runner image pinned by
+  # sha256 DIGEST, never :latest (#122). A CPU type needs no self-built image
+  # (no device stack), so it uses the stock image directly -- the digest pin is
+  # the supply-chain guarantee here (the published image is what you ran).
+  #
+  # Bump the digest deliberately (no floating tag drift):
+  #   docker buildx imagetools inspect ghcr.io/actions/actions-runner:latest
+  #   # copy the top-level "Digest: sha256:..." and paste it below, then commit.
+  # (Pin against the version you have validated, not whatever :latest moved to.)
   - name: cpu
     scale_set: cpu-runners
     labels: [self-hosted, linux, x64, cpu]
-    image: ghcr.io/actions/actions-runner@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    image: ghcr.io/actions/actions-runner@sha256:08c30b0a7105f64bddfc485d2487a22aa03932a791402393352fdf674bda2c29
     hardening_profile: default
     concurrency:
       mode: fixed

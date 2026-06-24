@@ -2,6 +2,7 @@ package listener
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,33 @@ func TestSampleConfigLoads(t *testing.T) {
 	}
 	if !gpu.Concurrency.Auto() {
 		t.Error("gpu type should use auto concurrency (= GPU count, #113)")
+	}
+}
+
+// The plain CPU type references the upstream actions-runner image pinned by a
+// sha256 DIGEST, never a floating :latest tag (#122). This is the AFK proof
+// that the digest-pin wiring is what the authoritative parser actually loads
+// from the shipped sample -- so the documented "no :latest" guarantee can't
+// silently regress.
+func TestCPUTypeImageIsDigestPinned(t *testing.T) {
+	types, err := LoadConfig(sampleConfigPath(t))
+	if err != nil {
+		t.Fatalf("load sample: %v", err)
+	}
+	var cpu RunnerType
+	for _, rt := range types {
+		if rt.Name == "cpu" {
+			cpu = rt
+		}
+	}
+	if cpu.Name == "" {
+		t.Fatal("sample config is missing the plain CPU runner type (#122)")
+	}
+	if !strings.Contains(cpu.Image, "@sha256:") {
+		t.Errorf("cpu image must be pinned by sha256 digest, got %q", cpu.Image)
+	}
+	if strings.HasSuffix(cpu.Image, ":latest") || strings.Contains(cpu.Image, ":latest@") {
+		t.Errorf("cpu image must not use a floating :latest tag, got %q", cpu.Image)
 	}
 }
 
