@@ -82,6 +82,57 @@ unit per type** (copy the unit under a per-type name, each with its own
 > A GPU job *actually running* needs a real GPU host with the NVIDIA stack — an
 > operator step on the target host.
 
+## 3b. Build (or pin) the per-type runner images (#92: #120/#121/#122)
+
+The `image` each runner type references is produced one of two ways (ADR-0001
+"Runner images"):
+
+**Self-built image, SEC-5 supply chain (#120).** Device/GPU types need a
+self-built image because stock actions-runner images can't run GPU jobs. The
+runner tarball baked into that image is obtained through the **same SEC-5 check
+the host bootstrap uses** (`verify_runner_tarball`, strict) — a tampered mirror
+/ MITM can never reach the image. The wrapper downloads + verifies on the host,
+then hands the already-verified tarball to a digest-pinned, hermetic build:
+
+```sh
+# Build the SEC-5 base (gh is a prereq: the digest is verified strict).
+# RUNNER_VERSION pins the version; omit for the resolved latest.
+RUNNER_VERSION=2.334.0 \
+  images/build-runner-image.sh --tag ghcr.io/your-org/runner-base:2.334.0
+```
+
+**GPU/device image, layered on the SEC-5 base (#121).** The CUDA/device stack
+is layered on that base (so the runner stays the SEC-5-verified one). Both
+`FROM`s are pinned by digest; the build is hermetic (the CUDA libs are copied
+from a pinned `nvidia/cuda` image, no NVIDIA apt repo at build time):
+
+```sh
+docker build -f images/runner-gpu.Dockerfile \
+  --build-arg RUNNER_BASE_IMAGE=ghcr.io/your-org/runner-base:2.334.0 \
+  --build-arg RUNNER_VERSION=2.334.0 \
+  -t ghcr.io/your-org/gpu-runner:2.334.0 .
+
+# Push, then pin the runner-type config's `image:` by the resulting DIGEST:
+docker push ghcr.io/your-org/gpu-runner:2.334.0
+docker buildx imagetools inspect ghcr.io/your-org/gpu-runner:2.334.0   # copy Digest
+# -> image: ghcr.io/your-org/gpu-runner@sha256:<digest>
+```
+
+> **A GPU job actually executing is HITL.** The images *build* and are wired
+> into the GPU runner-type config AFK; running a real GPU job needs a host with
+> the NVIDIA driver + container runtime — an operator step on the target host.
+
+**Plain CPU type — pin the upstream image by digest (#122).** A CPU type needs
+no self-built image; it uses the **official** `ghcr.io/actions/actions-runner`
+image pinned by `@sha256:` digest (never `:latest`). Bump the digest
+deliberately:
+
+```sh
+docker buildx imagetools inspect ghcr.io/actions/actions-runner:latest
+# copy the top-level "Digest: sha256:..." into the cpu type's image:, then commit.
+# (Pin the version you validated, not whatever :latest moved to.)
+```
+
 ## 4. Install, enable & start the unit
 
 ```sh
