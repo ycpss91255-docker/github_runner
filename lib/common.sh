@@ -74,6 +74,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-container.sh"
 # shellcheck source=lib/runner-build.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-build.sh"
 
+# Runner History: the job-history / audit-trail store (ADR-0002) -- the
+# capture-before-teardown ledger + per-job log/_diag archive under
+# RUNNER_HOME/history (the SEC-3 chokepoint), plus bounded retention and the
+# external-push seam. Sourced after RUNNER_HOME is fixed so its store root
+# resolves under it. (listener/provision-job.sh sources it directly for the
+# capture hook, since it does not source common.sh.)
+# shellcheck source=lib/runner-history.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-history.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)
