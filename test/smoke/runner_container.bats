@@ -183,3 +183,24 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   # relabels the bind mount for this container instead of disabling MAC.
   grep -qxF -- "${RUNNER_DIR}:/runner:Z" "${CAP}"
 }
+
+# --- #116 never mount the docker socket by default; explicit opt-in only ---
+
+@test "runner_container_run mounts NO docker socket by default (#116)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # Job code must not be able to reach the host daemon: no socket mount at all.
+  ! grep -qF -- 'docker.sock' "${CAP}"
+  ! grep -qF -- '/var/run/docker.sock' "${CAP}"
+}
+
+@test "runner_container_run mounts the docker socket only when explicitly opted in (#116)" {
+  make_cli docker
+  export RUNNER_DOCKER_SOCKET=/var/run/docker.sock
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # Opt-in path: the configured socket is bind-mounted (relabelled :Z) so a
+  # runner type that genuinely needs the daemon can ask for it explicitly.
+  grep -qF -- '/var/run/docker.sock:/var/run/docker.sock' "${CAP}"
+}

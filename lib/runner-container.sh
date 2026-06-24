@@ -37,6 +37,14 @@
 : "${RUNNER_PIDS_LIMIT:=4096}"
 : "${RUNNER_CAP_ADD:=}"
 
+# Docker-socket opt-in (#116). By DEFAULT a job container NEVER receives the host
+# docker socket -- so job code cannot reach the host daemon (root-equivalence) --
+# and image builds go through the daemonless build seam (#118) instead. A runner
+# type that genuinely needs the daemon opts in EXPLICITLY by setting this to the
+# host socket path; the listener only sets it for a type that asked for it. Empty
+# = no socket mount (the secure default).
+: "${RUNNER_DOCKER_SOCKET:=}"
+
 # Emit the baseline hardening argv (#114) one token per array element, for the
 # caller to splice into `<cli> run`. cap-drop=ALL + optional minimal add-back,
 # no-new-privileges, and a pids-limit. Deliberately does NOT touch seccomp (the
@@ -116,10 +124,18 @@ runner_container_run() {
   # token survives as its own argv word.
   local -a hardening_args=()
   while IFS= read -r line; do hardening_args+=("${line}"); done < <(runner_container_hardening_args)
+  # Docker-socket opt-in (#116): NEVER mounted by default. Only a runner type
+  # that explicitly set RUNNER_DOCKER_SOCKET gets it, relabelled :Z so MAC stays
+  # enforced. The empty default leaves the array empty -> no socket reaches a job.
+  local -a socket_args=()
+  if [[ -n "${RUNNER_DOCKER_SOCKET}" ]]; then
+    socket_args=(-v "${RUNNER_DOCKER_SOCKET}:${RUNNER_DOCKER_SOCKET}:Z")
+  fi
   # Bind the runner dir with :Z so the engine relabels it for this container
   # (#115) -- MAC (SELinux/AppArmor) stays ENFORCED; we never disable it.
   "${cli}" run --rm --init \
     "${hardening_args[@]}" \
+    "${socket_args[@]}" \
     "${id_args[@]}" \
     -v "${dir}:/runner:Z" -w /runner \
     "${image}" \

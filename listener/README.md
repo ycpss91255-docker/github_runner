@@ -111,6 +111,31 @@ The bash seams read a few more knobs at provision/reap time:
 disables, #107), and `RUNNER_MANAGED_BY` (the `managed-by` label value the
 reaper keys on, #104/#105).
 
+### Per-job container hardening (#114/#115/#116/#117)
+
+Every per-job container is hardened by default (ADR-0001 defense-in-depth); the
+provisioner exposes these knobs, set per runner type by the listener from the
+runner-type config (the shell-out contract, ADR-0003):
+
+| Env | Meaning |
+| --- | --- |
+| `RUNNER_PIDS_LIMIT` | `--pids-limit` value (default `4096`); bounds in-container PIDs (#114) |
+| `RUNNER_CAP_ADD` | space-separated capabilities to add back on top of `--cap-drop=ALL` (default none) (#114) |
+| `RUNNER_DEVICES` | space/newline-separated host device nodes passed through precisely as `--device` -- never `--privileged` (#117) |
+| `RUNNER_DOCKER_SOCKET` | **opt-in only**: host docker socket to bind-mount; **empty by default so NO socket reaches a job** (#116) |
+
+Fixed (not knobs): `--cap-drop=ALL` and `--security-opt no-new-privileges` are
+always applied; the **default seccomp profile is kept** (never
+`seccomp=unconfined`) and **MAC stays enforced** -- there is no `label=disable`;
+the runner dir is bind-mounted with `:Z` so SELinux/AppArmor relabels it for the
+container (#115). The container is **never `--privileged`**.
+
+**Docker socket is never mounted by default (#116).** Job code therefore cannot
+reach the host daemon; image builds use the daemonless build seam (#118) instead.
+A runner type that genuinely needs the daemon opts in *explicitly* by setting
+`RUNNER_DOCKER_SOCKET` to the host socket path -- this is the only path that
+mounts it, and it should be a conscious operator decision.
+
 ## Concurrency, capacity & lifecycle
 
 - **Bounded worker pool (#101):** each acquired job provisions in its own
