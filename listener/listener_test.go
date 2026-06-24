@@ -117,7 +117,9 @@ func (r *recordingProvisioner) Provision(_ context.Context, req ProvisionRequest
 	if r.block != nil {
 		<-r.block
 	}
-	if r.failErr != nil {
+	// failOn scopes the failure to a single JobID; empty failOn means every
+	// job fails when failErr is set.
+	if r.failErr != nil && (r.failOn == "" || r.failOn == req.JobID) {
 		return r.failErr
 	}
 	return nil
@@ -289,25 +291,46 @@ func TestMessageAckedOnAcquireNotAfterJobFinishes(t *testing.T) {
 	<-done
 }
 
-// A failing provisioner (e.g. the container shell-out returns non-zero) must
-// surface as a Listen error, and the session must still be torn down (Close)
-// so a crashed job does not strand the scale-set session.
-func TestProvisionerErrorIsSurfacedAndSessionTornDown(t *testing.T) {
+// A failing provisioner (a job's container exits non-zero) is a PER-JOB
+// outcome: it must be logged and the loop must continue, NOT returned and NOT
+// close the session. A later message must still be processed -- proving the
+// failure did not tear the session down.
+func TestProvisionerErrorIsIsolatedLoopContinues(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sess := &fakeSession{
 		messages: []*scaleset.RunnerScaleSetMessage{
-			msgWithAssigned(1, 1, assigned(1, "boom")),
+			msgWithAssigned(1, 1, assigned(1, "boom")),  // this job fails
+			msgWithAssigned(2, 1, assigned(2, "after")), // must still be processed
 		},
+		cancel: cancel,
 	}
 	wantErr := errors.New("container exited 1")
-	prov := &recordingProvisioner{failErr: wantErr}
-	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{Image: "img"})
+	prov := &recordingProvisioner{failErr: wantErr, failOn: "boom"}
+	var loggedJobErrs []error
+	l := New(sess, &recordingMinter{config: "jit"}, prov, Config{
+		Image:    "img",
+		OnJobErr: func(_ ProvisionRequest, err error) { loggedJobErrs = append(loggedJobErrs, err) },
+	})
 
-	err := l.Listen(context.Background())
-	if !errors.Is(err, wantErr) {
-		t.Errorf("expected the provisioner error to surface, got %v", err)
+	err := l.Listen(ctx)
+
+	// The loop ends ONLY via ctx cancellation -- the per-job failure must not
+	// have been returned.
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("per-job failure must not end the loop; got %v want context.Canceled", err)
 	}
-	if !sess.closed {
-		t.Error("expected the session to be torn down (Close) on the error path")
+	// Both messages were processed -- the loop continued past the failed job.
+	if prov.jobCount() != 2 {
+		t.Errorf("expected the loop to continue and provision the 2nd job, got %d provisions", prov.jobCount())
+	}
+	// The failure was logged as a per-job outcome.
+	if len(loggedJobErrs) != 1 || !errors.Is(loggedJobErrs[0], wantErr) {
+		t.Errorf("expected the per-job failure to be logged once, got %v", loggedJobErrs)
+	}
+	// Both messages acked despite the failure (ack-on-acquire, #99).
+	if got := sess.ackedIDs(); len(got) != 2 {
+		t.Errorf("expected both messages acked, got %v", got)
 	}
 }
 

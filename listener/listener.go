@@ -11,6 +11,7 @@ package listener
 
 import (
 	"context"
+	"log"
 
 	"github.com/actions/scaleset"
 )
@@ -86,6 +87,11 @@ type Config struct {
 	// capacity the listener offers GitHub, less whatever is already assigned.
 	// Zero means "no explicit ceiling"; we then offer demand-sized capacity.
 	MaxRunners int
+	// OnJobErr is called with a job's ProvisionRequest and the error when its
+	// container exits non-zero. A per-job failure is an isolated outcome -- it
+	// is reported here and the loop continues; it never ends the loop or closes
+	// the session. Nil falls back to a log.Printf default.
+	OnJobErr func(req ProvisionRequest, err error)
 }
 
 // Listener pairs an injected scale-set Session with a Provisioner and runs the
@@ -113,10 +119,12 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 //     once the jobs are acquired/dispatched, BEFORE the (potentially long)
 //     container run, so a slow job never leaves its message unacked.
 //  4. Shell out to the per-job container provisioner for each acquired job --
-//     the fresh-container isolation the scale set client does not provide.
+//     the fresh-container isolation the scale set client does not provide. A
+//     job's failure is an isolated per-job outcome (logged, loop continues).
 //
-// A provisioner error is returned (and the session still torn down). A clean
-// drain returns nil.
+// Only a genuine transport/session error (a non-context GetMessage / AcquireJobs
+// / DeleteMessage failure) returns from the loop; the session is ALWAYS torn
+// down on exit. Context cancellation ends the loop cleanly.
 func (l *Listener) Listen(ctx context.Context) (err error) {
 	// Teardown is unconditional: clean exit or mid-job failure, the session
 	// must be closed so it does not linger server-side.
@@ -170,9 +178,9 @@ func (l *Listener) Listen(ctx context.Context) (err error) {
 			lastMessageID = msg.MessageID
 		}
 
-		if perr := l.provision(ctx, reqs); perr != nil {
-			return perr
-		}
+		// Provisioning is per-job isolated: a failed job is logged and the loop
+		// carries on; it never ends Listen.
+		l.provision(ctx, reqs)
 	}
 }
 
@@ -207,14 +215,27 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 	return reqs, nil
 }
 
-// provision runs the per-job container for each acquired job.
-func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) error {
+// provision runs the per-job container for each acquired job. A job's failure
+// (non-zero container exit) is an ISOLATED, per-job outcome: it is reported via
+// OnJobErr and provisioning of the remaining jobs continues. It never returns
+// an error, so a failed job can neither end the listen loop nor close the
+// session -- only genuine transport/session errors do that.
+func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) {
 	for _, req := range reqs {
 		if err := l.prov.Provision(ctx, req); err != nil {
-			return err
+			l.reportJobErr(req, err)
 		}
 	}
-	return nil
+}
+
+// reportJobErr surfaces a per-job failure, via the injected OnJobErr hook or a
+// log.Printf default.
+func (l *Listener) reportJobErr(req ProvisionRequest, err error) {
+	if l.cfg.OnJobErr != nil {
+		l.cfg.OnJobErr(req, err)
+		return
+	}
+	log.Printf("job %s failed (isolated, listener continues): %v", req.JobID, err)
 }
 
 // capacity is the spare-runner count to offer GitHub: the MaxRunners ceiling
