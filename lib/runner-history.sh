@@ -14,6 +14,7 @@
 #   Ledger  (append-only, one line per job; NEVER any secret/JIT config) -- #124
 #   Archive (container stdout/stderr + runner _diag, keyed by job id)     -- #125
 #   Capture hook (runs after the job exits, before --rm / temp-dir rm)    -- #123
+#   Retention (bounded by BOTH size GB + age days, oldest-first)          -- #127
 #   External-push seam (pluggable, no-op default, config-driven)          -- #128
 # shellcheck shell=bash
 
@@ -34,6 +35,12 @@
 # local file is the only sink (best-effort mirror, never fatal).
 : "${RUNNER_HISTORY_JOURNAL_TAG:=github-runner-history}"
 
+# Retention caps (#127): history is bounded by BOTH a size cap (GB) and an age
+# cap (days); oldest job archives are evicted first until BOTH hold. Defaults
+# per ADR-0002 (20 GB / 30 days); override via the environment / setup.conf.
+: "${RUNNER_HISTORY_MAX_GB:=20}"
+: "${RUNNER_HISTORY_MAX_DAYS:=30}"
+
 # External-push seam (#128): the name of a shell function invoked once per
 # captured job to ship its record/archive to an external store (Loki / ELK /
 # object storage). Empty (the default) = local store only, a pure no-op. Set it
@@ -48,9 +55,9 @@ runner_history_safe_id() {
   printf '%s' "$1" | tr -c 'a-zA-Z0-9_.-' '-'
 }
 
-# The per-job archive dir, keyed by the sanitised job id. Created lazily by the
-# archive/capture functions; never removed by teardown (that is the whole point
-# -- it outlives the container).
+# The per-job archive dir, keyed by the sanitised job id (#125). Created lazily
+# by the archive/capture functions; never removed by teardown (that is the whole
+# point -- it outlives the container).
 runner_history_job_dir() {
   printf '%s/jobs/%s' "${RUNNER_HISTORY_DIR}" "$(runner_history_safe_id "$1")"
 }
@@ -58,7 +65,7 @@ runner_history_job_dir() {
 # Append one job record to the ledger (#124). Fields are passed as KEY=VALUE
 # pairs and written as a single TAB-separated line, so the ledger stays grep-
 # and cut-friendly. The record carries job id, scale set / labels, image +
-# digest, host, runner type, device(s), start / end, duration, exit status, and
+# digest, host, runner type, devices, start / end, duration, exit status, and
 # trigger (repo / workflow / commit / actor) -- but NEVER the JIT config or any
 # secret. Redaction is enforced here: any field whose KEY matches a secret-ish
 # name (jit / token / secret / credential / password) is DROPPED rather than
@@ -125,9 +132,8 @@ runner_history_archive() {
 # captured job, handing it the job id and its archive dir. The DEFAULT is a pure
 # NO-OP (RUNNER_HISTORY_PUSH_HOOK empty) -- local store only. Enabling it is
 # config-driven: set RUNNER_HISTORY_PUSH_HOOK to the name of a function that
-# ships the record/archive elsewhere. Best-effort: a hook failure (or an enabled-
-# but-undefined hook) is logged and swallowed so a flaky external store never
-# blocks capture/teardown.
+# ships the record/archive elsewhere. Best-effort: a hook failure is logged and
+# swallowed so a flaky external store never blocks capture/teardown.
 #   runner_history_push <job_id>
 runner_history_push() {
   local job_id=$1 dest
@@ -139,6 +145,87 @@ runner_history_push() {
   dest=$(runner_history_job_dir "${job_id}")
   "${RUNNER_HISTORY_PUSH_HOOK}" "${job_id}" "${dest}" \
     || echo "history: push hook failed for ${job_id} (local copy retained)" >&2
+  return 0
+}
+
+# --- Retention (#127) -----------------------------------------------------
+# History is bounded by BOTH a size cap (GB) and an age cap (days); the prune
+# evicts whole per-job archives OLDEST-FIRST until both caps hold, so the store
+# can never fill the disk (a new "residue" failure mode ADR-0002 must avoid).
+# This logic lives here so it is reusable by both script/history.sh (operator)
+# and the scheduled cleanup harness (script/cleanup.sh, #127).
+
+# Emit every per-job archive dir as "<mtime-epoch>\t<path>", sorted OLDEST FIRST
+# -- the eviction order. Empty (no jobs/ dir) prints nothing.
+runner_history_archives_by_age() {
+  local jobs_dir="${RUNNER_HISTORY_DIR}/jobs"
+  [[ -d "${jobs_dir}" ]] || return 0
+  local d
+  for d in "${jobs_dir}"/*/; do
+    [[ -d "${d}" ]] || continue
+    printf '%s\t%s\n' "$(stat -c '%Y' "${d}")" "${d%/}"
+  done | sort -n
+}
+
+# Total bytes used by all per-job archives (the size the GB cap bounds).
+runner_history_total_bytes() {
+  local jobs_dir="${RUNNER_HISTORY_DIR}/jobs"
+  [[ -d "${jobs_dir}" ]] || { printf '0'; return 0; }
+  du -sb "${jobs_dir}" 2>/dev/null | awk '{print $1; found=1} END{if(!found) print 0}'
+}
+
+# Plan the retention eviction (#127): print the per-job archive dirs that should
+# be removed, oldest-first, to satisfy BOTH caps -- WITHOUT removing anything (so
+# a dry-run / the operator can preview). Args (default to the configured caps):
+#   runner_history_prune_plan [max_gb] [max_days]
+# A dir is evicted if it is older than max_days OR if it still sits above the
+# size budget after older dirs are accounted for. max_gb=0 means "evict to
+# (nearly) empty"; max_days<=0 disables the age cap.
+runner_history_prune_plan() {
+  local max_gb=${1:-${RUNNER_HISTORY_MAX_GB}} max_days=${2:-${RUNNER_HISTORY_MAX_DAYS}}
+  local budget now cutoff
+  # Size budget in bytes (GB * 1024^3). Integer math; 0 -> 0 budget.
+  budget=$(( max_gb * 1024 * 1024 * 1024 ))
+  now=$(date +%s)
+  cutoff=$(( now - max_days * 86400 ))
+
+  local total mtime path
+  total=$(runner_history_total_bytes)
+
+  # Walk oldest-first: evict on age, OR while still over the size budget. Each
+  # eviction reduces the running total so we stop once under budget.
+  while IFS=$'\t' read -r mtime path; do
+    [[ -n "${path}" ]] || continue
+    local evict=0
+    if (( max_days > 0 )) && (( mtime < cutoff )); then
+      evict=1
+    elif (( total > budget )); then
+      evict=1
+    fi
+    if (( evict )); then
+      printf '%s\n' "${path}"
+      local sz
+      sz=$(du -sb "${path}" 2>/dev/null | awk '{print $1}')
+      total=$(( total - ${sz:-0} ))
+    fi
+  done < <(runner_history_archives_by_age)
+}
+
+# Enforce retention (#127): remove the planned per-job archives oldest-first.
+# Every rm is anchored under RUNNER_HISTORY_DIR (which is itself under
+# RUNNER_HOME, the SEC-3 chokepoint) -- a defensive guard so a bug can never turn
+# this into an out-of-tree delete. Prints one line per eviction. Returns 0.
+#   runner_history_prune [max_gb] [max_days]
+runner_history_prune() {
+  local path
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] || continue
+    case "${path}/" in
+      "${RUNNER_HISTORY_DIR}/jobs/"*) ;;
+      *) echo "history: refusing to prune outside the store: ${path}" >&2; continue ;;
+    esac
+    rm -rf -- "${path}" && echo "pruned ${path}"
+  done < <(runner_history_prune_plan "$@")
   return 0
 }
 

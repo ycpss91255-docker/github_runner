@@ -50,6 +50,25 @@ fake_runner() {
   [[ "${output}" == *"Nothing to clean"* ]]
 }
 
+@test "cleanup.sh prunes the history store by the age cap (#127 wired into scheduled cleanup)" {
+  # A per-job archive far past the age cap must be evicted by a scheduled run,
+  # even when there are NO runner artifacts to clean (history prune runs first,
+  # independent of the runner-artifact prune).
+  mkdir -p "${RUNNER_HOME}/history/jobs/job-old"
+  touch -d '2020-01-01' "${RUNNER_HOME}/history/jobs/job-old"
+  RUNNER_HISTORY_MAX_DAYS=1 RUNNER_HISTORY_MAX_GB=1000 run "${SCRIPT}" --yes
+  [ "${status}" -eq 0 ]
+  [ ! -d "${RUNNER_HOME}/history/jobs/job-old" ]
+}
+
+@test "cleanup.sh --dry-run previews history eviction but removes nothing (#127)" {
+  mkdir -p "${RUNNER_HOME}/history/jobs/job-old"
+  touch -d '2020-01-01' "${RUNNER_HOME}/history/jobs/job-old"
+  RUNNER_HISTORY_MAX_DAYS=1 run "${SCRIPT}" --dry-run
+  [ "${status}" -eq 0 ]
+  [ -d "${RUNNER_HOME}/history/jobs/job-old" ]
+}
+
 @test "cleanup.sh ignores the active bin.X / externals.X dirs" {
   fake_runner myorg 2.334.0
   run "${SCRIPT}" --dry-run

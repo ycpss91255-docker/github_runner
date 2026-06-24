@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# history.sh -- query the job-history / audit-trail store (ADR-0002, #126). Reads
-# the append-only ledger under RUNNER_HISTORY_DIR (RUNNER_HOME/history) and lets
-# an operator look up jobs by id / time range / repo / outcome, human-readable or
-# --json:
+# history.sh -- query and prune the job-history / audit-trail store (ADR-0002,
+# #126/#127). Reads the append-only ledger and per-job archives under
+# RUNNER_HISTORY_DIR (RUNNER_HOME/history) and lets an operator:
 #
+#   - LOOK UP jobs by id / time range / repo / outcome, human-readable or --json
 #       ./script/history.sh                       # every job
 #       ./script/history.sh --id <job-id>
 #       ./script/history.sh --repo <owner/repo>
@@ -11,7 +11,12 @@
 #       ./script/history.sh --since <ts> --until <ts>   # ISO-8601 UTC
 #       ./script/history.sh --id <job-id> --json
 #
-# Read-only: it never mutates the store.
+#   - PRUNE the store by BOTH a size cap (GB) and an age cap (days), oldest-first
+#       ./script/history.sh prune [--max-gb N] [--max-days N] [--yes | --dry-run]
+#
+# The query is read-only; prune is destructive and (like cleanup.sh) refuses to
+# run unattended without --yes. The retention logic itself lives in
+# lib/runner-history.sh so the scheduled cleanup (cleanup.sh, #127) reuses it.
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
@@ -22,17 +27,24 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [--id ID] [--repo OWNER/REPO] [--outcome success|failure]
                        [--since TS] [--until TS] [--json]
+       $(basename "$0") prune [--max-gb N] [--max-days N] [--yes | --dry-run]
        $(basename "$0") -h | --help
 
-Query the job-history store under \${RUNNER_HISTORY_DIR} (read-only).
+Query or prune the job-history store under \${RUNNER_HISTORY_DIR}.
 
-Options:
+Query options (read-only):
   --id ID           Only the job with this id.
   --repo OWNER/REPO Only jobs whose trigger_repo matches.
   --outcome WHICH   success (exit_status=0) or failure (non-zero).
   --since TS        Only jobs with ts >= TS (ISO-8601 UTC, lexical compare).
   --until TS        Only jobs with ts <  TS.
   --json            Emit one JSON object per matched record (scriptable).
+
+Prune (destructive; enforces retention #127):
+  --max-gb N        Size cap in GB    (default \${RUNNER_HISTORY_MAX_GB}).
+  --max-days N      Age cap in days   (default \${RUNNER_HISTORY_MAX_DAYS}).
+  --yes             Proceed (required for non-interactive runs).
+  --dry-run | -n    Print what WOULD be evicted; remove nothing.
 
 Exit code: 0 success / no-op; 1 usage error.
 EOF
@@ -113,9 +125,44 @@ cmd_query() {
   done < "${RUNNER_HISTORY_LEDGER}"
 }
 
+cmd_prune() {
+  local max_gb=${RUNNER_HISTORY_MAX_GB} max_days=${RUNNER_HISTORY_MAX_DAYS}
+  local yes=0 dry=0
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --max-gb)   max_gb=${2:?--max-gb needs a value}; shift 2 ;;
+      --max-days) max_days=${2:?--max-days needs a value}; shift 2 ;;
+      --yes|-y)   yes=1; shift ;;
+      --dry-run|-n) dry=1; shift ;;
+      -h|--help)  usage; exit 0 ;;
+      *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
+    esac
+  done
+
+  if (( dry )); then
+    echo "Dry-run; archives that WOULD be pruned (size cap ${max_gb} GB, age cap ${max_days} d, oldest-first):"
+    runner_history_prune_plan "${max_gb}" "${max_days}" | sed 's/^/  /'
+    echo "Dry-run; nothing removed."
+    return 0
+  fi
+
+  if (( ! yes )); then
+    if [[ ! -t 0 ]]; then
+      echo "FAIL: prune is destructive; non-interactive run requires --yes" >&2
+      exit 1
+    fi
+    local ans
+    read -r -p "Prune history beyond ${max_gb} GB / ${max_days} days? [y/N] " ans
+    case ${ans} in y|Y|yes|YES) ;; *) echo "Aborted."; return 0 ;; esac
+  fi
+
+  runner_history_prune "${max_gb}" "${max_days}"
+}
+
 main() {
   case "${1:-}" in
     -h|--help) usage; exit 0 ;;
+    prune)     shift; cmd_prune "$@" ;;
     *)         cmd_query "$@" ;;
   esac
 }

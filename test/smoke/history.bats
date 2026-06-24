@@ -1,9 +1,11 @@
 #!/usr/bin/env bats
-# Smoke tests for script/history.sh -- the job-history query tool (ADR-0002,
-# #126). It reads the append-only ledger under RUNNER_HISTORY_DIR and lets an
-# operator look up jobs by id / time / repo / outcome (human-readable + --json).
-# Tests point RUNNER_HISTORY_DIR at a throwaway store (never the real
-# RUNNER_HOME) and seed ledger lines directly, asserting on the script's output.
+# Smoke tests for script/history.sh -- the job-history query + retention tool
+# (ADR-0002, #126/#127). It reads the append-only ledger and per-job archives
+# under RUNNER_HISTORY_DIR and lets an operator look up jobs by id / time / repo
+# / outcome (human-readable + --json), and prune the store by BOTH a size cap
+# (GB) and an age cap (days), oldest-first. Tests point RUNNER_HISTORY_DIR at a
+# throwaway store (never the real RUNNER_HOME) and seed ledger lines / archives
+# directly, asserting on the script's output and on what it evicts.
 
 setup() {
   ROOT="${BATS_TEST_DIRNAME}/../.."
@@ -100,6 +102,48 @@ teardown() { rm -rf "${STORE}"; }
   run "${SCRIPT}" --id no-such-job
   [ "${status}" -eq 0 ]
   [ -z "${output}" ]
+}
+
+# --- retention (#127) -----------------------------------------------------
+
+@test "history.sh prune --max-days evicts archives older than the age cap, oldest-first (#127)" {
+  # Three per-job archive dirs with controlled mtimes (old -> new).
+  for j in job-aaa job-bbb job-ccc; do mkdir -p "${RUNNER_HISTORY_DIR}/jobs/${j}"; done
+  touch -d '2026-01-01' "${RUNNER_HISTORY_DIR}/jobs/job-aaa"
+  touch -d '2026-06-01' "${RUNNER_HISTORY_DIR}/jobs/job-bbb"
+  touch -d "$(date +%Y-%m-%d)" "${RUNNER_HISTORY_DIR}/jobs/job-ccc"
+
+  RUNNER_HISTORY_MAX_DAYS=30 RUNNER_HISTORY_MAX_GB=1000 \
+    run "${SCRIPT}" prune --yes
+  [ "${status}" -eq 0 ]
+  # The very old archive is gone; the recent ones survive.
+  [ ! -d "${RUNNER_HISTORY_DIR}/jobs/job-aaa" ]
+  [ -d "${RUNNER_HISTORY_DIR}/jobs/job-ccc" ]
+}
+
+@test "history.sh prune --max-gb evicts oldest archives until under the size cap (#127)" {
+  # Two ~1 MB archives; a sub-MB cap (in GB) must evict the older one first.
+  for j in job-old job-new; do mkdir -p "${RUNNER_HISTORY_DIR}/jobs/${j}"; done
+  dd if=/dev/zero of="${RUNNER_HISTORY_DIR}/jobs/job-old/blob" bs=1M count=1 status=none
+  dd if=/dev/zero of="${RUNNER_HISTORY_DIR}/jobs/job-new/blob" bs=1M count=1 status=none
+  touch -d '2026-01-01' "${RUNNER_HISTORY_DIR}/jobs/job-old"
+  touch -d "$(date +%Y-%m-%d)" "${RUNNER_HISTORY_DIR}/jobs/job-new"
+
+  # Cap of 0 GB rounds to a tiny byte budget -- everything over it is evicted
+  # oldest-first; with both over budget, both go, but the OLDEST goes first.
+  RUNNER_HISTORY_MAX_GB=0 RUNNER_HISTORY_MAX_DAYS=99999 \
+    run "${SCRIPT}" prune --yes --max-gb 0
+  [ "${status}" -eq 0 ]
+  [ ! -d "${RUNNER_HISTORY_DIR}/jobs/job-old" ]
+}
+
+@test "history.sh prune is a dry-run safe no-op without --yes (#127)" {
+  mkdir -p "${RUNNER_HISTORY_DIR}/jobs/job-aaa"
+  touch -d '2020-01-01' "${RUNNER_HISTORY_DIR}/jobs/job-aaa"
+  RUNNER_HISTORY_MAX_DAYS=1 run "${SCRIPT}" prune --dry-run
+  [ "${status}" -eq 0 ]
+  # Dry-run must not remove anything.
+  [ -d "${RUNNER_HISTORY_DIR}/jobs/job-aaa" ]
 }
 
 @test "history.sh -h prints usage and exits 0" {
