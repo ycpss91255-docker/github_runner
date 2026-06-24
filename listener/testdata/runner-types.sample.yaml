@@ -1,0 +1,67 @@
+# Sample runner-type configuration for the scale-set listener (ADR-0001
+# "Per-runner-type configuration"; #110/#113).
+#
+# Each entry under `runner_types` describes ONE homogeneous class of ephemeral
+# runner and maps to exactly ONE GitHub scale set (scale sets are homogeneous).
+# Adding a new runner type is a new entry here, NOT a code change.
+#
+# The Go listener is the AUTHORITATIVE parser (ADR-0003): it loads and validates
+# this file, then passes only the per-job fields a provision needs (image,
+# devices, runtime, build tool, hardening profile) across the shell-out boundary
+# to the bash container provisioner. Bash never parses this file.
+#
+# Install it next to the listener's EnvironmentFile, e.g.:
+#   sudo install -m 0644 deploy/runner-types.sample.yaml \
+#     /etc/github-runner-listener/runner-types.yaml
+#   sudo "${EDITOR:-vi}" /etc/github-runner-listener/runner-types.yaml
+#
+# Schema (per entry):
+#   name              required  operator-facing id; unique across the file.
+#   scale_set         required  the GitHub scale set this type binds to; unique
+#                               (one type -> one scale set).
+#   labels            required  runs-on labels workflows target this type with.
+#   image             required  per-job container image; pin by DIGEST (sha256)
+#                               to avoid :latest drift.
+#   devices           optional  host device nodes passed through (--device,
+#                               never --privileged). Empty for plain CPU types.
+#   runtime           optional  container runtime / hardware shim (e.g. nvidia;
+#                               gvisor/kata later). Empty = engine default.
+#   build_tool        optional  daemonless image builder (kaniko / buildkit).
+#   hardening_profile optional  container hardening posture (device / default).
+#   concurrency       optional  worker-pool sizing. AUTO BY DEFAULT:
+#                                 mode: auto            size from host capacity
+#                                                       (e.g. GPU count, #113)
+#                                 mode: fixed, count: N pin to N (operator wins)
+#                               Omit the block entirely for auto.
+
+runner_types:
+  # --- First concrete type: GPU (#113) -------------------------------------
+  # Auto concurrency = detected GPU count (the listener runs nvidia-smi -L and
+  # sizes its worker pool to one slot per GPU). Devices are passed through
+  # precisely (no --privileged); the device hardening profile + the ADR-0011
+  # approval gate keep unapproved untrusted code off this rootful device host.
+  - name: gpu
+    scale_set: gpu-runners
+    labels: [self-hosted, linux, x64, gpu, cuda]
+    # Self-built from a SEC-5 verified runner tarball; pin by digest.
+    image: ghcr.io/your-org/gpu-runner@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    devices:
+      - /dev/nvidia0
+      - /dev/nvidiactl
+      - /dev/nvidia-uvm
+    runtime: nvidia
+    build_tool: kaniko
+    hardening_profile: device
+    concurrency:
+      mode: auto
+
+  # --- A second type, shown to prove "two types, no code change" (#112) -----
+  # Plain CPU runners on an upstream image pinned by digest, with a fixed pool.
+  - name: cpu
+    scale_set: cpu-runners
+    labels: [self-hosted, linux, x64, cpu]
+    image: ghcr.io/actions/actions-runner@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    hardening_profile: default
+    concurrency:
+      mode: fixed
+      count: 4
