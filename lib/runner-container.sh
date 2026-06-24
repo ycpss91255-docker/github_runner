@@ -25,6 +25,36 @@
 # forever. Default 6h; override for shorter/longer ceilings. 0 disables it.
 : "${RUNNER_JOB_MAX_LIFETIME:=21600}"
 
+# Baseline container-hardening knobs (#114, ADR-0001 "defense-in-depth on every
+# job container"). Every per-job container drops ALL Linux capabilities, runs
+# with no-new-privileges (a job can never gain privileges via setuid), and is
+# bounded by a pids-limit (a fork bomb cannot exhaust host PIDs). The default
+# seccomp profile is KEPT (we never pass seccomp=unconfined) and MAC stays
+# enforced (#115). Add-back is empty by default -- the runner needs no
+# capabilities to execute actions -- but RUNNER_CAP_ADD lets a runner type grant
+# a minimal, explicit set when a job genuinely needs one (space-separated cap
+# names, e.g. "NET_BIND_SERVICE").
+: "${RUNNER_PIDS_LIMIT:=4096}"
+: "${RUNNER_CAP_ADD:=}"
+
+# Emit the baseline hardening argv (#114) one token per array element, for the
+# caller to splice into `<cli> run`. cap-drop=ALL + optional minimal add-back,
+# no-new-privileges, and a pids-limit. Deliberately does NOT touch seccomp (the
+# engine default profile stays on) or MAC (kept enforced, #115).
+#   runner_container_hardening_args  -> prints flags, newline-separated
+runner_container_hardening_args() {
+  local -a args=(
+    --cap-drop=ALL
+    --security-opt no-new-privileges
+    --pids-limit "${RUNNER_PIDS_LIMIT}"
+  )
+  local cap
+  for cap in ${RUNNER_CAP_ADD}; do
+    args+=(--cap-add="${cap}")
+  done
+  printf '%s\n' "${args[@]}"
+}
+
 # Deterministic container name for a job id (#104): the same job id always maps
 # to the same name, so a container can be correlated and reaped by name. Sanitise
 # the job id to the [a-zA-Z0-9_.-] set Docker/Podman allow in names (anything
@@ -65,7 +95,7 @@ runner_container_cli() {
 # is the whole job lifecycle). The runner dir is mounted so the bundled run.sh
 # runs from inside the container against the JIT config.
 runner_container_run() {
-  local dir=$1 encoded=$2 image=$3 job_id=${4:-} cli
+  local dir=$1 encoded=$2 image=$3 job_id=${4:-} cli line
   cli=$(runner_container_cli) || {
     echo "FAIL: no rootless container CLI found (need podman or docker)" >&2
     return 1
@@ -81,8 +111,13 @@ runner_container_run() {
       --label "job-id=${job_id}"
     )
   fi
+  # Baseline hardening flags (#114): read one-per-line into an array so each
+  # token survives as its own argv word.
+  local -a hardening_args=()
+  while IFS= read -r line; do hardening_args+=("${line}"); done < <(runner_container_hardening_args)
   "${cli}" run --rm --init \
     --security-opt label=disable \
+    "${hardening_args[@]}" \
     "${id_args[@]}" \
     -v "${dir}:/runner" -w /runner \
     "${image}" \

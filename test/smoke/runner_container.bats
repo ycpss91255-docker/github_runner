@@ -126,3 +126,41 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
   [ "${status}" -ne 0 ]
 }
+
+# --- #114 baseline hardening: cap-drop, no-new-privileges, pids-limit, keep seccomp ---
+
+@test "runner_container_run drops all capabilities (#114)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '--cap-drop=ALL' "${CAP}"
+}
+
+@test "runner_container_run sets no-new-privileges (#114)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  grep -qxF -- 'no-new-privileges' "${CAP}"
+}
+
+@test "runner_container_run bounds the pid count (#114)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '--pids-limit' "${CAP}"
+}
+
+@test "runner_container_run does NOT disable the default seccomp profile (#114)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # seccomp must stay at the engine default -- never seccomp=unconfined.
+  ! grep -qF -- 'seccomp=unconfined' "${CAP}"
+}
+
+@test "runner_container_run never runs privileged (#114/#117)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  ! grep -qxF -- '--privileged' "${CAP}"
+}
