@@ -47,6 +47,61 @@ runner_reap_orphans() {
   return 0
 }
 
+# runner_prune_temp_dirs <work_root> [tracked_job_id ...]
+# Remove leaked per-job temp dirs (jit-<job_id>.XXXXXX, created by
+# provision-job.sh) under <work_root> that are NOT tracked, so a job killed
+# before its EXIT trap fired leaves no residue. A dir is spared iff it belongs
+# to a tracked job (its name starts with "jit-<id>."). STRICTLY scoped to
+# <work_root>: the root must be absolute and not a dangerous path, and pruning
+# only ever globs "<root>/jit-*" -- a tracked id can never widen the target or
+# escape the root (the id is only ever compared, never path-joined). Returns 0.
+runner_prune_temp_dirs() {
+  local work_root=$1; shift
+  local -a tracked=("$@")
+
+  # Scope guard: refuse a relative or dangerous root so a misconfig can never
+  # turn this into an rm outside an intended work tree (mirrors SEC-3).
+  [[ "${work_root}" = /* ]] || {
+    echo "prune: work root must be absolute: '${work_root}'" >&2; return 1; }
+  work_root="${work_root%/}"
+  case "${work_root}" in
+    ""|/|/.|/..|"${HOME:-}") echo "prune: refusing work root '${work_root}'" >&2; return 1 ;;
+  esac
+  case "/${work_root}/" in
+    */../*) echo "prune: work root must be normalized (no '..'): '${work_root}'" >&2; return 1 ;;
+  esac
+
+  shopt -s nullglob
+  local dir base
+  for dir in "${work_root}"/jit-*; do
+    [[ -d "${dir}" ]] || continue
+    base=$(basename "${dir}")
+    if _runner_prune_is_tracked "${base}" "${tracked[@]}"; then
+      continue
+    fi
+    # Defence in depth: never rm anything not anchored under the work root.
+    case "${dir}/" in
+      "${work_root}/"*) ;;
+      *) echo "prune: refusing rm outside work root: ${dir}" >&2; continue ;;
+    esac
+    echo "prune: removing stale temp dir ${base}" >&2
+    rm -rf "${dir}"
+  done
+  return 0
+}
+
+# _runner_prune_is_tracked <dir_basename> [tracked...] -- true (0) if the
+# jit-<id>.XXXXXX dir belongs to a tracked job id (name starts "jit-<id>.").
+_runner_prune_is_tracked() {
+  local base=$1; shift
+  local t
+  for t in "$@"; do
+    [[ -n "${t}" ]] || continue
+    [[ "${base}" == "jit-${t}."* ]] && return 0
+  done
+  return 1
+}
+
 # _runner_reaper_is_tracked <job_id> [tracked...] -- true (0) if job_id is in
 # the tracked set, so a live job's container is spared. An empty job_id is never
 # tracked (treated as an orphan).

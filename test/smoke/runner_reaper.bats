@@ -72,6 +72,59 @@ inv() { printf '%s %s\n' "$1" "$2" >> "${PS_OUT}"; }
   [ ! -f "${RM_CAP}" ]
 }
 
+# --- #106 stale per-job temp-dir pruning --------------------------------------
+
+@test "prune removes a stale jit-* temp dir not tracked (#106)" {
+  WR=$(mktemp -d)
+  mkdir -p "${WR}/jit-orphan.AAA"
+  run runner_prune_temp_dirs "${WR}"   # nothing tracked -> all jit-* are stale
+  [ "${status}" -eq 0 ]
+  [ ! -d "${WR}/jit-orphan.AAA" ]
+  rm -rf "${WR}"
+}
+
+@test "prune spares a tracked job's temp dir (#106)" {
+  WR=$(mktemp -d)
+  mkdir -p "${WR}/jit-live.BBB"
+  run runner_prune_temp_dirs "${WR}" live
+  [ "${status}" -eq 0 ]
+  [ -d "${WR}/jit-live.BBB" ]
+  rm -rf "${WR}"
+}
+
+@test "prune only touches jit-* dirs, never other entries (#106)" {
+  WR=$(mktemp -d)
+  mkdir -p "${WR}/jit-gone.CCC" "${WR}/keepme" "${WR}/.bin"
+  run runner_prune_temp_dirs "${WR}"
+  [ "${status}" -eq 0 ]
+  [ ! -d "${WR}/jit-gone.CCC" ]
+  [ -d "${WR}/keepme" ]
+  [ -d "${WR}/.bin" ]
+  rm -rf "${WR}"
+}
+
+@test "prune is scoped to the work root: refuses a non-absolute root (#106)" {
+  run runner_prune_temp_dirs "relative/path"
+  [ "${status}" -ne 0 ]
+}
+
+@test "prune refuses a dangerous work root (no rm at /) (#106)" {
+  run runner_prune_temp_dirs "/"
+  [ "${status}" -ne 0 ]
+}
+
+@test "prune never escapes the work root via a job id (#106)" {
+  WR=$(mktemp -d)
+  # A crafted "tracked" id with traversal must not cause anything outside WR to
+  # be touched; the prune only ever globs '<root>/jit-*'.
+  OUTSIDE=$(mktemp -d)
+  mkdir -p "${OUTSIDE}/jit-evil.DDD"
+  run runner_prune_temp_dirs "${WR}" "../$(basename "${OUTSIDE}")/jit-evil"
+  [ "${status}" -eq 0 ]
+  [ -d "${OUTSIDE}/jit-evil.DDD" ]   # untouched -- prune stayed inside WR
+  rm -rf "${WR}" "${OUTSIDE}"
+}
+
 @test "reaper filters on our managed-by label" {
   inv gha-jit-x x
   # The ps invocation must scope to our label so we never touch foreign
