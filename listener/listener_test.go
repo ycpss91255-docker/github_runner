@@ -406,6 +406,85 @@ func TestRealClientSatisfiesSession(t *testing.T) {
 	var _ Session = (*scaleset.MessageSessionClient)(nil)
 }
 
+// --- #105 reaper wiring (startup + periodic) ----------------------------------
+
+// recordingReaper records every sweep, with the tracked job ids it was handed,
+// so a test can prove the listener sweeps on startup and on its interval.
+type recordingReaper struct {
+	mu     sync.Mutex
+	sweeps [][]string
+}
+
+func (r *recordingReaper) Reap(_ context.Context, tracked []string) error {
+	r.mu.Lock()
+	r.sweeps = append(r.sweeps, append([]string(nil), tracked...))
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *recordingReaper) sweepCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.sweeps)
+}
+
+// The listener must sweep orphans ON STARTUP (#105): before/around the first
+// poll, the reaper runs at least once so a crash's leftovers are cleared.
+func TestReaperSweepsOnStartup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{messages: nil, cancel: cancel}
+	reaper := &recordingReaper{}
+	l := New(sess, &recordingMinter{config: "jit"}, &recordingProvisioner{},
+		Config{Image: "img", Reaper: reaper})
+
+	_ = l.Listen(ctx)
+
+	if reaper.sweepCount() < 1 {
+		t.Fatalf("expected at least one startup sweep, got %d", reaper.sweepCount())
+	}
+}
+
+// The listener must sweep orphans PERIODICALLY (#105): with a short interval and
+// a loop kept alive by a blocking provisioner, the reaper fires more than once.
+func TestReaperSweepsPeriodically(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// A provisioner that blocks the one job keeps the loop running long enough
+	// for several reaper ticks.
+	probe := &concurrencyProbe{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	sess := &fakeSession{
+		// One assigned job, then the fake blocks on GetMessage (no cancel) so the
+		// loop stays alive while the reaper ticks.
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(1, 1, assigned(1, "held")),
+		},
+		// no cancel: GetMessage returns ctx.Err() only once ctx is cancelled.
+	}
+	reaper := &recordingReaper{}
+	l := New(sess, &recordingMinter{config: "jit"}, probe,
+		Config{Image: "img", Reaper: reaper, ReapInterval: 20 * time.Millisecond})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Wait for several reaper ticks to accumulate.
+	deadline := time.After(2 * time.Second)
+	for reaper.sweepCount() < 3 {
+		select {
+		case <-deadline:
+			t.Fatalf("expected >=3 periodic sweeps, got %d", reaper.sweepCount())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	close(probe.release)
+	cancel()
+	<-done
+}
+
 // --- #103 auto-size pool from device count ------------------------------------
 
 // stubDetector is an injectable host-capacity detector: it returns a scripted

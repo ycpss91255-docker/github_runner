@@ -91,10 +91,12 @@ func main() {
 	// minting lives on the Go side of the boundary).
 	minter := &listener.ClientJITMinter{Client: client, ScaleSetID: scaleSet.ID}
 	prov := &listener.ContainerProvisioner{Script: envOr("PROVISION_SCRIPT", "provision-job.sh")}
+	reaper := &listener.ScriptReaper{Script: envOr("REAP_SCRIPT", "reap.sh")}
 	l := listener.New(session, minter, prov, listener.Config{
 		Image:          image,
 		MaxRunners:     maxRunners,
 		DeviceDetector: detector,
+		Reaper:         reaper,
 	})
 
 	log.Printf("listener up: scale set %q (id=%d), image=%s", scaleSetName, scaleSet.ID, image)

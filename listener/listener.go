@@ -14,9 +14,14 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/actions/scaleset"
 )
+
+// defaultReapInterval is how often the periodic orphan sweep runs (#105) when
+// a Reaper is configured but no interval is set.
+const defaultReapInterval = 5 * time.Minute
 
 // defaultPoolBound is the worker-pool ceiling used when no MaxRunners is
 // configured -- a sane, conservative concurrency default so an unconfigured
@@ -85,6 +90,16 @@ type JITConfigMinter interface {
 	Mint(ctx context.Context, name string, labels []string) (string, error)
 }
 
+// Reaper sweeps orphaned containers no longer tracked by the listener (#105),
+// keyed by the managed-by label. The production implementation shells out to
+// the bash reaper (lib/runner-reaper.sh, ADR-0003: reaping is bash's job); the
+// listener invokes it on startup and on an interval, passing the job ids it is
+// currently tracking so their live containers are spared. Tests inject a fake.
+type Reaper interface {
+	// Reap removes labelled containers whose job id is NOT in tracked.
+	Reap(ctx context.Context, tracked []string) error
+}
+
 // DeviceDetector reports how many host devices (e.g. GPUs) are available, so
 // the worker-pool bound can auto-size to hardware rather than a hardcoded
 // number (#103). It is a seam: the production implementation enumerates real
@@ -100,6 +115,13 @@ type Config struct {
 	// auto-sizes the worker-pool bound from the detected device count (#103).
 	// A detection error or a non-positive count falls back to defaultPoolBound.
 	DeviceDetector DeviceDetector
+	// Reaper, when set, sweeps orphaned containers on startup and on
+	// ReapInterval (#105), sparing the listener's currently-tracked jobs. Nil
+	// disables reaping.
+	Reaper Reaper
+	// ReapInterval is the periodic orphan-sweep cadence; zero falls back to
+	// defaultReapInterval. Ignored when Reaper is nil.
+	ReapInterval time.Duration
 	// Image is the container image every ephemeral job runs in (passed to the
 	// Phase 3 provisioner).
 	Image string
@@ -131,6 +153,9 @@ type Listener struct {
 	sem      chan struct{} // counting semaphore: one token per in-flight slot
 	wg       sync.WaitGroup
 	inFlight atomic.Int64 // jobs currently being provisioned (locally derived capacity, #102)
+
+	trackedMu sync.Mutex          // guards tracked
+	tracked   map[string]struct{} // job ids currently in-flight (spared by the reaper, #105)
 }
 
 // New wires a Session + JITConfigMinter + Provisioner + Config into a Listener.
@@ -146,6 +171,7 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 		cfg:     cfg,
 		bound:   bound,
 		sem:     make(chan struct{}, bound),
+		tracked: make(map[string]struct{}),
 	}
 }
 
@@ -201,6 +227,13 @@ func (l *Listener) Listen(ctx context.Context) (err error) {
 			err = closeErr
 		}
 	}()
+
+	// Startup orphan sweep (#105): clear any labelled leftovers from a previous
+	// crash before we begin (nothing is tracked yet, so all are orphans), then
+	// start the periodic sweep. stopReaper joins the periodic goroutine on exit.
+	l.reap(ctx)
+	stopReaper := l.startReaper(ctx)
+	defer stopReaper()
 
 	lastMessageID := 0
 
@@ -299,9 +332,11 @@ func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) {
 		}
 		l.wg.Add(1)
 		l.inFlight.Add(1)
+		l.track(req.JobID)
 		go func(req ProvisionRequest) {
 			defer l.wg.Done()
 			defer l.inFlight.Add(-1)
+			defer l.untrack(req.JobID)
 			defer func() { <-l.sem }()
 			if err := l.prov.Provision(ctx, req); err != nil {
 				l.reportJobErr(req, err)
@@ -318,6 +353,73 @@ func (l *Listener) reportJobErr(req ProvisionRequest, err error) {
 		return
 	}
 	log.Printf("job %s failed (isolated, listener continues): %v", req.JobID, err)
+}
+
+// track / untrack maintain the set of in-flight job ids the reaper must spare
+// (#105): a job's container is only an orphan once the job is no longer tracked.
+func (l *Listener) track(jobID string) {
+	l.trackedMu.Lock()
+	l.tracked[jobID] = struct{}{}
+	l.trackedMu.Unlock()
+}
+
+func (l *Listener) untrack(jobID string) {
+	l.trackedMu.Lock()
+	delete(l.tracked, jobID)
+	l.trackedMu.Unlock()
+}
+
+// trackedJobIDs snapshots the currently in-flight job ids, handed to the reaper
+// so their live containers are spared.
+func (l *Listener) trackedJobIDs() []string {
+	l.trackedMu.Lock()
+	defer l.trackedMu.Unlock()
+	ids := make([]string, 0, len(l.tracked))
+	for id := range l.tracked {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// reap runs one orphan sweep (#105) if a Reaper is configured, passing the
+// currently-tracked job ids so live containers are spared. A reaper error is
+// logged and swallowed -- a failed sweep must never end the listen loop.
+func (l *Listener) reap(ctx context.Context) {
+	if l.cfg.Reaper == nil {
+		return
+	}
+	if err := l.cfg.Reaper.Reap(ctx, l.trackedJobIDs()); err != nil {
+		log.Printf("orphan reap failed (sweep skipped, listener continues): %v", err)
+	}
+}
+
+// startReaper launches the periodic orphan sweep (#105) on its own goroutine,
+// ticking every ReapInterval until the context is done. It is a no-op when no
+// Reaper is configured. The returned stop function joins the goroutine, so a
+// clean shutdown waits for any in-progress sweep.
+func (l *Listener) startReaper(ctx context.Context) (stop func()) {
+	if l.cfg.Reaper == nil {
+		return func() {}
+	}
+	interval := l.cfg.ReapInterval
+	if interval <= 0 {
+		interval = defaultReapInterval
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				l.reap(ctx)
+			}
+		}
+	}()
+	return func() { <-done }
 }
 
 // capacityFor is the spare-runner count to offer GitHub: the pool bound less
