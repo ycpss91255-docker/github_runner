@@ -27,26 +27,3 @@ runner_config_deregister() {
   local dir=$1 token=$2
   ( cd "${dir}" && ./config.sh remove --token "${token}" )
 }
-
-# Generate a single-use JIT config for an ephemeral runner (ADR-0001, #80) --
-# the server-side counterpart of runner_config_register. Unlike register, this
-# does NOT touch a runner dir, write a .runner marker, or fetch a long-lived
-# registration token: GitHub mints the encoded config server-side and the
-# runner consumes it once (`run.sh --jitconfig <encoded>`), then de-registers.
-#   runner_config_jit_generate <scope> <owner> [<repo>] <labels> <name>
-# Composes the scope/owner[/repo] into the generate-jitconfig endpoint
-# (runner_api_base + /generate-jitconfig) and forwards name + labels through
-# the github_jit_config_generate adapter, printing its .encoded_jit_config.
-# Runner group 1 (Default) and the _work work folder match the register path's
-# defaults. Returns non-zero on an unknown scope or a failing gh call.
-runner_config_jit_generate() {
-  local scope=$1 owner=$2 repo=$3 labels=$4 name=$5
-  local base
-  case ${scope} in
-    org)  base=$(runner_api_base org "${owner}") ;;
-    repo) base=$(runner_api_base repo "${owner}" "${repo}") ;;
-    *)    return 1 ;;
-  esac
-  github_jit_config_generate \
-    "${base}/generate-jitconfig" "${name}" 1 "${labels}" _work
-}
