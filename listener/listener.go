@@ -28,6 +28,11 @@ const defaultReapInterval = 5 * time.Minute
 // listener still bounds in-flight jobs rather than spawning unboundedly.
 const defaultPoolBound = 1
 
+// defaultCapacityReportInterval is how often the periodic capacity/in-flight
+// snapshot is emitted (#131) when a JobLogger is configured but no interval is
+// set.
+const defaultCapacityReportInterval = 30 * time.Second
+
 // Session is the subset of the official scale-set message session
 // (*scaleset.MessageSessionClient) the listener drives. Defining it as an
 // interface here -- rather than taking the concrete client -- is the seam that
@@ -157,6 +162,15 @@ type Config struct {
 	// is reported here and the loop continues; it never ends the loop or closes
 	// the session. Nil falls back to a log.Printf default.
 	OnJobErr func(req ProvisionRequest, err error)
+	// JobLogger, when set, receives a structured record per finished job (id,
+	// image, exit, duration) and a periodic capacity/in-flight snapshot (#131),
+	// for the ephemeral path's journald audit sink. Nil disables structured
+	// logging (the plain log.Printf lines remain).
+	JobLogger JobLogger
+	// CapacityReportInterval is the cadence of the periodic capacity/in-flight
+	// snapshot (#131); zero falls back to defaultCapacityReportInterval. Ignored
+	// when JobLogger is nil.
+	CapacityReportInterval time.Duration
 }
 
 // Listener pairs an injected scale-set Session with a Provisioner and runs the
@@ -255,6 +269,12 @@ func (l *Listener) Listen(ctx context.Context) (err error) {
 	l.reap(ctx)
 	stopReaper := l.startReaper(ctx)
 	defer stopReaper()
+
+	// Periodic capacity/in-flight reporting (#131): emit a structured snapshot of
+	// pool occupancy on an interval for the journald audit sink. stopReporter
+	// joins the goroutine on exit. No-op when no JobLogger is configured.
+	stopReporter := l.startCapacityReporter(ctx)
+	defer stopReporter()
 
 	lastMessageID := 0
 
@@ -362,7 +382,13 @@ func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) {
 			defer l.inFlight.Add(-1)
 			defer l.untrack(req.JobID)
 			defer func() { <-l.sem }()
-			if err := l.prov.Provision(ctx, req); err != nil {
+			// Time the job so the structured per-job record carries its duration
+			// (#131). The container exit status comes from the Provision result:
+			// 0 on success, the propagated container code on a non-zero exit.
+			start := time.Now()
+			err := l.prov.Provision(ctx, req)
+			l.logJobCompleted(req, err, time.Since(start))
+			if err != nil {
 				l.reportJobErr(req, err)
 			}
 		}(req)
@@ -377,6 +403,63 @@ func (l *Listener) reportJobErr(req ProvisionRequest, err error) {
 		return
 	}
 	log.Printf("job %s failed (isolated, listener continues): %v", req.JobID, err)
+}
+
+// logJobCompleted emits the structured per-job record (#131) when a JobLogger is
+// configured: the job's id, image, container exit status, and wall-clock
+// duration. A nil JobLogger makes this a no-op.
+func (l *Listener) logJobCompleted(req ProvisionRequest, err error, dur time.Duration) {
+	if l.cfg.JobLogger == nil {
+		return
+	}
+	l.cfg.JobLogger.JobCompleted(JobRecord{
+		JobID:    req.JobID,
+		Image:    req.Image,
+		Exit:     exitCodeFromErr(err),
+		Duration: dur,
+	})
+}
+
+// startCapacityReporter launches the periodic capacity/in-flight snapshot (#131)
+// on its own goroutine, ticking every CapacityReportInterval until the context
+// is done, so live pool occupancy is observable in the journal. It is a no-op
+// when no JobLogger is configured. The returned stop function joins the
+// goroutine so a clean shutdown waits for any in-progress report.
+func (l *Listener) startCapacityReporter(ctx context.Context) (stop func()) {
+	if l.cfg.JobLogger == nil {
+		return func() {}
+	}
+	interval := l.cfg.CapacityReportInterval
+	if interval <= 0 {
+		interval = defaultCapacityReportInterval
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				l.reportCapacity()
+			}
+		}
+	}()
+	return func() { <-done }
+}
+
+// reportCapacity emits one capacity/in-flight snapshot (#131): the pool bound,
+// the current in-flight count, and the resulting spare capacity offered to
+// GitHub. Computed from the same local occupancy the loop reports to GetMessage.
+func (l *Listener) reportCapacity() {
+	inFlight := int(l.inFlight.Load())
+	l.cfg.JobLogger.CapacityReport(CapacityRecord{
+		Bound:    l.bound,
+		InFlight: inFlight,
+		Capacity: l.capacityFor(inFlight),
+	})
 }
 
 // track / untrack maintain the set of in-flight job ids the reaper must spare

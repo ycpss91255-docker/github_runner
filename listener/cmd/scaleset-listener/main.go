@@ -156,6 +156,9 @@ func main() {
 	minter := &listener.ClientJITMinter{Client: client, ScaleSetID: scaleSet.ID}
 	prov := &listener.ContainerProvisioner{Script: envOr("PROVISION_SCRIPT", "provision-job.sh")}
 	reaper := &listener.ScriptReaper{Script: envOr("REAP_SCRIPT", "reap.sh")}
+	// Structured per-job logging (#131): one record per finished job (id, image,
+	// exit, duration) plus periodic capacity/in-flight snapshots, emitted via slog
+	// to stderr, which journald captures when this runs as a systemd unit.
 	l := listener.New(session, minter, prov, listener.Config{
 		Image:            image,
 		MaxRunners:       maxRunners,
@@ -164,6 +167,7 @@ func main() {
 		Devices:          devices,
 		HardeningProfile: hardeningProfile,
 		BuildTool:        buildTool,
+		JobLogger:        listener.NewJournalJobLogger(),
 	})
 
 	log.Printf("listener up: scale set %q (id=%d), image=%s", scaleSetName, scaleSet.ID, image)
