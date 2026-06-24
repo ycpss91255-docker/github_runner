@@ -140,11 +140,14 @@ mounts it, and it should be a conscious operator decision.
 
 Build-type runners build images **without the docker socket and without
 `--privileged`** (ADR-0001 "Build path without privilege"). A runner type selects
-its builder with `build_tool: kaniko` or `build_tool: buildkit` in the config;
-the listener carries it across the shell-out as `RUNNER_BUILD_TOOL`, and the bash
-build seam (`lib/runner-build.sh`, `runner_build_image`) runs the daemonless
-builder inside a throwaway rootless container (`--rm` + the same baseline
-hardening, build context mounted `:Z`):
+its builder with `build_tool: kaniko` or `build_tool: buildkit` in the config
+(the Go parser is authoritative and rejects any other value, #119); the listener
+carries it across the shell-out as `RUNNER_BUILD_TOOL`, and the bash build seam
+(`lib/runner-build.sh`) routes it -- `runner_build_dispatch` reads
+`RUNNER_BUILD_TOOL` and calls `runner_build_image` with the selected tool
+(`none`/empty is a deliberate no-op) -- running the daemonless builder inside a
+throwaway rootless container (`--rm` + the same baseline hardening, build context
+mounted `:Z`):
 
 | `build_tool` | Builder | How it builds |
 | --- | --- | --- |

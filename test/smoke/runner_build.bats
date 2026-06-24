@@ -101,3 +101,40 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   run runner_build_image kaniko "${CTX}" "${CTX}/Dockerfile" my/image:tag
   [ "${status}" -ne 0 ]
 }
+
+# --- #119 route build jobs by the per-type build_tool (RUNNER_BUILD_TOOL) ---
+
+@test "runner_build_dispatch routes kaniko to the kaniko builder (#119)" {
+  make_cli docker
+  RUNNER_BUILD_TOOL=kaniko \
+    run runner_build_dispatch "${CTX}" "${CTX}/Dockerfile" my/image:tag
+  [ "${status}" -eq 0 ]
+  grep -qiF -- 'kaniko' "${CAP}"
+  ! grep -qiF -- 'buildkit' "${CAP}"
+  ! grep -qxF -- '--privileged' "${CAP}"
+}
+
+@test "runner_build_dispatch routes buildkit to the buildkit builder (#119)" {
+  make_cli docker
+  RUNNER_BUILD_TOOL=buildkit \
+    run runner_build_dispatch "${CTX}" "${CTX}/Dockerfile" my/image:tag
+  [ "${status}" -eq 0 ]
+  grep -qiF -- 'buildkit' "${CAP}"
+  ! grep -qiF -- 'kaniko' "${CAP}"
+}
+
+@test "runner_build_dispatch with none/unset is a no-op that builds nothing (#119)" {
+  make_cli docker
+  RUNNER_BUILD_TOOL=none \
+    run runner_build_dispatch "${CTX}" "${CTX}/Dockerfile" my/image:tag
+  [ "${status}" -eq 0 ]
+  # A non-build type must not reach the container CLI at all.
+  [ ! -f "${CAP}" ]
+}
+
+@test "runner_build_dispatch with unset build tool is a no-op (#119)" {
+  make_cli docker
+  run runner_build_dispatch "${CTX}" "${CTX}/Dockerfile" my/image:tag
+  [ "${status}" -eq 0 ]
+  [ ! -f "${CAP}" ]
+}

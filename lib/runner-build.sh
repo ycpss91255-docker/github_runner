@@ -77,3 +77,24 @@ runner_build_image() {
       ;;
   esac
 }
+
+# runner_build_dispatch <context_dir> <dockerfile> <destination>
+# Route a build job to the correct daemonless seam by the runner type's selected
+# build tool (#119), read from RUNNER_BUILD_TOOL -- the field the Go config sets
+# (build_tool) and the listener passes across the shell-out. kaniko/buildkit
+# route to runner_build_image; none/empty is a deliberate NO-OP (a non-build type
+# builds nothing and never touches the container CLI). PROPAGATES the builder's
+# exit status. The Go parser already rejects unknown tools, so by the time it
+# reaches here the value is one of the known few.
+runner_build_dispatch() {
+  local context=$1 dockerfile=$2 destination=$3
+  case "${RUNNER_BUILD_TOOL:-}" in
+    none|"")
+      # No builder selected: this type does not build images. Nothing to do.
+      return 0
+      ;;
+    *)
+      runner_build_image "${RUNNER_BUILD_TOOL}" "${context}" "${dockerfile}" "${destination}"
+      ;;
+  esac
+}

@@ -194,6 +194,11 @@ func TestLoadConfigErrors(t *testing.T) {
 			want: "mode",
 		},
 		{
+			name: "unknown build tool",
+			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    build_tool: frobnicate\n",
+			want: "build_tool",
+		},
+		{
 			name: "malformed yaml",
 			body: "runner_types: [: : :\n",
 			want: "parse",
@@ -208,6 +213,28 @@ func TestLoadConfigErrors(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error %q does not contain %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+// The build-tool selector (#119) accepts exactly the daemonless builders the
+// build seam routes to -- kaniko, buildkit -- plus none/empty (no build). Each
+// loads cleanly and round-trips into RunnerType.BuildTool so the listener can
+// route build jobs to the correct seam.
+func TestLoadConfigBuildToolSelection(t *testing.T) {
+	for _, tool := range []string{"kaniko", "buildkit", "none", ""} {
+		t.Run("tool="+tool, func(t *testing.T) {
+			body := "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n"
+			if tool != "" {
+				body += "    build_tool: " + tool + "\n"
+			}
+			types, err := LoadConfig(writeConfig(t, body))
+			if err != nil {
+				t.Fatalf("build_tool %q should load, got %v", tool, err)
+			}
+			if types[0].BuildTool != tool {
+				t.Errorf("BuildTool = %q, want %q", types[0].BuildTool, tool)
 			}
 		})
 	}

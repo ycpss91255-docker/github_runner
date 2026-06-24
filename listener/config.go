@@ -131,8 +131,32 @@ func validate(types []RunnerType) error {
 		if err := validateConcurrency(rt.Concurrency); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
+		if err := validateBuildTool(rt.BuildTool); err != nil {
+			return fmt.Errorf("%s: %w", where, err)
+		}
 	}
 	return nil
+}
+
+// Recognised daemonless build tools (#118/#119). Empty/none means the type
+// builds no images; kaniko/buildkit route build jobs to the daemonless build
+// seam (lib/runner-build.sh). Anything else fails closed -- the authoritative
+// parser rejects a typo rather than silently routing nowhere.
+const (
+	buildToolNone     = "none"
+	buildToolKaniko   = "kaniko"
+	buildToolBuildKit = "buildkit"
+)
+
+// validateBuildTool enforces that a type's build_tool is one the build seam can
+// route to (or empty/none).
+func validateBuildTool(tool string) error {
+	switch tool {
+	case "", buildToolNone, buildToolKaniko, buildToolBuildKit:
+		return nil
+	default:
+		return fmt.Errorf("unknown build_tool %q (want kaniko, buildkit, or none)", tool)
+	}
 }
 
 // validateConcurrency checks the per-type concurrency block: the mode must be
