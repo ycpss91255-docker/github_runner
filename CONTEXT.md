@@ -5,15 +5,47 @@ terms verbatim in code, tests, and docs so names don't drift.
 
 ## Core
 
-- **Runner** — a registered self-hosted GitHub Actions runner: an on-disk
-  actions/runner install plus a systemd service. "Configured" means its dir
-  holds a **registration marker** (`.runner`).
+- **Runner** — a self-hosted GitHub Actions runner that serves **exactly one
+  job** in a fresh, single-use container, then de-registers. It is provisioned
+  on demand by the scale-set listener from a server-side **JIT config**, not
+  registered once and left running. "Configured" means the listener has minted
+  that single-use config and handed it to a per-job container — there is **no**
+  persistent `.runner` marker and no long-lived systemd service. This is the
+  default model since [ADR-0001](doc/adr/0001-ephemeral-jit-runners.md) Phase 5
+  closed the migration (`add-runner.sh` defaults here; the **Ephemeral / JIT**
+  terms below are canonical).
+  > **Legacy (persistent) runner** — the superseded model: an on-disk
+  > actions/runner install plus a long-lived systemd service, where "Configured"
+  > meant the dir held a **registration marker** (`.runner`). It is reachable
+  > only via `add-runner.sh --persistent` and kept for hosts not yet on the
+  > ephemeral path; ADR-0001 supersedes it (state/secrets survive across jobs on
+  > a shared runner). The `.runner` marker, agent name, and systemd unit in the
+  > **Runner Layout** module below describe this legacy mode.
 - **Scope** — a runner is either **org-scoped** (serves every repo in an org)
   or **repo-scoped** (pinned to one repo). The two differ in their on-disk dir,
   agent name, and GitHub API paths.
 - **RUNNER_HOME** — the single root that owns all runner state: the tarball
   cache (`.bin/`) and one dir per runner. Defaults to `<repo>/runners/`,
   overridable; validated once (SEC-3) as the `rm -rf` chokepoint.
+
+## Ephemeral / JIT (default model — ADR-0001)
+
+Vocabulary for the default runner model (it supersedes the legacy persistent
+runner described above). See
+[ADR-0001](doc/adr/0001-ephemeral-jit-runners.md) for the decision and trade-offs.
+
+- **Ephemeral runner** — a runner that serves **exactly one job** and then
+  de-registers itself. The opposite of a persistent runner; the unit of
+  isolation against cross-job state/secret residue.
+- **JIT config** — a single-use runner configuration generated server-side by
+  GitHub (no long-lived registration token on the host). Replaces the
+  `config.sh`-once registration + persistent `.runner` marker.
+- **Scale set** — a named, homogeneous group of ephemeral runners that workflows
+  target by name; the GitHub-side unit the orchestrator reports demand against.
+- **Runner Scale Set Client** — the official `actions/scaleset` (Go) module that
+  holds the outbound long-poll session and reports demand (`TotalAssignedJobs`).
+  It decides *when / how many* runners; the **per-job container** provisioning
+  (the actual isolation) is ours to implement.
 
 The `lib/runner-*.sh` modules below follow a runner's install lifecycle:
 **Layout** (where it lives) → **Release** (the tarball) → **Config** (register)
@@ -70,11 +102,19 @@ runner dir (no sudo):
 
 - `runner_config_register <dir> <url> <token> <labels> <name>` — `config.sh
   --unattended` (writes the `.runner` marker). Propagates failure so
-  add-runner's ERR trap can rm the partial dir.
-- `runner_config_deregister <dir> <token>` — `config.sh remove`.
+  add-runner's ERR trap can rm the partial dir. **Legacy** (persistent) path —
+  reached only via `add-runner.sh --persistent`.
+- `runner_config_deregister <dir> <token>` — `config.sh remove`. Legacy path.
+- `runner_config_jit_generate <scope> <owner> [<repo>] <labels> <name>` — the
+  **default** counterpart (ADR-0001): mints a single-use server-side **JIT
+  config** (no `.runner` marker, no long-lived registration token) for an
+  ephemeral runner via the `_gh` seam, consumed once by `runner_run_jit` /
+  `runner_container_run`.
 
-add-runner.sh / remove-runner.sh call these instead of open-coding
-`pushd; ./config.sh ...; popd`.
+`add-runner.sh` defaults to the ephemeral / JIT (scale-set) path and points at
+the listener; the legacy register/service verbs run only under `--persistent`.
+`add-runner.sh --persistent` / `remove-runner.sh` call register/deregister
+instead of open-coding `pushd; ./config.sh ...; popd`.
 
 ## Runner Service
 

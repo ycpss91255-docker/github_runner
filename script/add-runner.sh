@@ -1,8 +1,23 @@
 #!/usr/bin/env bash
-# Register a new self-hosted runner (org or repo level). Idempotent.
+# Provision a self-hosted runner (org or repo level).
+#
+# DEFAULT = ephemeral / JIT (ADR-0001, advances #77 -- closes the migration):
+# the supported model is now ephemeral runners orchestrated by the scale-set
+# listener (listener/, the Runner Scale Set Client), each job in a fresh,
+# single-use, rootless container. add-runner no longer registers a long-lived
+# systemd service by default; without --persistent it points the operator at
+# that scale-set path (the live listener needs operator scale-set creds, so it
+# cannot be brought up offline from here).
+#
+# LEGACY = persistent systemd (--persistent opt-in): the original config.sh-once
+# + svc.sh-install path that registers a runner serving an unbounded sequence of
+# jobs. ADR-0001 SUPERSEDES it (state residue / secrets survive across jobs on a
+# shared runner); it is kept, behind the explicit opt-in, for hosts not yet on
+# the ephemeral path -- do not build new flows on it.
 # Usage:
-#   ./script/add-runner.sh org <org>
-#   ./script/add-runner.sh repo <owner> <repo>
+#   ./script/add-runner.sh org <org>                 # ephemeral guidance (default)
+#   ./script/add-runner.sh --persistent org <org>    # legacy systemd path
+#   ./script/add-runner.sh --persistent repo <owner> <repo>
 set -euo pipefail
 
 # shellcheck source=SCRIPTDIR/../lib/common.sh
@@ -11,29 +26,69 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh"
 usage() {
   cat <<EOF
 Usage:
-  $(basename "$0") [--force] org <org>
+  $(basename "$0") org <org>                    # ephemeral / JIT (default)
   $(basename "$0") repo <owner> <repo>
+  $(basename "$0") --persistent [--force] org <org>   # legacy systemd path
 
-Register a new self-hosted runner (org- or repo-level). Idempotent.
+Provision a self-hosted runner (org- or repo-level).
+
+By default this prints the ephemeral / JIT (scale-set) provisioning path
+(ADR-0001): one fresh, single-use container per job via the scale-set
+listener, no long-lived systemd service. This is the supported model.
 
 Options:
-  --force   (org only) Enable public-repo dispatch even when the org's
-            fork-PR approval gate is not "all_external_contributors".
-            Without it, registration refuses to lower the public-repo
-            default while the complementary approval gate is open. #48.
+  --persistent  Use the LEGACY persistent systemd path (config.sh-once +
+                svc.sh install) instead of the ephemeral default. ADR-0001
+                supersedes it; kept behind this opt-in for hosts not yet on
+                the ephemeral path. Idempotent.
+  --force       (--persistent org only) Enable public-repo dispatch even when
+                the org's fork-PR approval gate is not
+                "all_external_contributors". Without it, registration refuses
+                to lower the public-repo default while the complementary
+                approval gate is open. #48.
+EOF
+}
+
+# The ephemeral / JIT (default) front door (ADR-0001 Phase 5). add-runner can no
+# longer bring up a runner offline in this model: the scale-set listener holds
+# the outbound long-poll session and provisions one fresh, single-use container
+# per job, which needs operator scale-set credentials it does not have here. So
+# the default DIRECTS the operator to that path rather than registering anything
+# -- it resolves the target only to echo the scope back, never touching a runner
+# dir, tarball, gh token, config.sh, or svc.sh. --persistent opts back into the
+# legacy systemd flow below.
+ephemeral_guidance() {
+  resolve_target "$@"
+  cat <<EOF
+ephemeral / JIT is now the default runner model for ${TARGET_NAME} (ADR-0001).
+
+Each job runs once in a fresh, single-use, rootless container, then the
+runner de-registers -- no long-lived systemd service, no '.runner' marker,
+no long-lived registration token on the host (advances #77, #80, #82).
+
+To provision ${TARGET_NAME}, run the scale-set listener instead of this
+script. It maintains the outbound long-poll scale set session and provisions
+one container per assigned job:
+
+  see ./listener/README.md  (cmd/scaleset-listener; needs scale-set creds)
+  see ./doc/adr/0001-ephemeral-jit-runners.md
+
+Legacy persistent systemd path (superseded): re-run with --persistent.
 EOF
 }
 
 main() {
-  # Extract --force from anywhere in the args, then dispatch on the positional
-  # scope as before. -h/--help short-circuits here too.
+  # Extract --persistent / --force from anywhere in the args, then dispatch on
+  # the positional scope as before. -h/--help short-circuits here too.
   local force=0
+  local persistent=0
   local -a rest=()
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --force)   force=1; shift ;;
-      -h|--help) usage; exit 0 ;;
-      *)         rest+=("$1"); shift ;;
+      --persistent) persistent=1; shift ;;
+      --force)      force=1; shift ;;
+      -h|--help)    usage; exit 0 ;;
+      *)            rest+=("$1"); shift ;;
     esac
   done
   set -- ${rest[@]+"${rest[@]}"}
@@ -42,6 +97,15 @@ main() {
     org|repo) ;;
     *) usage >&2; exit 1 ;;
   esac
+
+  # Default = ephemeral / JIT (ADR-0001): direct the operator to the scale-set
+  # listener and exit, without touching the persistent register/service path.
+  # --persistent opts into the legacy systemd flow below.
+  if (( ! persistent )); then
+    ephemeral_guidance "$@"
+    exit 0
+  fi
+
   resolve_target "$@"
 
   if [[ -f "${TARGET_DIR}/.runner" ]]; then

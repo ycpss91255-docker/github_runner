@@ -59,6 +59,30 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-release.sh"
 # shellcheck source=lib/runner-config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-config.sh"
 
+# Runner Container: the per-job container provisioner (ADR-0001 Phase 3, #82) --
+# wraps the ephemeral run in a fresh, single-use, rootless container (podman else
+# docker, --rm) so no state survives the job. It is the SINGLE place the
+# `run.sh --jitconfig <encoded>` invocation lives (the JIT config is minted by
+# the Go scale-set client, ADR-0001/ADR-0003).
+# shellcheck source=lib/runner-container.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-container.sh"
+
+# Runner Build: the daemonless image-build seam (ADR-0001 "Build path without
+# privilege", #118) -- builds images with NO docker socket and NO --privileged
+# via Kaniko or rootless BuildKit, selected per type by the Go config (#119).
+# Sourced after runner-container.sh whose CLI picker + hardening it reuses.
+# shellcheck source=lib/runner-build.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-build.sh"
+
+# Runner History: the job-history / audit-trail store (ADR-0002) -- the
+# capture-before-teardown ledger + per-job log/_diag archive under
+# RUNNER_HOME/history (the SEC-3 chokepoint), plus bounded retention and the
+# external-push seam. Sourced after RUNNER_HOME is fixed so its store root
+# resolves under it. (listener/provision-job.sh sources it directly for the
+# capture hook, since it does not source common.sh.)
+# shellcheck source=lib/runner-history.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-history.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)

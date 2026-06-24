@@ -1,5 +1,9 @@
 #!/usr/bin/env bats
-# Smoke tests for add-runner.sh argument parsing and idempotency.
+# Smoke tests for add-runner.sh argument parsing and the LEGACY persistent
+# (config.sh-once + svc.sh-install) path. Since ADR-0001 Phase 5 the persistent
+# flow is reached only via the explicit --persistent opt-in (the default is now
+# the ephemeral / JIT scale-set path, covered in add_runner_ephemeral.bats), so
+# every test that exercises register / service behavior passes --persistent.
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/../../script/add-runner.sh"
@@ -28,7 +32,7 @@ teardown() {
   run "${SCRIPT}" bogus whatever
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"Usage:"* ]]
-  [[ "${output}" == *"Register a new self-hosted runner"* ]]
+  [[ "${output}" == *"Provision a self-hosted runner"* ]]
 }
 
 @test "add-runner.sh org without org name exits non-zero" {
@@ -51,7 +55,7 @@ echo "  actions.runner.testorg.$(hostname)-testorg-org.service loaded active run
 EOF
   chmod +x "${STUB}/systemctl"
 
-  run env PATH="${STUB}:${PATH}" "${SCRIPT}" org testorg
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --persistent org testorg
   rm -rf "${STUB}"
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"already configured"* ]]
@@ -84,7 +88,7 @@ exec "$@"
 EOF
   chmod +x "${STUB}/systemctl" "${STUB}/sudo"
 
-  run env PATH="${STUB}:${PATH}" "${SCRIPT}" org testorg
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --persistent org testorg
   rm -rf "${STUB}"
   [ "${status}" -eq 0 ]
   [[ "${output}" != *"already configured"* ]]
@@ -93,9 +97,9 @@ EOF
   [[ "${output}" == *"SVC: start"* ]]
 }
 
-@test "add-runner.sh fresh run without tarball cache exits non-zero" {
+@test "add-runner.sh --persistent fresh run without tarball cache exits non-zero" {
   # No .runner exists -> proceeds to tarball check -> fails because no cache
-  run "${SCRIPT}" org someorg
+  run "${SCRIPT}" --persistent org someorg
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"tarball missing"* ]]
 }
@@ -124,7 +128,7 @@ esac
 EOF
   chmod +x "${STUB}/gh"
 
-  run env PATH="${STUB}:${PATH}" "${SCRIPT}" org myorg
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --persistent org myorg
   rm -rf "${STUB}"
   [ "${status}" -ne 0 ]
   [ ! -e "${RUNNER_HOME}/myorg/_org" ]
@@ -148,7 +152,7 @@ esac
 EOF
   chmod +x "${STUB}/gh"
 
-  run env PATH="${STUB}:${PATH}" "${SCRIPT}" org myorg
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --persistent org myorg
   rm -rf "${STUB}"
   [ "${status}" -eq 1 ]
   [[ "${output}" == *"refusing to register"* ]]
@@ -193,7 +197,7 @@ exit 0
 EOF
   chmod +x "${STUB}/gh" "${STUB}/sudo" "${STUB}/tar"
 
-  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --force org myorg
+  run env PATH="${STUB}:${PATH}" "${SCRIPT}" --persistent --force org myorg
   rm -rf "${STUB}"
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"registered:"* ]]

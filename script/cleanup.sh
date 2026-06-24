@@ -205,6 +205,29 @@ report_disk_pressure() {
   fi
 }
 
+# Enforce the job-history retention caps (#127). Best-effort and self-contained:
+# a missing store is a no-op, and --dry-run only previews the eviction plan. The
+# size/age caps come from RUNNER_HISTORY_MAX_GB / _MAX_DAYS (lib/runner-history.sh
+# defaults, 20 GB / 30 days; overridable via setup.conf / the environment).
+prune_history_retention() {
+  [[ -d "${RUNNER_HISTORY_DIR}/jobs" ]] || return 0
+  if (( DRY_RUN )); then
+    local plan
+    plan=$(runner_history_prune_plan)
+    if [[ -n "${plan}" ]]; then
+      echo "History (dry-run; would evict, oldest-first):"
+      printf '%s\n' "${plan}" | sed 's/^/    - /'
+    fi
+    return 0
+  fi
+  local pruned
+  # No args: use the configured RUNNER_HISTORY_MAX_GB / _MAX_DAYS defaults.
+  # shellcheck disable=SC2119
+  pruned=$(runner_history_prune)
+  [[ -n "${pruned}" ]] && printf '%s\n' "${pruned}"
+  return 0
+}
+
 main() {
   # Pull our cleanup-specific --work-caches out, then hand the rest to the
   # shared destructive-flag parser (which only knows -y / -n / -h).
@@ -224,6 +247,13 @@ main() {
   fi
 
   report_disk_pressure
+
+  # History retention (#127, ADR-0002): bound the job-history store by BOTH a
+  # size cap (GB) and an age cap (days), oldest-first, so the audit trail cannot
+  # fill the disk. Runs on EVERY scheduled cleanup -- independent of the runner-
+  # artifact prune below (which may have nothing to do) -- and honours --dry-run.
+  # The eviction itself lives in lib/runner-history.sh, reused here.
+  prune_history_retention
 
   local items
   items=$(enumerate_items)
