@@ -72,6 +72,74 @@ inv() { printf '%s %s\n' "$1" "$2" >> "${PS_OUT}"; }
   [ ! -f "${RM_CAP}" ]
 }
 
+# --- #107 per-job max lifetime / watchdog -------------------------------------
+
+@test "kill stops then removes the named container and logs it (#107)" {
+  # The docker stub records each subcommand it is handed.
+  KILL_CAP="${FAKE_RH}/kill.args"
+  cat >"${STUB}/docker" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$1 \$2" >> "${KILL_CAP}"
+exit 0
+EOF
+  chmod +x "${STUB}/docker"
+  run runner_container_kill gha-jit-hung
+  [ "${status}" -eq 0 ]
+  # logged the timeout
+  [[ "${output}" == *gha-jit-hung* ]]
+  grep -qxF -- 'stop gha-jit-hung' "${KILL_CAP}"
+  grep -qxF -- 'rm gha-jit-hung'   "${KILL_CAP}"
+}
+
+@test "watchdog fires after the timeout and kills the container (#107)" {
+  KILL_CAP="${FAKE_RH}/kill.args"
+  # docker stub: record stop/rm; report the container as existing for `ps -q`.
+  cat >"${STUB}/docker" <<EOF
+#!/usr/bin/env bash
+case "\$1" in
+  ps) echo "gha-jit-hung" ;;             # container still present
+  stop|rm) printf '%s\n' "\$1 \$2" >> "${KILL_CAP}" ;;
+esac
+exit 0
+EOF
+  chmod +x "${STUB}/docker"
+  # Stub sleep so the watchdog's wait is instant (no real delay in the test).
+  cat >"${STUB}/sleep" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "${STUB}/sleep"
+
+  run runner_container_watchdog gha-jit-hung 1
+  [ "${status}" -eq 0 ]
+  # The watchdog saw the container still alive after the timeout -> killed it.
+  grep -qxF -- 'stop gha-jit-hung' "${KILL_CAP}"
+  grep -qxF -- 'rm gha-jit-hung'   "${KILL_CAP}"
+}
+
+@test "watchdog is a no-op when the container already exited (#107)" {
+  KILL_CAP="${FAKE_RH}/kill.args"
+  cat >"${STUB}/docker" <<EOF
+#!/usr/bin/env bash
+case "\$1" in
+  ps) : ;;                                # container gone (no output)
+  stop|rm) printf '%s\n' "\$1 \$2" >> "${KILL_CAP}" ;;
+esac
+exit 0
+EOF
+  chmod +x "${STUB}/docker"
+  cat >"${STUB}/sleep" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "${STUB}/sleep"
+
+  run runner_container_watchdog gha-jit-done 1
+  [ "${status}" -eq 0 ]
+  # Container already gone by the deadline -> nothing killed.
+  [ ! -f "${KILL_CAP}" ]
+}
+
 # --- #106 stale per-job temp-dir pruning --------------------------------------
 
 @test "prune removes a stale jit-* temp dir not tracked (#106)" {

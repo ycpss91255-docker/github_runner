@@ -20,6 +20,11 @@
 # fleets on one host.
 : "${RUNNER_MANAGED_BY:=github-runner-listener}"
 
+# Per-job max wall-clock lifetime in seconds (#107): the watchdog stops+removes
+# a container that outlives this, so a hung job cannot hold host resources
+# forever. Default 6h; override for shorter/longer ceilings. 0 disables it.
+: "${RUNNER_JOB_MAX_LIFETIME:=21600}"
+
 # Deterministic container name for a job id (#104): the same job id always maps
 # to the same name, so a container can be correlated and reaped by name. Sanitise
 # the job id to the [a-zA-Z0-9_.-] set Docker/Podman allow in names (anything
@@ -82,4 +87,90 @@ runner_container_run() {
     -v "${dir}:/runner" -w /runner \
     "${image}" \
     ./run.sh --jitconfig "${encoded}"
+}
+
+# runner_container_kill <name>
+# Force-stop then remove a named container and log it -- the action a watchdog
+# (#107) or operator takes against a hung job. `stop` first (graceful, then the
+# engine SIGKILLs after its own grace), `rm -f` to be sure nothing lingers even
+# if --rm did not fire. Best-effort: a failure of either step is logged, not
+# fatal. Returns 0.
+runner_container_kill() {
+  local name=$1 cli
+  cli=$(runner_container_cli) || {
+    echo "watchdog: no container CLI to kill ${name}" >&2; return 0; }
+  echo "watchdog: max lifetime exceeded, stopping+removing container ${name}" >&2
+  "${cli}" stop "${name}" >/dev/null 2>&1 || true
+  "${cli}" rm "${name}"   >/dev/null 2>&1 || true
+  return 0
+}
+
+# runner_container_exists <name> -- true (0) if a container with this name is
+# still present (running or not), via `ps -q --filter name=`. Used by the
+# watchdog to decide whether the deadline actually caught a live job.
+runner_container_exists() {
+  local name=$1 cli out
+  cli=$(runner_container_cli) || return 1
+  out=$("${cli}" ps --all --quiet --filter "name=^${name}$" 2>/dev/null)
+  [[ -n "${out}" ]]
+}
+
+# runner_container_watchdog <name> <timeout_secs>
+# Bound a single container's wall-clock lifetime (#107): wait the timeout, then
+# if the container is STILL present, stop+remove+log it (a hung job). If the job
+# finished within the deadline (container gone) it is a no-op. timeout <= 0
+# disables the watchdog (returns immediately). Meant to run in the background
+# beside runner_container_run; the caller cancels it (a TERM) on normal
+# completion so it never fires for a job that finished in time.
+#
+# The wait is a BACKGROUND sleep plus a TERM trap that kills it, so a single
+# `kill` on this function's (subshell) pid cancels the timer cleanly -- no
+# orphaned sleep left holding resources or an inherited fd. This avoids relying
+# on `ps --ppid` / pkill, which BusyBox `ps` does not support.
+runner_container_watchdog() {
+  local name=$1 timeout=$2 sleep_pid=
+  [[ "${timeout}" -gt 0 ]] 2>/dev/null || return 0
+  # On cancellation, kill the pending sleep and exit without firing.
+  trap '[[ -n "${sleep_pid}" ]] && kill "${sleep_pid}" 2>/dev/null; exit 0' TERM
+  sleep "${timeout}" &
+  sleep_pid=$!
+  wait "${sleep_pid}" 2>/dev/null
+  trap - TERM
+  if runner_container_exists "${name}"; then
+    runner_container_kill "${name}"
+  fi
+  return 0
+}
+
+# runner_container_run_bounded <dir> <encoded> <image> <job_id> [timeout]
+# runner_container_run with a background watchdog (#107) keyed off the job's
+# deterministic name. The watchdog enforces the per-job max lifetime (default
+# RUNNER_JOB_MAX_LIFETIME); on normal completion it is killed so it never fires
+# for an in-time job. PROPAGATES the in-container job's exit status. Requires a
+# job id (the name the watchdog targets).
+runner_container_run_bounded() {
+  local dir=$1 encoded=$2 image=$3 job_id=$4 timeout=${5:-${RUNNER_JOB_MAX_LIFETIME}}
+  [[ -n "${job_id}" ]] || { echo "FAIL: bounded run needs a job id" >&2; return 2; }
+
+  local name wd_pid=
+  name=$(runner_container_name "${job_id}")
+  if [[ "${timeout}" -gt 0 ]] 2>/dev/null; then
+    # Background the watchdog with its own stdin/stdout closed off the caller's
+    # captured pipe, so cancelling it (below) does not leave `run`/the listener
+    # blocked waiting on an inherited fd held open by its sleep child.
+    runner_container_watchdog "${name}" "${timeout}" </dev/null >/dev/null 2>&1 &
+    wd_pid=$!
+  fi
+
+  local rc=0
+  runner_container_run "${dir}" "${encoded}" "${image}" "${job_id}" || rc=$?
+
+  # Job finished (in time or by error): cancel the watchdog with a TERM, which
+  # its trap turns into "kill the pending sleep and exit" -- no orphaned sleep
+  # left holding resources or the inherited fd.
+  if [[ -n "${wd_pid}" ]]; then
+    kill -TERM "${wd_pid}" >/dev/null 2>&1 || true
+    wait "${wd_pid}" 2>/dev/null || true
+  fi
+  return "${rc}"
 }

@@ -42,5 +42,7 @@ trap 'rm -rf "${runner_dir}"' EXIT
 # `<cli> run --rm ...` so the container is single-use and torn down on exit,
 # executing run.sh --jitconfig <encoded> inside it. The job id gives the
 # container a deterministic name + managed-by/job-id labels (#104) so the reaper
-# can correlate it. Propagate its exit status.
-runner_container_run "${runner_dir}" "${encoded}" "${image}" "${job_id}"
+# can correlate it. The bounded variant arms a watchdog that stops+removes the
+# container if it outlives RUNNER_JOB_MAX_LIFETIME (#107). Propagate its exit
+# status.
+runner_container_run_bounded "${runner_dir}" "${encoded}" "${image}" "${job_id}"
