@@ -29,7 +29,9 @@ type fakeSession struct {
 }
 
 func (f *fakeSession) GetMessage(ctx context.Context, _ int, maxCapacity int) (*scaleset.RunnerScaleSetMessage, error) {
+	f.mu.Lock()
 	f.reportedCap = append(f.reportedCap, maxCapacity)
+	f.mu.Unlock()
 	if len(f.messages) == 0 {
 		// A genuine transport error ends the loop with that error.
 		if f.getErr != nil {
@@ -187,14 +189,17 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 	}
 }
 
-// Reported capacity must FOLLOW demand: the listener tells the session how many
-// runners it can serve via maxCapacity, derived from the session's
-// TotalAssignedJobs statistic so GitHub never assigns beyond what we provision.
-func TestReportedCapacityFollowsDemand(t *testing.T) {
+// Reported capacity is LOCALLY derived (#102): the first poll, with nothing
+// in-flight, offers the full pool bound -- and crucially it does NOT track the
+// server's TotalAssignedJobs (a large statistic must not shrink the offer when
+// nothing is actually running locally).
+func TestInitialCapacityIsFullPoolBound(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sess := &fakeSession{
 		messages: []*scaleset.RunnerScaleSetMessage{
+			// TotalAssignedJobs=3 is deliberately non-zero: under the old
+			// server-derived capacity this poll would have dropped to 5-3=2.
 			msgWithAssigned(1, 3, assigned(1, "j1")),
 		},
 		cancel: cancel,
@@ -204,18 +209,20 @@ func TestReportedCapacityFollowsDemand(t *testing.T) {
 
 	_ = l.Listen(ctx)
 
-	if len(sess.reportedCap) < 2 {
-		t.Fatalf("expected at least 2 GetMessage calls (initial + post-demand), got %d", len(sess.reportedCap))
+	if len(sess.reportedCap) < 1 {
+		t.Fatalf("expected at least 1 GetMessage call, got %d", len(sess.reportedCap))
 	}
-	// First poll: no demand seen yet, capacity is the full ceiling.
+	// First poll: nothing in-flight, capacity is the full pool bound.
 	if sess.reportedCap[0] != 5 {
-		t.Errorf("initial capacity: got %d want 5 (MaxRunners)", sess.reportedCap[0])
+		t.Errorf("initial capacity: got %d want 5 (pool bound)", sess.reportedCap[0])
 	}
-	// After a message reporting TotalAssignedJobs=3, the next poll must request
-	// the remaining headroom (5 ceiling - 3 assigned = 2), so capacity follows
-	// demand rather than blindly re-offering the full ceiling.
-	if sess.reportedCap[1] != 2 {
-		t.Errorf("capacity after demand=3: got %d want 2 (5-3)", sess.reportedCap[1])
+	// Every reported capacity must stay within [0, bound] and never be derived
+	// from the server's TotalAssignedJobs (the j1 job finishes promptly via the
+	// non-blocking recordingProvisioner, so headroom returns to the full bound).
+	for i, c := range sess.reportedCap {
+		if c < 0 || c > 5 {
+			t.Errorf("reportedCap[%d]=%d outside [0,5]", i, c)
+		}
 	}
 }
 
@@ -397,6 +404,109 @@ func TestAvailableButUnassignedDoesNotProvision(t *testing.T) {
 // compile-time assertion lives in listener.go; this test documents the intent.
 func TestRealClientSatisfiesSession(t *testing.T) {
 	var _ Session = (*scaleset.MessageSessionClient)(nil)
+}
+
+// --- #102 locally-derived capacity --------------------------------------------
+
+// Capacity must be derived from the LOCAL in-flight count (pool bound minus
+// running jobs), NOT the server's TotalAssignedJobs. With bound=3 and one job
+// held mid-flight, the next poll must report 2 (3-1); once the job finishes the
+// poll reports the full 3 again -- the reported value tracks local occupancy.
+func TestCapacityIsPoolBoundMinusLocalInFlight(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// The server statistic is deliberately a large, unrelated number: if the
+	// listener still derived capacity from TotalAssignedJobs it would report
+	// bound-99 (clamped to 0), not bound-inflight.
+	sess := &fakeSession{
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(1, 99, assigned(1, "held")),
+		},
+		cancel: cancel,
+	}
+	probe := &concurrencyProbe{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	l := New(sess, &recordingMinter{config: "jit"}, probe, Config{Image: "img", MaxRunners: 3})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Wait until the one job is mid-flight, so a subsequent poll sees inflight=1.
+	select {
+	case <-probe.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("job never started")
+	}
+
+	// Poll the reported-capacity history until a value of 2 (3-1) appears while
+	// the job is held -- proving capacity = bound - local in-flight, not derived
+	// from the server's TotalAssignedJobs=99 (which would clamp to 0).
+	sawHeld := false
+	for i := 0; i < 200; i++ {
+		sess.mu.Lock()
+		caps := append([]int(nil), sess.reportedCap...)
+		sess.mu.Unlock()
+		for _, c := range caps {
+			if c == 2 {
+				sawHeld = true
+			}
+			if c < 0 || c > 3 {
+				t.Fatalf("reported capacity %d outside [0,bound=3]", c)
+			}
+		}
+		if sawHeld {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !sawHeld {
+		t.Fatal("never reported capacity 2 (bound 3 - 1 in-flight) while a job was held")
+	}
+
+	// Release the job; capacity must climb back to the full bound (3) once the
+	// in-flight count drops.
+	close(probe.release)
+	sawFull := false
+	for i := 0; i < 200; i++ {
+		sess.mu.Lock()
+		caps := append([]int(nil), sess.reportedCap...)
+		sess.mu.Unlock()
+		for _, c := range caps {
+			if c == 3 {
+				sawFull = true
+			}
+		}
+		if sawFull {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if !sawFull {
+		t.Fatal("capacity never returned to the full bound after the job finished")
+	}
+}
+
+// Capacity arithmetic: never negative, never above the bound, regardless of
+// in-flight count. A pure unit check on the helper.
+func TestCapacityClampedToPoolBound(t *testing.T) {
+	l := New(&fakeSession{}, &recordingMinter{}, &recordingProvisioner{}, Config{MaxRunners: 4})
+	cases := []struct {
+		inflight, want int
+	}{
+		{0, 4},
+		{1, 3},
+		{4, 0},
+		{5, 0}, // over-subscribed -> clamp at 0, never negative
+	}
+	for _, c := range cases {
+		if got := l.capacityFor(c.inflight); got != c.want {
+			t.Errorf("capacityFor(%d) = %d, want %d", c.inflight, got, c.want)
+		}
+	}
 }
 
 // --- #101 bounded worker pool -------------------------------------------------

@@ -13,6 +13,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/actions/scaleset"
 )
@@ -89,9 +90,11 @@ type Config struct {
 	// Image is the container image every ephemeral job runs in (passed to the
 	// Phase 3 provisioner).
 	Image string
-	// MaxRunners is the ceiling on concurrently-provisioned runners -- the
-	// capacity the listener offers GitHub, less whatever is already assigned.
-	// Zero means "no explicit ceiling"; we then offer demand-sized capacity.
+	// MaxRunners is the worker-pool bound: the ceiling on concurrently-
+	// provisioned runners and the basis for locally-derived capacity (#102 --
+	// capacity reported to GitHub is this bound minus the local in-flight count).
+	// Zero falls back to defaultPoolBound. When DeviceDetector is set (#103) the
+	// detected device count overrides this.
 	MaxRunners int
 	// OnJobErr is called with a job's ProvisionRequest and the error when its
 	// container exits non-zero. A per-job failure is an isolated outcome -- it
@@ -111,9 +114,10 @@ type Listener struct {
 	prov    Provisioner
 	cfg     Config
 
-	bound int           // worker-pool ceiling (max concurrent provisions)
-	sem   chan struct{} // counting semaphore: one token per in-flight slot
-	wg    sync.WaitGroup
+	bound    int           // worker-pool ceiling (max concurrent provisions)
+	sem      chan struct{} // counting semaphore: one token per in-flight slot
+	wg       sync.WaitGroup
+	inFlight atomic.Int64 // jobs currently being provisioned (locally derived capacity, #102)
 }
 
 // New wires a Session + JITConfigMinter + Provisioner + Config into a Listener.
@@ -137,8 +141,10 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 // Listen runs the long-poll loop until the session drains or the context is
 // done, ALWAYS tearing the session down on exit. Each iteration:
 //
-//  1. GetMessage, reporting current spare capacity (ceiling - assigned) so
-//     reported capacity FOLLOWS demand and GitHub never over-assigns.
+//  1. GetMessage, reporting LOCALLY-derived spare capacity (pool bound minus
+//     the local in-flight count, #102) so reported headroom matches what THIS
+//     host can actually run -- not the server's TotalAssignedJobs -- and GitHub
+//     never assigns more than the pool can provision.
 //  2. For every ASSIGNED job in the message, acquire it and mint its single-use
 //     JIT config -- claiming the work that is ours to run.
 //  3. Ack the message (DeleteMessage) so it is not redelivered. The ack lands
@@ -166,16 +172,17 @@ func (l *Listener) Listen(ctx context.Context) (err error) {
 	}()
 
 	lastMessageID := 0
-	// assigned tracks demand seen so far (TotalAssignedJobs from the latest
-	// message's statistics), so the next poll offers the remaining headroom.
-	assigned := 0
 
 	for {
 		if cerr := ctx.Err(); cerr != nil {
 			return cerr
 		}
 
-		capacity := l.capacity(assigned)
+		// Capacity is LOCAL: the pool bound less the jobs currently in-flight on
+		// THIS host (#102). It is not the server's TotalAssignedJobs -- reported
+		// headroom must reflect what we can actually run, and it updates as jobs
+		// start and finish.
+		capacity := l.capacityFor(int(l.inFlight.Load()))
 		msg, gerr := l.session.GetMessage(ctx, lastMessageID, capacity)
 		if gerr != nil {
 			// The loop terminates ONLY on context cancellation (shutdown /
@@ -185,10 +192,6 @@ func (l *Listener) Listen(ctx context.Context) (err error) {
 		}
 		if msg == nil {
 			continue
-		}
-
-		if msg.Statistics != nil {
-			assigned = msg.Statistics.TotalAssignedJobs
 		}
 
 		// Acquire + mint every assigned job FIRST, so the message can be acked
@@ -264,8 +267,10 @@ func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) {
 			return
 		}
 		l.wg.Add(1)
+		l.inFlight.Add(1)
 		go func(req ProvisionRequest) {
 			defer l.wg.Done()
+			defer l.inFlight.Add(-1)
 			defer func() { <-l.sem }()
 			if err := l.prov.Provision(ctx, req); err != nil {
 				l.reportJobErr(req, err)
@@ -284,17 +289,14 @@ func (l *Listener) reportJobErr(req ProvisionRequest, err error) {
 	log.Printf("job %s failed (isolated, listener continues): %v", req.JobID, err)
 }
 
-// capacity is the spare-runner count to offer GitHub: the MaxRunners ceiling
-// less the jobs already assigned, never below zero. With no ceiling set, we
-// offer at least the current demand so assigned jobs can be served.
-func (l *Listener) capacity(assigned int) int {
-	if l.cfg.MaxRunners <= 0 {
-		if assigned < 1 {
-			return 1
-		}
-		return assigned
-	}
-	spare := l.cfg.MaxRunners - assigned
+// capacityFor is the spare-runner count to offer GitHub: the pool bound less
+// the given local in-flight count (#102), clamped to [0, bound]. It is computed
+// purely from local occupancy -- never the server's TotalAssignedJobs -- so the
+// reported headroom is exactly what this host can still run. An over-subscribed
+// count (more in-flight than the bound, which the semaphore prevents anyway)
+// clamps to 0 rather than going negative.
+func (l *Listener) capacityFor(inFlight int) int {
+	spare := l.bound - inFlight
 	if spare < 0 {
 		return 0
 	}
