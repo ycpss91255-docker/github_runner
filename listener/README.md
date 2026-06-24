@@ -99,5 +99,50 @@ docker run --rm -e GITHUB_CONFIG_URL -e GITHUB_TOKEN -e SCALE_SET_NAME \
 | `GITHUB_TOKEN` | token with scale-set admin scope (required) |
 | `SCALE_SET_NAME` | the scale set workflows target (required) |
 | `RUNNER_IMAGE` | per-job container image (default `ghcr.io/actions/actions-runner:latest`) |
-| `MAX_RUNNERS` | capacity ceiling offered to GitHub (0 = demand-sized) |
+| `MAX_RUNNERS` | worker-pool bound; the basis for locally-derived capacity (0 = default / auto-size) |
+| `AUTO_SIZE_DEVICES` | when set (and `MAX_RUNNERS` unset), auto-size the pool to the detected device count (#103) |
+| `DEVICE_DETECT_CMD` | device-enumeration command for auto-sizing (default `nvidia-smi`, one device per output line) |
 | `PROVISION_SCRIPT` | path to `provision-job.sh` (default sibling) |
+| `REAP_SCRIPT` | path to `reap.sh`, the orphan-sweep entrypoint (default sibling) |
+
+The bash seams read a few more knobs at provision/reap time:
+`RUNNER_WORK_ROOT` (parent of the per-job temp dir, default `/tmp`),
+`RUNNER_JOB_MAX_LIFETIME` (per-job watchdog ceiling in seconds, default 6h, 0
+disables, #107), and `RUNNER_MANAGED_BY` (the `managed-by` label value the
+reaper keys on, #104/#105).
+
+## Concurrency, capacity & lifecycle
+
+- **Bounded worker pool (#101):** each acquired job provisions in its own
+  goroutine gated by a semaphore sized to the pool bound, so the loop keeps
+  long-polling; a clean shutdown drains in-flight jobs before teardown.
+- **Locally-derived capacity (#102):** reported headroom is the pool bound
+  minus the *local* in-flight count, not the server's `TotalAssignedJobs`.
+- **Auto-sizing (#103):** with `AUTO_SIZE_DEVICES`, the bound follows the
+  detected device count; otherwise `MAX_RUNNERS`, else a sane default.
+- **Reaping (#104/#105/#106):** each container gets a deterministic name +
+  `managed-by`/`job-id` labels; the listener sweeps orphaned labelled
+  containers and leaked `jit-*` temp dirs on startup and on an interval,
+  sparing in-flight jobs.
+- **Watchdog (#107):** a per-job watchdog stops+removes a container that
+  outlives `RUNNER_JOB_MAX_LIFETIME`.
+
+## Deployment (host binary under systemd, #108/#109)
+
+The host needs **no Go toolchain** — the binary is built inside a golang
+container and only the resulting static binary + its sibling shell scripts are
+installed.
+
+```sh
+# Build the static binary (containerized; reproducible, CGO off):
+make build-listener            # -> bin/scaleset-listener
+
+# Install binary + provision-job.sh + reap.sh + lib/ to PREFIX:
+sudo make install-listener PREFIX=/opt/github-runner-listener
+```
+
+The install preserves the sibling layout the listener shells out against:
+`<prefix>/bin/scaleset-listener`, `<prefix>/listener/{provision-job,reap}.sh`,
+`<prefix>/lib/*.sh`. systemd then supervises it — see
+[`deploy/scaleset-listener.service`](../deploy/scaleset-listener.service) and
+[`deploy/README.md`](../deploy/README.md) for the unit and install steps.

@@ -31,3 +31,8 @@ _work/
 
 # Coverage report produced by `make -f Makefile.ci coverage`.
 /coverage/
+
+# Listener build output produced by `make build-listener` (#108). The binary
+# is built inside a golang container and installed to the host; it is a build
+# artifact, never tracked.
+/bin/
