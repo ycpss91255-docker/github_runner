@@ -52,6 +52,36 @@ sudo "${EDITOR:-vi}" /etc/github-runner-listener/scaleset-listener.env
 sudo stat -c '%a %U' /etc/github-runner-listener/scaleset-listener.env   # -> 600 root
 ```
 
+## 3a. (Optional) Register a runner type via the per-type config (#110/#112/#113)
+
+Instead of the discrete `SCALE_SET_NAME` / `RUNNER_IMAGE` / `MAX_RUNNERS` knobs,
+drive the listener from a **runner-type config**. Each entry maps one runner
+type to one homogeneous scale set (labels, image, device passthrough, runtime,
+build tool, hardening profile, auto-sized concurrency); adding a type is a new
+entry, not a code change. The Go listener is the authoritative parser
+([ADR-0003](../doc/adr/0003-go-bash-boundary.md)).
+
+```sh
+sudo install -m 0644 deploy/runner-types.sample.yaml \
+  /etc/github-runner-listener/runner-types.yaml
+sudo "${EDITOR:-vi}" /etc/github-runner-listener/runner-types.yaml
+# Then in the EnvironmentFile, point at it and pick the type this unit serves:
+#   RUNNER_TYPES_CONFIG=/etc/github-runner-listener/runner-types.yaml
+#   RUNNER_TYPE=gpu
+```
+
+The shipped sample defines the first concrete **GPU** type (auto concurrency =
+detected GPU count via `nvidia-smi -L`, precise `--device` passthrough, no
+`--privileged`) plus a second **CPU** type — proving two types run side by side
+with no code change. One listener process serves one scale set, so run **one
+unit per type** (copy the unit under a per-type name, each with its own
+`RUNNER_TYPE`).
+
+> **Live GPU validation is HITL.** The config, its loading, and auto-concurrency
+> from the GPU count are exercised AFK (the detector is stubbed in the Go tests).
+> A GPU job *actually running* needs a real GPU host with the NVIDIA stack — an
+> operator step on the target host.
+
 ## 4. Install, enable & start the unit
 
 ```sh
