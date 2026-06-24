@@ -1,0 +1,61 @@
+[Unit]
+# systemd unit for the scale-set listener (ADR-0001 Phase 4 deployment, #109).
+# Supervises the host binary built/installed by `make install-listener` (#108).
+Description=GitHub scale-set ephemeral runner listener
+Documentation=https://github.com/ycpss91255-docker/github_runner
+# The listener provisions per-job containers (podman/docker), so start after the
+# network and the local container engine are up. Wants (not Requires) keeps the
+# unit resilient if the engine socket name differs across hosts.
+Wants=network-online.target
+After=network-online.target docker.service
+After=podman.socket
+
+[Service]
+Type=simple
+
+# --- Non-privileged user (acceptance: runs as non-root) --------------------
+# A dedicated, unprivileged CI user owns the process. Rootless podman is the
+# intended engine; this user must be able to reach its container socket (e.g.
+# via membership in the docker group, or a rootless podman user session).
+User=ci-runner
+Group=ci-runner
+
+# --- Token via EnvironmentFile, never on the command line (acceptance) ------
+# All secrets/config come from an EnvironmentFile that MUST be mode 0600 and
+# owned by root (or the service user). The token is therefore never baked into
+# this unit, never on the process argv, and never echoed -- the binary reads it
+# from the environment and does not log it. Create it from the sample:
+#   install -m 0600 deploy/scaleset-listener.env.sample \
+#     /etc/github-runner-listener/scaleset-listener.env
+EnvironmentFile=/etc/github-runner-listener/scaleset-listener.env
+
+WorkingDirectory=/opt/github-runner-listener/listener
+ExecStart=/opt/github-runner-listener/bin/scaleset-listener
+
+# --- Resilient supervision (acceptance: Restart=always) ---------------------
+# A clean drain (SIGTERM tears the scale-set session down) or a transient error
+# must not leave the host without a listener: always restart, with a short
+# backoff so a crash-loop does not hammer GitHub.
+Restart=always
+RestartSec=5
+# SIGTERM lets Listen cancel its context and drain in-flight jobs; give the
+# drain room before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+# --- Hardening (defence in depth; the token lives only in the env) ----------
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+# The per-job temp dirs land under RUNNER_WORK_ROOT (default /tmp); PrivateTmp
+# already isolates /tmp. If RUNNER_WORK_ROOT is set elsewhere, add it to
+# ReadWritePaths so the provisioner/reaper can create+prune there.
+# ReadWritePaths=/var/lib/github-runner-listener
+
+[Install]
+WantedBy=multi-user.target
