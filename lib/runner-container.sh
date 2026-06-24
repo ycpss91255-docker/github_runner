@@ -87,9 +87,10 @@ runner_container_cli() {
 # Detects the CLI (runner_container_cli), then `<cli> run --rm ...` the image so
 # the container is single-use and removed on exit (--rm: no state survives),
 # executing the Phase 2 ephemeral run (run.sh --jitconfig <encoded>) inside it.
-# Rootless-appropriate: --init reaps the runner's child PIDs (no host init), and
-# --security-opt label=disable / no extra privileges keep it an unprivileged,
-# self-contained unit. When a job id is given, the container gets a DETERMINISTIC
+# Rootless-appropriate: --init reaps the runner's child PIDs (no host init); the
+# baseline hardening flags (#114) and the :Z-relabelled mount (#115, MAC kept
+# enforced) keep it an unprivileged, self-contained unit. When a job id is given,
+# the container gets a DETERMINISTIC
 # --name and managed-by + job-id --labels (#104) so the reaper (#105) can
 # correlate and remove orphans. PROPAGATES the in-container job's exit status (it
 # is the whole job lifecycle). The runner dir is mounted so the bundled run.sh
@@ -115,11 +116,12 @@ runner_container_run() {
   # token survives as its own argv word.
   local -a hardening_args=()
   while IFS= read -r line; do hardening_args+=("${line}"); done < <(runner_container_hardening_args)
+  # Bind the runner dir with :Z so the engine relabels it for this container
+  # (#115) -- MAC (SELinux/AppArmor) stays ENFORCED; we never disable it.
   "${cli}" run --rm --init \
-    --security-opt label=disable \
     "${hardening_args[@]}" \
     "${id_args[@]}" \
-    -v "${dir}:/runner" -w /runner \
+    -v "${dir}:/runner:Z" -w /runner \
     "${image}" \
     ./run.sh --jitconfig "${encoded}"
 }

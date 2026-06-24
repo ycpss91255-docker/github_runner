@@ -164,3 +164,22 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   [ "${status}" -eq 0 ]
   ! grep -qxF -- '--privileged' "${CAP}"
 }
+
+# --- #115 keep MAC enforced: no label=disable, relabel bind mounts with :Z ---
+
+@test "runner_container_run does NOT disable MAC labelling (#115)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # SELinux/AppArmor must stay enforced -- never --security-opt label=disable.
+  ! grep -qF -- 'label=disable' "${CAP}"
+}
+
+@test "runner_container_run relabels the runner bind mount with :Z (#115)" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # The mount value carries the :Z private-relabel suffix so the kernel
+  # relabels the bind mount for this container instead of disabling MAC.
+  grep -qxF -- "${RUNNER_DIR}:/runner:Z" "${CAP}"
+}
