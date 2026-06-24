@@ -398,3 +398,188 @@ func TestAvailableButUnassignedDoesNotProvision(t *testing.T) {
 func TestRealClientSatisfiesSession(t *testing.T) {
 	var _ Session = (*scaleset.MessageSessionClient)(nil)
 }
+
+// --- #101 bounded worker pool -------------------------------------------------
+
+// concurrencyProbe is a provisioner that records the peak number of jobs
+// running at the same time, so a test can prove jobs run concurrently AND that
+// the concurrency never exceeds the pool bound. Each Provision bumps a live
+// counter on entry, records the peak, blocks until released, then decrements.
+type concurrencyProbe struct {
+	mu      sync.Mutex
+	live    int           // jobs currently inside Provision
+	peak    int           // max live ever observed
+	done    int           // jobs that completed
+	started chan struct{} // signalled (buffered) each time a Provision begins
+	release chan struct{} // Provision blocks until this is closed
+}
+
+func (p *concurrencyProbe) Provision(_ context.Context, _ ProvisionRequest) error {
+	p.mu.Lock()
+	p.live++
+	if p.live > p.peak {
+		p.peak = p.live
+	}
+	p.mu.Unlock()
+	if p.started != nil {
+		p.started <- struct{}{}
+	}
+	if p.release != nil {
+		<-p.release
+	}
+	p.mu.Lock()
+	p.live--
+	p.done++
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *concurrencyProbe) peakLive() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.peak
+}
+
+func (p *concurrencyProbe) doneCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.done
+}
+
+// The listen loop must NOT block on a single job for its whole duration: while
+// a slow job is mid-provision, the loop must keep long-polling and dispatch the
+// next message's job. A blocking probe holds the first job; the second message
+// must still be delivered and its job dispatched before the first finishes.
+func TestLoopKeepsPollingWhileJobsRun(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(1, 1, assigned(1, "slow-1")),
+			msgWithAssigned(2, 1, assigned(2, "slow-2")),
+		},
+		cancel: cancel,
+	}
+	probe := &concurrencyProbe{
+		started: make(chan struct{}, 2),
+		release: make(chan struct{}),
+	}
+	l := New(sess, &recordingMinter{config: "jit"}, probe, Config{Image: "img", MaxRunners: 4})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Both jobs must START before either is released -- proving the loop did not
+	// block on slow-1 before dispatching slow-2.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-probe.started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("only %d of 2 jobs started; the loop blocked on an in-flight job", i)
+		}
+	}
+	if got := probe.peakLive(); got < 2 {
+		t.Fatalf("expected >=2 jobs running concurrently, peak was %d", got)
+	}
+
+	close(probe.release)
+	cancel()
+	<-done
+}
+
+// The pool must be BOUNDED: with a bound of 2 and three jobs offered at once,
+// no more than 2 run simultaneously. The third waits for a slot.
+func TestPoolBoundCapsConcurrency(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(1, 3,
+				assigned(1, "a"), assigned(2, "b"), assigned(3, "c")),
+		},
+		cancel: cancel,
+	}
+	probe := &concurrencyProbe{
+		started: make(chan struct{}, 3),
+		release: make(chan struct{}),
+	}
+	l := New(sess, &recordingMinter{config: "jit"}, probe, Config{Image: "img", MaxRunners: 2})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Exactly 2 jobs may start while the slot-holders are blocked; the 3rd must
+	// wait. Drain 2 starts, then assert no 3rd arrives until we release.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-probe.started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("only %d of 2 jobs started under bound=2", i)
+		}
+	}
+	select {
+	case <-probe.started:
+		t.Fatal("a 3rd job started while the bound is 2 (semaphore not enforced)")
+	case <-time.After(150 * time.Millisecond):
+		// good -- the 3rd job is parked waiting for a slot.
+	}
+	if got := probe.peakLive(); got > 2 {
+		t.Fatalf("concurrency exceeded the bound of 2: peak %d", got)
+	}
+
+	close(probe.release)
+	cancel()
+	<-done
+}
+
+// Clean shutdown must WAIT for in-flight jobs: when the context is cancelled
+// while a job is still running, Listen must not return until that job's
+// Provision has completed (no orphaned goroutines, no torn-down session under a
+// running container).
+func TestCleanShutdownWaitsForInFlightJobs(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sess := &fakeSession{
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(1, 1, assigned(1, "long")),
+		},
+		cancel: cancel,
+	}
+	probe := &concurrencyProbe{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	l := New(sess, &recordingMinter{config: "jit"}, probe, Config{Image: "img", MaxRunners: 2})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Wait for the job to be mid-flight, then cancel.
+	select {
+	case <-probe.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("job never started")
+	}
+	cancel()
+
+	// Listen must NOT have returned yet -- the in-flight job is still blocked.
+	select {
+	case <-done:
+		t.Fatal("Listen returned before the in-flight job finished (no drain)")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Release the job; now Listen must wind down and the job must have completed.
+	close(probe.release)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Listen did not return after the in-flight job finished")
+	}
+	if probe.doneCount() != 1 {
+		t.Fatalf("expected the in-flight job to complete on drain, done=%d", probe.doneCount())
+	}
+	if !sess.closed {
+		t.Error("session must still be torn down after the drain")
+	}
+}

@@ -12,9 +12,15 @@ package listener
 import (
 	"context"
 	"log"
+	"sync"
 
 	"github.com/actions/scaleset"
 )
+
+// defaultPoolBound is the worker-pool ceiling used when no MaxRunners is
+// configured -- a sane, conservative concurrency default so an unconfigured
+// listener still bounds in-flight jobs rather than spawning unboundedly.
+const defaultPoolBound = 1
 
 // Session is the subset of the official scale-set message session
 // (*scaleset.MessageSessionClient) the listener drives. Defining it as an
@@ -95,17 +101,37 @@ type Config struct {
 }
 
 // Listener pairs an injected scale-set Session with a Provisioner and runs the
-// demand->provision loop.
+// demand->provision loop. Provisioning is concurrent: each acquired job runs in
+// its own goroutine bounded by a worker-pool semaphore (#101), so the listen
+// loop keeps long-polling instead of blocking on any single job for its whole
+// duration. The pool bound is the listener's concurrency ceiling.
 type Listener struct {
 	session Session
 	minter  JITConfigMinter
 	prov    Provisioner
 	cfg     Config
+
+	bound int           // worker-pool ceiling (max concurrent provisions)
+	sem   chan struct{} // counting semaphore: one token per in-flight slot
+	wg    sync.WaitGroup
 }
 
 // New wires a Session + JITConfigMinter + Provisioner + Config into a Listener.
+// The worker-pool bound is taken from Config.MaxRunners, falling back to
+// defaultPoolBound when unset, and the bounding semaphore is sized to it.
 func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) *Listener {
-	return &Listener{session: session, minter: minter, prov: prov, cfg: cfg}
+	bound := cfg.MaxRunners
+	if bound <= 0 {
+		bound = defaultPoolBound
+	}
+	return &Listener{
+		session: session,
+		minter:  minter,
+		prov:    prov,
+		cfg:     cfg,
+		bound:   bound,
+		sem:     make(chan struct{}, bound),
+	}
 }
 
 // Listen runs the long-poll loop until the session drains or the context is
@@ -127,8 +153,12 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 // down on exit. Context cancellation ends the loop cleanly.
 func (l *Listener) Listen(ctx context.Context) (err error) {
 	// Teardown is unconditional: clean exit or mid-job failure, the session
-	// must be closed so it does not linger server-side.
+	// must be closed so it does not linger server-side. The DRAIN (#101) runs
+	// FIRST: we wait for every dispatched in-flight job to finish before closing
+	// the session, so a clean shutdown never tears the session down (or returns)
+	// while a container is still running.
 	defer func() {
+		l.wg.Wait()
 		closeErr := l.session.Close(ctx)
 		if err == nil {
 			err = closeErr
@@ -215,16 +245,32 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 	return reqs, nil
 }
 
-// provision runs the per-job container for each acquired job. A job's failure
-// (non-zero container exit) is an ISOLATED, per-job outcome: it is reported via
-// OnJobErr and provisioning of the remaining jobs continues. It never returns
-// an error, so a failed job can neither end the listen loop nor close the
-// session -- only genuine transport/session errors do that.
+// provision dispatches the per-job container for each acquired job into the
+// bounded worker pool (#101): each job runs in its own goroutine, gated by the
+// counting semaphore so no more than `bound` run at once. Dispatch BLOCKS only
+// while every slot is taken (back-pressure) -- otherwise it returns immediately
+// so the listen loop keeps long-polling. A job's failure (non-zero container
+// exit) is an ISOLATED, per-job outcome: it is reported via OnJobErr and the
+// other jobs are unaffected. It never ends the listen loop or closes the
+// session -- only genuine transport/session errors do that. Every dispatched
+// job is tracked on the WaitGroup so a clean shutdown drains them.
 func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) {
 	for _, req := range reqs {
-		if err := l.prov.Provision(ctx, req); err != nil {
-			l.reportJobErr(req, err)
+		// Acquire a worker slot (back-pressure when the pool is full). Honour
+		// cancellation so shutdown does not block forever waiting for a slot.
+		select {
+		case l.sem <- struct{}{}:
+		case <-ctx.Done():
+			return
 		}
+		l.wg.Add(1)
+		go func(req ProvisionRequest) {
+			defer l.wg.Done()
+			defer func() { <-l.sem }()
+			if err := l.prov.Provision(ctx, req); err != nil {
+				l.reportJobErr(req, err)
+			}
+		}(req)
 	}
 }
 
