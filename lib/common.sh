@@ -67,6 +67,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/runner-config.sh"
 # shellcheck source=lib/runner-container.sh
 source "$(dirname "${BASH_SOURCE[0]}")/runner-container.sh"
 
+# Runner Build: the daemonless image-build seam (ADR-0001 "Build path without
+# privilege", #118) -- builds images with NO docker socket and NO --privileged
+# via Kaniko or rootless BuildKit, selected per type by the Go config (#119).
+# Sourced after runner-container.sh whose CLI picker + hardening it reuses.
+# shellcheck source=lib/runner-build.sh
+source "$(dirname "${BASH_SOURCE[0]}")/runner-build.sh"
+
 # Validate a labels CSV: one or more comma-separated tokens, each matching
 # GitHub's allowed label charset [A-Za-z0-9_-]+. Rejects empty input,
 # whitespace, and leading / trailing / doubled commas. Returns 0 (valid)

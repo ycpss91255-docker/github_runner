@@ -136,6 +136,25 @@ A runner type that genuinely needs the daemon opts in *explicitly* by setting
 `RUNNER_DOCKER_SOCKET` to the host socket path -- this is the only path that
 mounts it, and it should be a conscious operator decision.
 
+### Daemonless image builds (#118/#119)
+
+Build-type runners build images **without the docker socket and without
+`--privileged`** (ADR-0001 "Build path without privilege"). A runner type selects
+its builder with `build_tool: kaniko` or `build_tool: buildkit` in the config;
+the listener carries it across the shell-out as `RUNNER_BUILD_TOOL`, and the bash
+build seam (`lib/runner-build.sh`, `runner_build_image`) runs the daemonless
+builder inside a throwaway rootless container (`--rm` + the same baseline
+hardening, build context mounted `:Z`):
+
+| `build_tool` | Builder | How it builds |
+| --- | --- | --- |
+| `kaniko` | `gcr.io/kaniko-project/executor` (`RUNNER_KANIKO_IMAGE`) | reads Dockerfile + context from `/workspace`, pushes the destination -- no daemon, no socket, no privilege |
+| `buildkit` | `moby/buildkit:rootless` (`RUNNER_BUILDKIT_IMAGE`) | rootless BuildKit builds from the mounted context and exports the image -- daemonless, socketless, unprivileged |
+| `none` / empty | -- | the type builds no images; the seam refuses to run |
+
+Pin the builder images by digest in production via `RUNNER_KANIKO_IMAGE` /
+`RUNNER_BUILDKIT_IMAGE`.
+
 ## Concurrency, capacity & lifecycle
 
 - **Bounded worker pool (#101):** each acquired job provisions in its own
