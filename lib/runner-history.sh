@@ -117,12 +117,33 @@ runner_history_journal() {
   printf '%s\n' "$1" | systemd-cat -t "${RUNNER_HISTORY_JOURNAL_TAG}" 2>/dev/null || true
 }
 
+# Secret-pattern scrubber for archived file CONTENTS (#140). The _diag subtree
+# is copied from the per-job runner dir, which is bind-mounted READ-WRITE into
+# the job container at /runner -- so _diag is ATTACKER-WRITABLE job output, NOT
+# trusted runner diagnostics. A hostile job can copy the single-use JIT
+# credential (or any harvested secret) into /runner/_diag and have it land
+# verbatim in the durable, never-torn-down history store. The ledger redaction
+# (#124) is KEY-name matching on TSV fields and never inspects file contents, so
+# it does not stop this. This filter redacts any line that looks like it carries
+# a secret value (JITCONFIG / token / secret / credential / password / api[-_]key
+# in KEY=VALUE or KEY: VALUE form), replacing the value with a fixed marker so
+# the forensic line is retained but the secret is not. Benign diagnostic lines
+# pass through untouched. Reads stdin, writes scrubbed stdout.
+runner_history_scrub_secrets() {
+  # ERE, case-insensitive: a secret-ish key token immediately followed by a
+  # '=' or ':' delimiter, then the (greedy) value to end-of-line -> redacted.
+  sed -E 's/((jitconfig|token|secret|credential|password|passwd|api[_-]?key)[^=:[:space:]]*[[:space:]]*[=:])[[:space:]]*.*$/\1 [REDACTED]/I'
+}
+
 # Archive a job's container stdout/stderr and runner _diag logs into its per-job
 # history dir, keyed by job id (#125), BEFORE the container/temp dir is removed.
 #   runner_history_archive <job_id> <job_log> <runner_dir>
 # <job_log>    a file holding the captured container stdout+stderr (may be absent)
 # <runner_dir> the per-job runner dir mounted into the container; its _diag/
-#              subtree (if any) is copied verbatim.
+#              subtree (if any) is archived -- but as UNTRUSTED job output: it is
+#              copied through a secret scrubber (#140), never `cp -a` verbatim,
+#              so secrets a hostile job planted there never reach the durable
+#              store. Symlinks are NOT followed (the source is job-controlled).
 # Best-effort: a missing source is skipped, an individual copy failure is logged
 # and swallowed, so archiving never blocks teardown.
 runner_history_archive() {
@@ -134,9 +155,35 @@ runner_history_archive() {
       || echo "history: failed to archive job log for ${job_id}" >&2
   fi
   if [[ -n "${runner_dir}" && -d "${runner_dir}/_diag" ]]; then
-    cp -a -- "${runner_dir}/_diag" "${dest}/_diag" 2>/dev/null \
+    runner_history_archive_diag "${runner_dir}/_diag" "${dest}/_diag" \
       || echo "history: failed to archive _diag for ${job_id}" >&2
   fi
+  return 0
+}
+
+# Copy the (attacker-writable) _diag subtree into the durable store, scrubbing
+# secret content from every regular file as it lands (#140). The tree is walked
+# with `find` so the directory structure is recreated, each REGULAR file is
+# piped through the secret scrubber, and symlinks/special files are skipped (a
+# job-controlled symlink must never make us read or copy outside the tree).
+#   runner_history_archive_diag <src_diag> <dest_diag>
+runner_history_archive_diag() {
+  local src=$1 dest=$2 rel out
+  mkdir -p "${dest}" || return 1
+  # -P: never follow symlinks; we only ever descend real directories and only
+  # ever scrub real files, so a planted symlink cannot redirect the copy.
+  while IFS= read -r -d '' path; do
+    rel=${path#"${src}"/}
+    if [[ -d "${path}" ]]; then
+      mkdir -p "${dest}/${rel}" || return 1
+    elif [[ -f "${path}" ]]; then
+      out="${dest}/${rel}"
+      mkdir -p "$(dirname -- "${out}")" || return 1
+      # Scrub on the way in; failure of an individual file is non-fatal.
+      runner_history_scrub_secrets <"${path}" >"${out}" 2>/dev/null || true
+    fi
+    # Anything else (symlink, socket, device) is intentionally not archived.
+  done < <(find -P "${src}" -mindepth 1 \( -type d -o -type f \) -print0 2>/dev/null)
   return 0
 }
 

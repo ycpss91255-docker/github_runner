@@ -89,6 +89,37 @@ teardown() { rm -rf "${STORE}"; }
   [ -d "${RUNNER_HISTORY_DIR}/jobs/job-empty" ]
 }
 
+# --- #140 _diag is attacker-controlled job output: scrub secrets on archive ---
+
+@test "runner_history_archive scrubs secret content a hostile job planted in _diag (#140)" {
+  # The runner dir is bind-mounted READ-WRITE into the job container at /runner,
+  # and /runner/_diag is therefore attacker-writable. A hostile job can copy the
+  # single-use JIT credential (or any harvested secret) into _diag, which the
+  # archive would otherwise persist VERBATIM into the durable, never-torn-down
+  # history store. The archive must treat _diag as untrusted and scrub secret
+  # patterns from the archived contents.
+  rdir=$(mktemp -d)
+  mkdir -p "${rdir}/_diag"
+  # An attacker-planted file dumping the JIT credential + other secrets.
+  cat > "${rdir}/_diag/leak.log" <<'LEAK'
+JITCONFIG=ENCODEDxJITxSECRETxPLANTED==
+github_token=ghp_supersecretvalue
+runner_secret: hunter2value
+benign worker diagnostic line
+LEAK
+
+  runner_history_archive job-leak "" "${rdir}"
+
+  archived="${RUNNER_HISTORY_DIR}/jobs/job-leak/_diag/leak.log"
+  [ -f "${archived}" ]
+  # The benign diagnostic line survives (we keep real forensics).
+  grep -q 'benign worker diagnostic line' "${archived}"
+  # But none of the planted secret VALUES may land in the durable store.
+  ! grep -q 'ENCODEDxJITxSECRETxPLANTED==' "${archived}"
+  ! grep -q 'ghp_supersecretvalue'         "${archived}"
+  ! grep -q 'hunter2value'                 "${archived}"
+}
+
 # --- #139 path-reserved job id must not escape the jobs/ subtree ----------
 
 @test "runner_history_safe_id never yields a path-reserved token (#139)" {

@@ -182,12 +182,28 @@ runner_container_run() {
   # namespace and passes it to run.sh; `sh -c` expands it inside the container,
   # not on the host CLI argv. The container's /proc shows only container PIDs
   # (rootless), so this re-exposes nothing to other HOST users.
-  local env_file="${dir}/.jitconfig.env"
+  # The env-file MUST live OUTSIDE the bind-mounted runner dir (#140). `${dir}`
+  # is mounted READ-WRITE at /runner and IS the job's working directory, so a
+  # file written under it (`${dir}/.jitconfig.env`) is visible to -- and copyable
+  # by -- the hostile job at /runner/.jitconfig.env. The job could then plant the
+  # single-use credential into /runner/_diag, which the history hook durably
+  # archives, surviving the --rm teardown. Writing the env-file as a SIBLING of
+  # the mounted dir keeps the credential out of every job-reachable path while
+  # the engine still reads its VALUE from the file (never the host argv, #136).
+  # The sibling sits beside `${dir}` under the same throwaway work root, so the
+  # caller's `rm -rf "${runner_dir}"` does not remove it -- we delete it here on
+  # return (success or failure) via a RETURN trap so the credential file does not
+  # outlive this function.
+  local env_file="${dir%/}.jitconfig.env"
   # Restrict before writing so the secret never exists world-readable, even
   # briefly. printf (not echo) so a value with leading '-' is written verbatim;
   # the single KEY=VALUE line is the --env-file format the engines expect.
   ( umask 077; : >"${env_file}"; )
   printf 'JITCONFIG=%s\n' "${encoded}" >"${env_file}"
+  # Shred the sibling env-file when this function returns, by ANY path, so the
+  # single-use credential never lingers on disk past the container's run.
+  # shellcheck disable=SC2064
+  trap "rm -f -- '${env_file}'" RETURN
 
   # The in-container command. $JITCONFIG is expanded by the CONTAINER's shell
   # (set there from --env-file), so this string is kept literal on the host --

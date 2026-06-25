@@ -87,6 +87,28 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   ! grep -qF -- 'ENCODEDxJITxSECRETx==' "${CAP}"
 }
 
+# --- #140 the JIT credential file must NOT live inside the job-writable mount ---
+
+@test "runner_container_run keeps the JIT env-file OUTSIDE the bind-mounted /runner tree (#140)" {
+  # The credential file must not be visible at /runner/.jitconfig.env inside the
+  # container: the bind-mounted dir is read-write and IS the job's workdir, so a
+  # hostile job could copy the credential into /runner/_diag and have it durably
+  # archived. The --env-file path the engine reads must be a SIBLING of the
+  # mounted dir, never a child of it.
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENCODEDxJITxSECRETx== my/image:tag
+  [ "${status}" -eq 0 ]
+  # Grab the --env-file path that was passed to the CLI (the token after it).
+  envfile=$(grep -A1 -xF -- '--env-file' "${CAP}" | tail -n1)
+  [ -n "${envfile}" ]
+  # It must NOT be inside the bind-mounted runner dir (which mounts at /runner).
+  case "${envfile}" in
+    "${RUNNER_DIR}"/*) echo "env-file inside the job-writable mount: ${envfile}"; return 1 ;;
+  esac
+  # And no .jitconfig.env file may exist under the bind-mounted dir at all.
+  [ ! -e "${RUNNER_DIR}/.jitconfig.env" ]
+}
+
 @test "runner_container_run runs the requested image" {
   make_cli docker
   run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
