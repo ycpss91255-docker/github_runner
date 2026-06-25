@@ -84,6 +84,21 @@ runner_container_name() {
   printf 'gha-jit-%s' "${safe}"
 }
 
+# Sanitise the attacker-influenced job id for use as a LABEL value (#137). The
+# scale-set JobID flows into our job-id label unsanitized; a NEWLINE (or other
+# control char) in that label is what let the reaper's old "<name> <label>"
+# listing be split into a forged phantom row naming an arbitrary victim. Strip
+# every control character (incl. CR/LF/TAB) so the label can never carry a line
+# break. Kept less aggressive than the name sanitiser (the label is
+# informational, not a shell/engine identifier); the control-char strip is the
+# security-load-bearing part, and the reaper additionally reaps by container ID
+# so it never parses this value as a removal target.
+#   runner_job_id_label <job_id>
+runner_job_id_label() {
+  local job_id=$1
+  printf '%s' "${job_id}" | tr -d '[:cntrl:]'
+}
+
 # Pick the rootless container CLI: podman preferred over docker (rootless is
 # podman's default mode -- no daemon, no root -- which is the #82 goal; docker
 # is the fallback for hosts that only ship it). Prints the CLI name, or returns
@@ -130,7 +145,7 @@ runner_container_run() {
     id_args=(
       --name "$(runner_container_name "${job_id}")"
       --label "managed-by=${RUNNER_MANAGED_BY}"
-      --label "job-id=${job_id}"
+      --label "job-id=$(runner_job_id_label "${job_id}")"
     )
   fi
   # Baseline hardening flags (#114): read one-per-line into an array so each

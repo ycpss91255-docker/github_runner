@@ -143,6 +143,26 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   grep -qxF -- 'job-id=job-abc' "${CAP}"
 }
 
+@test "job-id label strips control chars so it cannot forge a reaper row (#137)" {
+  # The scale-set JobID flows into the job-id label unsanitized. A NEWLINE in
+  # that label is what let the reaper's listing be split into a phantom row
+  # naming an arbitrary victim. The label value must carry NO control char, so
+  # the hostile newline collapses and the whole label stays ONE argv token.
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag $'A\nrt-victim sparetoken'
+  [ "${status}" -eq 0 ]
+  # The sanitised label is a single line (newline stripped): "Art-victim ...".
+  grep -qxF -- 'job-id=Art-victim sparetoken' "${CAP}"
+  # The raw victim name never appears on its own captured line (no forged row).
+  ! grep -qxF -- 'rt-victim sparetoken' "${CAP}"
+}
+
+@test "runner_job_id_label removes newline and carriage-return (#137)" {
+  [ "$(runner_job_id_label $'a\nb')" = 'ab' ]
+  [ "$(runner_job_id_label $'a\r\nb')" = 'ab' ]
+  [ "$(runner_job_id_label 'plain-id')" = 'plain-id' ]
+}
+
 @test "runner_container_name is deterministic for a given job id (#104)" {
   [ "$(runner_container_name job-abc)" = "$(runner_container_name job-abc)" ]
   [ "$(runner_container_name job-abc)" != "$(runner_container_name job-xyz)" ]

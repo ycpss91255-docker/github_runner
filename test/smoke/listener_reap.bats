@@ -18,12 +18,33 @@ setup() {
 
   STUB=$(mktemp -d)
   RM_CAP="${WORK}/rm.args"
-  PS_OUT="${WORK}/ps.out"
+  PS_OUT="${WORK}/ps.out"          # scripted `docker ps` inventory: one container ID per line
+  INSPECT_DIR="${WORK}/inspect"    # per-id "<key>" inspect answers
+  mkdir -p "${INSPECT_DIR}"
   : >"${PS_OUT}"
+  # docker stub modelling the ID-keyed reaper (#137): `ps` lists container IDs,
+  # `inspect` answers the job-id / managed-by label by ID, `rm` records targets.
   cat >"${STUB}/docker" <<EOF
 #!/usr/bin/env bash
 case "\$1" in
   ps) cat "${PS_OUT}" ;;
+  inspect)
+    fmt=""; id=""; shift
+    while [ \$# -gt 0 ]; do
+      case "\$1" in
+        --format|-f) fmt="\$2"; shift 2 ;;
+        --format=*) fmt="\${1#--format=}"; shift ;;
+        *) id="\$1"; shift ;;
+      esac
+    done
+    case "\$fmt" in
+      *job-id*)     key=jobid ;;
+      *managed-by*) key=managedby ;;
+      *)            key=other ;;
+    esac
+    f="${INSPECT_DIR}/\${id}.\${key}"
+    if [ -f "\$f" ]; then cat "\$f"; else exit 1; fi
+    ;;
   rm) shift; printf '%s\n' "\$@" >> "${RM_CAP}" ;;
   *) : ;;
 esac
@@ -35,21 +56,29 @@ EOF
 
 teardown() { rm -rf "${WORK}" "${STUB}"; }
 
+# Register a container in the scripted inventory: inv <id> <job-id> [managed-by].
+inv() {
+  local id=$1 job_id=$2 managed_by=${3:-github-runner-listener}
+  printf '%s\n' "${id}" >> "${PS_OUT}"
+  printf '%s' "${job_id}"     > "${INSPECT_DIR}/${id}.jobid"
+  printf '%s' "${managed_by}" > "${INSPECT_DIR}/${id}.managedby"
+}
+
 @test "reap.sh exists and is executable" {
   [ -x "${SCRIPT}" ]
 }
 
 @test "reap.sh removes an orphan container and prunes its stale temp dir (#105/#106)" {
-  printf 'gha-jit-orphan orphan\n' >> "${PS_OUT}"
+  inv orphanid orphan
   mkdir -p "${RUNNER_WORK_ROOT}/jit-orphan.XYZ"
   run "${SCRIPT}"   # no tracked ids -> everything is an orphan
   [ "${status}" -eq 0 ]
-  grep -qxF -- 'gha-jit-orphan' "${RM_CAP}"
+  grep -qxF -- 'orphanid' "${RM_CAP}"
   [ ! -d "${RUNNER_WORK_ROOT}/jit-orphan.XYZ" ]
 }
 
 @test "reap.sh spares a tracked job's container and temp dir (#105/#106)" {
-  printf 'gha-jit-live live\n' >> "${PS_OUT}"
+  inv liveid live
   mkdir -p "${RUNNER_WORK_ROOT}/jit-live.XYZ"
   run "${SCRIPT}" live
   [ "${status}" -eq 0 ]

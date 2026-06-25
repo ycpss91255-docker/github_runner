@@ -18,17 +18,42 @@ setup() {
   source "${BATS_TEST_DIRNAME}/../../lib/runner-reaper.sh"
 
   STUB=$(mktemp -d)
-  RM_CAP="${FAKE_RH}/rm.args"   # container ids passed to `docker rm`
-  PS_OUT="${FAKE_RH}/ps.out"    # scripted `docker ps` inventory (one "id job-id" per line)
+  RM_CAP="${FAKE_RH}/rm.args"   # targets passed to `docker rm`
+  PS_OUT="${FAKE_RH}/ps.out"    # scripted `docker ps` inventory (one container ID per line)
+  INSPECT_DIR="${FAKE_RH}/inspect"  # per-id "<format>\t<value>" inspect answers
+  mkdir -p "${INSPECT_DIR}"
   : >"${PS_OUT}"
 
-  # A docker stub: `ps` echoes the scripted inventory (the reaper asks for
-  # "{{.Names}} {{.Label \"job-id\"}}" per labelled container); `rm` records the
-  # ids it was told to remove. Any other subcommand is a no-op success.
+  # A docker stub modelling the real engine. The reaper now reaps by an
+  # injection-proof container ID: `ps` echoes one container ID per line (the
+  # scripted inventory) and `inspect` answers a per-id, per-format query (so the
+  # reaper can read the job-id / managed-by labels keyed on the ID it is about to
+  # remove). `rm` records the targets it was told to remove. Critically, the
+  # job-id LABEL value is only ever returned by `inspect` -- never parsed as a
+  # control field -- so a newline in the label can no longer forge a row.
   cat >"${STUB}/docker" <<EOF
 #!/usr/bin/env bash
 case "\$1" in
   ps) cat "${PS_OUT}" ;;
+  inspect)
+    # docker inspect --format '<fmt>' <id>: answer from INSPECT_DIR/<id>.<key>.
+    fmt=""; id=""
+    shift
+    while [ \$# -gt 0 ]; do
+      case "\$1" in
+        --format|-f) fmt="\$2"; shift 2 ;;
+        --format=*) fmt="\${1#--format=}"; shift ;;
+        *) id="\$1"; shift ;;
+      esac
+    done
+    case "\$fmt" in
+      *job-id*)     key=jobid ;;
+      *managed-by*) key=managedby ;;
+      *)            key=other ;;
+    esac
+    f="${INSPECT_DIR}/\${id}.\${key}"
+    if [ -f "\$f" ]; then cat "\$f"; else exit 1; fi
+    ;;
   rm) shift; printf '%s\n' "\$@" >> "${RM_CAP}" ;;
   *) : ;;
 esac
@@ -40,30 +65,38 @@ EOF
 
 teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
 
-# Helper: write a scripted inventory line "<container-name> <job-id>".
-inv() { printf '%s %s\n' "$1" "$2" >> "${PS_OUT}"; }
+# Helper: register a container in the scripted inventory.
+#   inv <container-id> <job-id> [managed-by]
+# Records the ID in the `ps` output and writes its inspect answers so the
+# reaper can resolve the job-id (and managed-by, defaulting to ours) by ID.
+inv() {
+  local id=$1 job_id=$2 managed_by=${3:-${RUNNER_MANAGED_BY}}
+  printf '%s\n' "${id}" >> "${PS_OUT}"
+  printf '%s' "${job_id}"    > "${INSPECT_DIR}/${id}.jobid"
+  printf '%s' "${managed_by}" > "${INSPECT_DIR}/${id}.managedby"
+}
 
 @test "reaper removes a labelled container that is no longer tracked" {
-  inv gha-jit-orphan orphan
+  inv c0ffee orphan
   run runner_reap_orphans   # no tracked ids -> everything labelled is an orphan
   [ "${status}" -eq 0 ]
-  grep -qxF -- 'gha-jit-orphan' "${RM_CAP}"
+  grep -qxF -- 'c0ffee' "${RM_CAP}"
 }
 
 @test "reaper does NOT remove a container that is still tracked" {
-  inv gha-jit-live live
+  inv 1ive11 live
   run runner_reap_orphans live   # 'live' is tracked -> must be spared
   [ "${status}" -eq 0 ]
   [ ! -f "${RM_CAP}" ]
 }
 
 @test "reaper removes orphans but spares tracked containers in one sweep" {
-  inv gha-jit-keep keep
-  inv gha-jit-gone gone
+  inv keepid keep
+  inv goneid gone
   run runner_reap_orphans keep
   [ "${status}" -eq 0 ]
-  grep -qxF -- 'gha-jit-gone' "${RM_CAP}"
-  ! grep -qxF -- 'gha-jit-keep' "${RM_CAP}"
+  grep -qxF -- 'goneid' "${RM_CAP}"
+  ! grep -qxF -- 'keepid' "${RM_CAP}"
 }
 
 @test "reaper is a no-op (exit 0) when no labelled containers exist" {
@@ -194,7 +227,7 @@ EOF
 }
 
 @test "reaper filters on our managed-by label" {
-  inv gha-jit-x x
+  inv idx x
   # The ps invocation must scope to our label so we never touch foreign
   # containers. Capture the ps argv to assert the filter.
   cat >"${STUB}/docker" <<EOF
@@ -206,4 +239,54 @@ EOF
   run runner_reap_orphans
   [ "${status}" -eq 0 ]
   grep -qF -- "label=managed-by=${RUNNER_MANAGED_BY}" "${FAKE_RH}/ps.args"
+}
+
+# --- SEC: newline-in-job-id-label phantom-row reaper spoof (#137) --------------
+#
+# An attacker-controlled JobID flows UNSANITIZED into the container's job-id
+# label (only the --name is sanitized). With the OLD `ps --format '{{.Names}}
+# {{.Label "job-id"}}'` listing, a newline in the label split one attacker
+# container into TWO rows, the second naming a victim the reaper would then
+# `rm -f` -- bypassing the managed-by/prefix scoping entirely. These tests lock
+# the regression: a malicious label can never become a removal target.
+
+@test "reaper reaps by container ID, never by a parsed/streamed name (#137)" {
+  # The inventory is container IDs; the removal target the reaper hands `rm`
+  # must be exactly that ID -- not any name/label-derived string.
+  inv deadbeef orphan
+  run runner_reap_orphans
+  [ "${status}" -eq 0 ]
+  grep -qxF -- 'deadbeef' "${RM_CAP}"
+}
+
+@test "reaper does NOT remove a victim forged via a newline in the job-id label (#137)" {
+  # One real, managed attacker container (id 'attacker') whose job-id label
+  # carries a newline + a victim container name. Under the old code the reaper
+  # listed names+labels and the raw newline produced a phantom row naming
+  # 'rt-victim'. Model that hostile label exactly: the engine returns it RAW
+  # from inspect. The reaper must remove ONLY the real attacker container ID and
+  # must NEVER hand 'rt-victim' (an unmanaged, untracked name) to `rm`.
+  printf '%s\n' attacker >> "${PS_OUT}"
+  printf '%s' $'A\nrt-victim sparetoken'      > "${INSPECT_DIR}/attacker.jobid"
+  printf '%s' "${RUNNER_MANAGED_BY}"          > "${INSPECT_DIR}/attacker.managedby"
+
+  run runner_reap_orphans
+  [ "${status}" -eq 0 ]
+  # The unmanaged victim named inside the label is NEVER removed.
+  ! grep -qF -- 'rt-victim' "${RM_CAP}"
+}
+
+@test "reaper cannot be made to SPARE an orphan via a newline forging a tracked id (#137)" {
+  # Conversely, an attacker container whose label embeds a newline + a TRACKED
+  # job id must not let the attacker's own container escape reaping: the
+  # tracked-check keys on the real, inspected label value of THIS container, not
+  # on a forged second token.
+  printf '%s\n' orphanid >> "${PS_OUT}"
+  printf '%s' $'untracked\nsomeorphan trackedjob' > "${INSPECT_DIR}/orphanid.jobid"
+  printf '%s' "${RUNNER_MANAGED_BY}"              > "${INSPECT_DIR}/orphanid.managedby"
+
+  run runner_reap_orphans trackedjob   # 'trackedjob' is the only spared id
+  [ "${status}" -eq 0 ]
+  # The orphan's real job-id is 'untracked\n...' != 'trackedjob' -> it is reaped.
+  grep -qxF -- 'orphanid' "${RM_CAP}"
 }
