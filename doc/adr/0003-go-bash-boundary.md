@@ -60,7 +60,15 @@ Go if it cannot be done without the scale-set client.**
 - Each side is tested in its own idiom: Go deep modules via mock/fake; bash
   seams via bats stub-and-capture. CI runs both (Go in a container).
 - The JIT config crosses the boundary **as a file**, never on argv, so it is not
-  exposed in the process table.
+  exposed in the process table. **This file-not-argv rule is necessary but not
+  sufficient**: bash must also avoid re-splicing the credential back onto the
+  HOST `podman/docker run` argv (which would re-expose it in the host process
+  table, /proc/<pid>/cmdline). Bash therefore hands the credential to the engine
+  via a mode-0600 `--env-file` and lets `run.sh` read it from the env inside the
+  container's own process namespace — the secret stays off the host argv end to
+  end (#136). As defense-in-depth, mount host `/proc` with `hidepid=2` (see
+  [HOST-HARDENING](../runbook/HOST-HARDENING.md)) so non-CI local users cannot
+  read other processes' cmdline at all.
 
 ## References
 

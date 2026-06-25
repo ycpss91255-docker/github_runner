@@ -52,12 +52,39 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   grep -qxF -- '--rm' "${CAP}"
 }
 
-@test "runner_container_run passes the JIT config through to the in-container run" {
+@test "runner_container_run delivers the JIT config to the in-container run via the container env (#136)" {
   make_cli docker
   run runner_container_run "${RUNNER_DIR}" ENCODEDxJITxCONFIGx== my/image:tag
   [ "${status}" -eq 0 ]
+  # The in-container run still receives the credential (run.sh --jitconfig),
+  # but the value is delivered through the container ENV, not spliced onto the
+  # host CLI argv. The flag itself may appear; the VALUE must not (see the
+  # process-table regression test below).
   grep -qF -- '--jitconfig' "${CAP}"
-  grep -qF -- 'ENCODEDxJITxCONFIGx==' "${CAP}"
+}
+
+# --- #136 the JIT credential must NEVER land on the HOST podman/docker argv ---
+
+@test "runner_container_run keeps the JIT config OFF the host container CLI argv (#136)" {
+  # ADR-0003 invariant: the single-use credential must not be visible in the
+  # host process table. The captured argv of the host podman/docker process must
+  # NOT contain the encoded credential anywhere.
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENCODEDxJITxSECRETx== my/image:tag
+  [ "${status}" -eq 0 ]
+  ! grep -qF -- 'ENCODEDxJITxSECRETx==' "${CAP}"
+}
+
+@test "runner_container_run delivers the JIT config to the container via --env-file off argv (#136)" {
+  # The credential is handed to the engine through an --env-file (which reads
+  # KEY=VALUE from a file and does NOT place the value on argv), so the host CLI
+  # argv carries only the file PATH, never the secret.
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENCODEDxJITxSECRETx== my/image:tag
+  [ "${status}" -eq 0 ]
+  grep -qxF -- '--env-file' "${CAP}"
+  # The env-file path is on argv (a path, not the secret); the secret is not.
+  ! grep -qF -- 'ENCODEDxJITxSECRETx==' "${CAP}"
 }
 
 @test "runner_container_run runs the requested image" {

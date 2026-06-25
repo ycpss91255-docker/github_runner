@@ -49,6 +49,13 @@ Neither knob alone closes the gap: a CI user *plus rootless*, or a CI user
       run, so a compromise cannot persist across jobs.
 - [ ] Host is **network-isolated** (egress firewall / dedicated VLAN) so a
       compromise cannot pivot to other machines.
+- [ ] Mount `/proc` with **`hidepid=2`** (e.g. `mount -o remount,hidepid=2 /proc`,
+      or a `proc /proc proc nosuid,nodev,noexec,hidepid=2 0 0` fstab line) so a
+      **co-located non-CI local user cannot read other processes' `cmdline`**.
+      The provisioner already keeps the single-use JIT credential off the
+      container CLI argv via `--env-file` (#136 / [ADR-0003](../adr/0003-go-bash-boundary.md)),
+      so it is not in any process's `cmdline`; `hidepid=2` is the belt-and-braces
+      step that blocks process-table snooping in general on a shared host.
 - [ ] Org safety knobs verified: outside-collaborator **approval gate** ON +
       runner-group `allows_public_repositories` consistent (enforced by
       `add-runner.sh`; surfaced by `status.sh`).

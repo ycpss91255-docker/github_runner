@@ -11,7 +11,10 @@
 # Sourced by lib/common.sh. This is the SINGLE place the one-job
 # `run.sh --jitconfig <encoded>` invocation lives, executed INSIDE the throwaway
 # container rather than directly on the host. The encoded JIT config is minted
-# by the Go scale-set client (ADR-0001/ADR-0003), not by any bash seam.
+# by the Go scale-set client (ADR-0001/ADR-0003), not by any bash seam, and is
+# delivered into the container OFF the host argv via a mode-0600 --env-file
+# (#136), so the single-use credential never lands in the HOST process table --
+# the ADR-0003 invariant holds on the bash side, not just the Go side.
 # shellcheck shell=bash
 
 # The label value that marks every container THIS tool provisions, so the
@@ -102,6 +105,9 @@ runner_container_cli() {
 # Detects the CLI (runner_container_cli), then `<cli> run --rm ...` the image so
 # the container is single-use and removed on exit (--rm: no state survives),
 # executing the Phase 2 ephemeral run (run.sh --jitconfig <encoded>) inside it.
+# The encoded credential is passed to the container via a mode-0600 --env-file
+# (#136), never on the host `<cli> run` argv, so it stays off the host process
+# table; run.sh reads it from $JITCONFIG inside the container's own namespace.
 # Rootless-appropriate: --init reaps the runner's child PIDs (no host init); the
 # baseline hardening flags (#114) and the :Z-relabelled mount (#115, MAC kept
 # enforced) keep it an unprivileged, self-contained unit. When a job id is given,
@@ -145,6 +151,36 @@ runner_container_run() {
   for dev in ${RUNNER_DEVICES}; do
     device_args+=(--device "${dev}")
   done
+  # Deliver the single-use JIT credential to the container OFF the host argv
+  # (#136, restores the ADR-0003 invariant). Splicing `--jitconfig "${encoded}"`
+  # directly onto the host `<cli> run ...` argv put the credential in the HOST
+  # process table (/proc/<pid>/cmdline, world-readable) for the container's whole
+  # life -- the exact exposure the Go->bash file handoff exists to prevent. The
+  # Go side keeps it off ITS argv (a 0600 file, ADR-0003); bash must not undo
+  # that here. Instead write the credential to a mode-0600 --env-file inside the
+  # (throwaway, per-job) runner dir as KEY=VALUE; the engine reads the VALUE from
+  # the file, so only the env-file PATH -- never the secret -- is on the host
+  # argv. The env-file is named in the dir torn down with the job (--rm + the
+  # caller's rm -rf), so the credential file does not survive teardown.
+  #
+  # The container then receives the credential via $JITCONFIG in ITS OWN process
+  # namespace and passes it to run.sh; `sh -c` expands it inside the container,
+  # not on the host CLI argv. The container's /proc shows only container PIDs
+  # (rootless), so this re-exposes nothing to other HOST users.
+  local env_file="${dir}/.jitconfig.env"
+  # Restrict before writing so the secret never exists world-readable, even
+  # briefly. printf (not echo) so a value with leading '-' is written verbatim;
+  # the single KEY=VALUE line is the --env-file format the engines expect.
+  ( umask 077; : >"${env_file}"; )
+  printf 'JITCONFIG=%s\n' "${encoded}" >"${env_file}"
+
+  # The in-container command. $JITCONFIG is expanded by the CONTAINER's shell
+  # (set there from --env-file), so this string is kept literal on the host --
+  # the credential never appears on the host argv. The single quotes are
+  # deliberate (#136); SC2016 is expected and would defeat the fix if "fixed".
+  # shellcheck disable=SC2016
+  local run_in_container='./run.sh --jitconfig "${JITCONFIG}"'
+
   # Bind the runner dir with :Z so the engine relabels it for this container
   # (#115) -- MAC (SELinux/AppArmor) stays ENFORCED; we never disable it.
   "${cli}" run --rm --init \
@@ -152,9 +188,10 @@ runner_container_run() {
     "${socket_args[@]}" \
     "${device_args[@]}" \
     "${id_args[@]}" \
+    --env-file "${env_file}" \
     -v "${dir}:/runner:Z" -w /runner \
     "${image}" \
-    ./run.sh --jitconfig "${encoded}"
+    sh -c "${run_in_container}"
 }
 
 # runner_container_kill <name>
