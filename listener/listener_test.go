@@ -866,3 +866,104 @@ func TestCleanShutdownWaitsForInFlightJobs(t *testing.T) {
 		t.Error("session must still be torn down after the drain")
 	}
 }
+
+// --- #138 JobID canonicalization (tracked-set vs sanitized container label) ----
+
+// gateReaper records the tracked ids from the FIRST sweep that observes a
+// non-empty tracked set (i.e. the first sweep after a job is in-flight),
+// signalling so the test knows that sweep ran. Earlier startup sweeps (before
+// any job is tracked) are skipped so the assertion is about the in-flight job.
+type gateReaper struct {
+	mu    sync.Mutex
+	first []string
+	fired chan struct{} // closed once the first non-empty sweep is captured
+	once  sync.Once
+}
+
+func (r *gateReaper) Reap(_ context.Context, tracked []string) error {
+	if len(tracked) == 0 {
+		return nil // a pre-job startup sweep: nothing in-flight yet
+	}
+	r.once.Do(func() {
+		r.mu.Lock()
+		r.first = append([]string(nil), tracked...)
+		r.mu.Unlock()
+		close(r.fired)
+	})
+	return nil
+}
+
+func (r *gateReaper) firstSweep() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.first...)
+}
+
+// A JobID carrying a control char (here a TAB) must reach the reaper in the
+// SAME canonical form the container's sanitized job-id label carries
+// (lib/runner-container.sh runner_job_id_label = `tr -d '[:cntrl:]'`).
+// Otherwise the reaper's exact-string compare (lib/runner-reaper.sh
+// _runner_reaper_is_tracked) treats the live job's own container as an orphan
+// and rm -f's it mid-run (#138). The Go tracked set, the script argv, and the
+// resulting label must all derive from one identical sanitized string, so the
+// id the reaper is handed for an IN-FLIGHT job must equal the control-char-
+// stripped JobID -- never the raw one.
+func TestTrackedJobIDIsSanitizedToMatchContainerLabel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const rawJobID = "job\tA"  // attacker-influenced control char
+	const wantTracked = "jobA" // what runner_job_id_label strips it to (the label)
+
+	// A provisioner that blocks the single job keeps it IN-FLIGHT (tracked)
+	// across the reaper sweep.
+	probe := &concurrencyProbe{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	sess := &fakeSession{
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(1, 1, assigned(1, rawJobID)),
+		},
+		// no cancel: the loop stays alive while the job is held and the reaper ticks.
+	}
+	reaper := &gateReaper{fired: make(chan struct{})}
+	l := New(sess, &recordingMinter{config: "jit"}, probe,
+		Config{Image: "img", Reaper: reaper, ReapInterval: 10 * time.Millisecond})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Wait for the held job to be in-flight (tracked) before the sweep matters.
+	select {
+	case <-probe.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provisioner never started the held job")
+	}
+
+	// Wait for the reaper's first sweep while the job is held in-flight.
+	select {
+	case <-reaper.fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reaper never swept while the job was in-flight")
+	}
+
+	tracked := reaper.firstSweep()
+	if len(tracked) != 1 {
+		t.Fatalf("expected exactly 1 tracked id during the in-flight sweep, got %v", tracked)
+	}
+	if tracked[0] != wantTracked {
+		t.Errorf("tracked id handed to reaper = %q, want %q (the sanitized job-id label); "+
+			"a raw control-char key %q != the container label desyncs and the reaper reaps the live job (#138)",
+			tracked[0], wantTracked, rawJobID)
+	}
+
+	// Wind the held job down so Listen can return.
+	close(probe.release)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Listen did not return after the held job was released")
+	}
+}

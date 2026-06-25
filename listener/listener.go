@@ -12,9 +12,11 @@ package listener
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/actions/scaleset"
 )
@@ -343,7 +345,7 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 			return nil, err
 		}
 		reqs = append(reqs, ProvisionRequest{
-			JobID:            ja.JobID,
+			JobID:            canonicalJobID(ja.JobID),
 			RequestID:        ja.RunnerRequestID,
 			Labels:           ja.RequestLabels,
 			EncodedJITConfig: jit,
@@ -460,6 +462,28 @@ func (l *Listener) reportCapacity() {
 		InFlight: inFlight,
 		Capacity: l.capacityFor(inFlight),
 	})
+}
+
+// canonicalJobID normalizes the attacker-influenced scale-set JobID to the SAME
+// canonical form the per-job container's job-id label carries (#138). The label
+// is produced by lib/runner-container.sh runner_job_id_label = `tr -d
+// '[:cntrl:]'`, and the reaper reads that sanitized label back and EXACT-string
+// compares it against the tracked set (lib/runner-reaper.sh
+// _runner_reaper_is_tracked). If the Go tracked key kept the RAW JobID while the
+// label was stripped, a JobID with a control char (e.g. "job\tA") would yield
+// tracked="job\tA" but label="jobA" -- never equal -- so the reaper would treat
+// the live, in-flight job's own container as an orphan and rm -f it mid-run. We
+// canonicalize once here, at ingestion, so the Go tracked set, the script argv,
+// and the resulting container label all derive from one identical string and
+// the "reaper spares tracked jobs" invariant (#105) holds. The strip mirrors the
+// label sanitizer exactly (control chars only); that is what the reaper compares.
+func canonicalJobID(jobID string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, jobID)
 }
 
 // track / untrack maintain the set of in-flight job ids the reaper must spare
