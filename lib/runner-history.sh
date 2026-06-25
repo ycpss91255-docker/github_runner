@@ -48,11 +48,23 @@
 # hardcoded.
 : "${RUNNER_HISTORY_PUSH_HOOK:=}"
 
-# Sanitise a job id to the filesystem-safe [a-zA-Z0-9_.-] set (anything else
-# becomes '-'), matching runner_container_name's rule so the history dir and the
-# container name correlate by the same key.
+# Sanitise a job id into a filesystem-safe DIRECTORY key. Unlike a container
+# NAME (runner_container_name), a directory key must never be a path-reserved
+# token: '.', '..', or empty would let the per-job archive escape jobs/<id>/
+# (e.g. job_id='..' resolves jobs/.. back to the store root -- #139). So '.' is
+# DROPPED from the allowlist (no dot-only token can form, neutralising any
+# future multi-segment dot trick) and any residual empty result is mapped to a
+# safe sentinel.
 runner_history_safe_id() {
-  printf '%s' "$1" | tr -c 'a-zA-Z0-9_.-' '-'
+  local safe
+  safe=$(printf '%s' "$1" | tr -c 'a-zA-Z0-9_-' '-')
+  # Belt-and-braces: a bare '.'/'..' can no longer form once '.' is dropped, but
+  # an empty input still yields empty -- map it (and any reserved token) to a
+  # sentinel so the dir is always a real child of jobs/.
+  case "${safe}" in
+    ''|.|..) safe=_invalid ;;
+  esac
+  printf '%s' "${safe}"
 }
 
 # The per-job archive dir, keyed by the sanitised job id (#125). Created lazily

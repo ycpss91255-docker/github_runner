@@ -89,6 +89,46 @@ teardown() { rm -rf "${STORE}"; }
   [ -d "${RUNNER_HISTORY_DIR}/jobs/job-empty" ]
 }
 
+# --- #139 path-reserved job id must not escape the jobs/ subtree ----------
+
+@test "runner_history_safe_id never yields a path-reserved token (#139)" {
+  # A directory key (unlike a container name) must never resolve to '.', '..',
+  # or empty -- any of those would let the archive escape jobs/<id>/.
+  [ "$(runner_history_safe_id '..')" != '..' ]
+  [ "$(runner_history_safe_id '.')"  != '.' ]
+  [ -n "$(runner_history_safe_id '')" ]
+  [ -n "$(runner_history_safe_id '..')" ]
+  # A benign id is still preserved verbatim.
+  [ "$(runner_history_safe_id 'job-1')" = 'job-1' ]
+}
+
+@test "runner_history_archive with job_id '..' stays under jobs/ and never writes the store root (#139)" {
+  printf 'attacker output\n' > "${STORE}/captured.log"
+
+  runner_history_archive '..' "${STORE}/captured.log" ""
+
+  # The job.log must NOT land in the store root (the escape this fixes).
+  [ ! -f "${RUNNER_HISTORY_DIR}/job.log" ]
+  # And it must land somewhere strictly under jobs/.
+  found=$(find "${RUNNER_HISTORY_DIR}/jobs" -name job.log -type f)
+  [ -n "${found}" ]
+  case "${found}/" in
+    "${RUNNER_HISTORY_DIR}/jobs/"*) ;;
+    *) echo "archive escaped jobs/: ${found}"; return 1 ;;
+  esac
+}
+
+@test "runner_history_archive with job_id '.' stays under a real per-job dir (#139)" {
+  printf 'attacker output\n' > "${STORE}/captured.log"
+
+  runner_history_archive '.' "${STORE}/captured.log" ""
+
+  # '.' must not collapse the dest onto jobs/ itself.
+  [ ! -f "${RUNNER_HISTORY_DIR}/jobs/job.log" ]
+  found=$(find "${RUNNER_HISTORY_DIR}/jobs" -mindepth 2 -name job.log -type f)
+  [ -n "${found}" ]
+}
+
 # --- #123 capture hook ----------------------------------------------------
 
 @test "runner_history_capture records, archives, and is best-effort (#123)" {
