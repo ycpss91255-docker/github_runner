@@ -250,6 +250,52 @@ LEAK
   [[ "${out}" != *'[REDACTED]'* ]] || { echo "benign content was redacted: ${out}"; return 1; }
 }
 
+# --- #153 fragment pass must survive credential split into SUB-16-char chunks ---
+
+@test "runner_history_scrub_secrets redacts a credential emitted in sub-16-char chunks (#153)" {
+  # The #150 fragment pass `[[ ${#line} -ge 16 && val == *line* ]]` has a 16-char
+  # FLOOR: a line shorter than 16 chars is never substring-tested, so a hostile
+  # step defeats it by splitting the live JIT credential into lines of <=15 chars
+  # (`printenv JITCONFIG | fold -w 15`). Each 15-char slice: has no secret-ish
+  # KEY=, is not the whole multi-KB value, and is <16 chars -- so all three passes
+  # miss and every slice lands VERBATIM in job.log, reassembled with `tr -d '\n'`.
+  # A fixed per-line floor is fundamentally defeatable (any floor N is beaten with
+  # width N-1), so a cross-line reassembly pass must catch the credential
+  # regardless of chunk width.
+  local secret='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwx=='
+  export RUNNER_HISTORY_SCRUB_VALUES="${secret}"
+
+  # Width 15 (one below the #150 floor): the exact bypass.
+  out=$(printf '%s' "${secret}" | fold -w 15 | runner_history_scrub_secrets)
+  reassembled=$(printf '%s' "${out}" | tr -d '\n')
+  [[ "${reassembled}" != *"${secret}"* ]] \
+    || { echo "w15: credential reconstructable: ${reassembled}"; return 1; }
+
+  # Width 1 (each char on its own line): an adaptive splitter at the extreme.
+  out=$(printf '%s' "${secret}" | fold -w 1 | runner_history_scrub_secrets)
+  reassembled=$(printf '%s' "${out}" | tr -d '\n')
+  [[ "${reassembled}" != *"${secret}"* ]] \
+    || { echo "w1: credential reconstructable: ${reassembled}"; return 1; }
+
+  # Width 7 (an in-between, odd width that does not divide the secret evenly).
+  out=$(printf '%s' "${secret}" | fold -w 7 | runner_history_scrub_secrets)
+  reassembled=$(printf '%s' "${out}" | tr -d '\n')
+  [[ "${reassembled}" != *"${secret}"* ]] \
+    || { echo "w7: credential reconstructable: ${reassembled}"; return 1; }
+}
+
+@test "runner_history_scrub_secrets cross-line pass keeps benign multi-line content (#153)" {
+  # The cross-line reassembly pass must only redact lines whose concatenation
+  # actually reconstructs an injected secret -- ordinary multi-line diagnostics
+  # whose joined text never contains the credential must survive verbatim.
+  export RUNNER_HISTORY_SCRUB_VALUES='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwx=='
+  out=$(printf 'ok\nWorker_1 started\nstep 2\nexit 0\n' | runner_history_scrub_secrets)
+  [[ "${out}" == *'Worker_1 started'* ]] || { echo "benign over-redacted: ${out}"; return 1; }
+  [[ "${out}" == *'step 2'* ]]
+  [[ "${out}" == *'exit 0'* ]]
+  [[ "${out}" != *'[REDACTED]'* ]] || { echo "benign content was redacted: ${out}"; return 1; }
+}
+
 # --- #146 value redaction must never put the secret on an external proc argv ---
 
 @test "runner_history_scrub_secrets never places a secret VALUE on an external sed argv (#146)" {

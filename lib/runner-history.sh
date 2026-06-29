@@ -178,28 +178,87 @@ runner_history_scrub_secrets() {
   # literal (not regex) substitution, so a metacharacter or the sed delimiter in
   # the credential cannot subvert it either. The static key rule still runs via
   # sed; only the value-literal arms move off argv.
-  sed -E -e "${key_rule}" | while IFS= read -r line || [[ -n "${line}" ]]; do
-    for val in "${vals[@]}"; do
-      # 1) Whole-line literal pass: redact every in-line occurrence of the value.
-      line=${line//"${val}"/[REDACTED]}
-      # 2) Fragment pass (#150): the literal pass above is line-bounded, so a
-      #    hostile step that prints the credential split across a newline
-      #    (`echo "${JITCONFIG:0:30}"; echo "${JITCONFIG:30}"`, or `fold -w64`)
-      #    defeats it -- no single line equals the whole value. But each emitted
-      #    fragment is itself a CONTIGUOUS substring of the secret, so redact any
-      #    line that is a long-enough substring of the value. A whole-buffer slurp
-      #    would NOT help: splitting inserts a real '\n' between fragments, so the
-      #    value is no longer contiguous in the buffer; the substring-of-secret
-      #    test on each line is what closes it. The 16-char floor avoids
-      #    over-redacting benign short lines that coincidentally appear in the
-      #    credential's alphabet.
-      if [[ ${#line} -ge 16 && "${val}" == *"${line}"* ]]; then
-        line='[REDACTED]'
-        break
-      fi
+  sed -E -e "${key_rule}" | {
+    local -a out=()
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+      for val in "${vals[@]}"; do
+        # 1) Whole-line literal pass: redact every in-line occurrence of the value.
+        line=${line//"${val}"/[REDACTED]}
+        # 2) Fragment pass (#150): the literal pass above is line-bounded, so a
+        #    hostile step that prints the credential split across a newline
+        #    (`echo "${JITCONFIG:0:30}"; echo "${JITCONFIG:30}"`, or `fold -w64`)
+        #    defeats it -- no single line equals the whole value. But each emitted
+        #    fragment is itself a CONTIGUOUS substring of the secret, so redact any
+        #    line that is a long-enough substring of the value. The 16-char floor
+        #    avoids over-redacting benign short lines that coincidentally appear in
+        #    the credential's alphabet -- the SUB-16 chunk case is handled by the
+        #    cross-line pass below, so this floor only bounds per-line over-redaction.
+        if [[ ${#line} -ge 16 && "${val}" == *"${line}"* ]]; then
+          line='[REDACTED]'
+          break
+        fi
+      done
+      out+=("${line}")
     done
-    printf '%s\n' "${line}"
-  done
+
+    # 3) Cross-line reassembly pass (#153): the #150 fragment pass has a 16-char
+    #    FLOOR, so a hostile step defeats it by splitting the credential into
+    #    lines of <=15 chars (`printenv JITCONFIG | fold -w 15`): each slice is
+    #    too short to be substring-tested, yet concatenating the lines (the
+    #    attacker's `tr -d '\n'` reassembly) reconstructs the secret verbatim. A
+    #    fixed per-line floor N is fundamentally defeatable (use width N-1; a
+    #    floor of 1 over-redacts everything), so the per-line test cannot close
+    #    this. Instead, slurp the scrubbed buffer and, for each injected value,
+    #    walk a rolling concatenation of recent non-redacted line bodies (with
+    #    whitespace stripped, so padded chunks are caught too); whenever that
+    #    running concatenation contains the value, redact every line that
+    #    contributed to the match. This catches the credential regardless of
+    #    chunk width while leaving the 16-char per-line floor in place to bound
+    #    over-redaction of genuinely isolated short lines. Pure bash, so the
+    #    secret value never reaches a subprocess argv (#146 guarantee).
+    local n=${#out[@]} i j first run
+    local -a strip=() mem=()
+    for ((i = 0; i < n; i++)); do
+      # Whitespace-stripped body; an all-whitespace/empty body breaks a run.
+      strip[i]=${out[i]//[[:space:]]/}
+    done
+    for val in "${vals[@]}"; do
+      mem=()
+      run=""
+      for ((i = 0; i < n; i++)); do
+        # A line that is empty, whitespace-only, or already fully redacted breaks
+        # the contiguous run a `tr -d '\n'` reassembly would produce -- reset.
+        if [[ -z "${strip[i]}" || "${out[i]}" == '[REDACTED]' ]]; then
+          mem=()
+          run=""
+          continue
+        fi
+        mem+=("${i}")
+        run+="${strip[i]}"
+        # Keep the window minimal: while it is longer than the value yet does not
+        # contain it, drop the leftmost contributing line. strip[first] is an exact
+        # prefix of run (run was built left-to-right from the members), so removing
+        # it as a prefix re-syncs the window without rescanning.
+        while [[ ${#run} -gt ${#val} && "${run}" != *"${val}"* ]]; do
+          first=${mem[0]}
+          run=${run#"${strip[first]}"}
+          mem=("${mem[@]:1}")
+        done
+        # Reassembly detected: redact every line in the window and reset.
+        if [[ "${run}" == *"${val}"* ]]; then
+          for j in "${mem[@]}"; do
+            out[j]='[REDACTED]'
+          done
+          mem=()
+          run=""
+        fi
+      done
+    done
+
+    for line in "${out[@]}"; do
+      printf '%s\n' "${line}"
+    done
+  }
 }
 
 # Secret-pattern scrubber for archived _diag PATH COMPONENTS -- filenames and
