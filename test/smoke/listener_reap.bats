@@ -85,3 +85,29 @@ inv() {
   [ ! -f "${RM_CAP}" ]
   [ -d "${RUNNER_WORK_ROOT}/jit-live.XYZ" ]
 }
+
+# --- the prune root MUST match provision-job.sh's work root (#148) ----------
+
+@test "reap.sh prunes stranded temp dirs under RUNNER_HOME/work in the DEFAULT config (RUNNER_WORK_ROOT unset, #148)" {
+  # Regression for the two-halves divergence: provision-job.sh creates per-job
+  # runner dirs under ${RUNNER_HOME}/work when RUNNER_WORK_ROOT is unset (#130),
+  # but reap.sh historically defaulted its prune root to ${TMPDIR:-/tmp}, so a
+  # crash-stranded dir under RUNNER_HOME/work was NEVER reaped -- the prune was a
+  # silent no-op and the reaper reported success having cleaned nothing. With
+  # RUNNER_WORK_ROOT unset, reap.sh MUST prune ${RUNNER_HOME}/work/jit-*.
+  unset RUNNER_WORK_ROOT
+  mkdir -p "${RUNNER_HOME}/work/jit-orphan.XYZ"
+  run "${SCRIPT}"   # no tracked ids -> everything is an orphan
+  [ "${status}" -eq 0 ]
+  [ ! -d "${RUNNER_HOME}/work/jit-orphan.XYZ" ]
+}
+
+@test "reap.sh spares a tracked job's dir under RUNNER_HOME/work in the DEFAULT config (#148)" {
+  # The same default-config root must still spare a live job's dir, so the fix
+  # prunes the RIGHT root rather than blindly widening it.
+  unset RUNNER_WORK_ROOT
+  mkdir -p "${RUNNER_HOME}/work/jit-live.XYZ"
+  run "${SCRIPT}" live
+  [ "${status}" -eq 0 ]
+  [ -d "${RUNNER_HOME}/work/jit-live.XYZ" ]
+}

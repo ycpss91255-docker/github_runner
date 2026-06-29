@@ -55,6 +55,30 @@
 # pass the type's device list verbatim. Empty (a plain CPU type) = no --device.
 : "${RUNNER_DEVICES:=}"
 
+# runner_work_root -- the SINGLE source of truth for the per-job work root, the
+# dir provision-job.sh creates each job's runner dir under (mktemp -d
+# "<root>/jit-<id>.XXXXXX") and reap.sh prunes leaked dirs from. BOTH halves MUST
+# agree on this path or the reaper sweeps the WRONG directory: provision-job.sh
+# would strand residue under RUNNER_HOME/work while reap.sh globbed a different
+# root and reported success having cleaned nothing (#148). Sourced by BOTH
+# provision-job.sh (directly) and reap.sh (via common.sh), so the resolution can
+# never re-diverge.
+#
+# Defaults to ${RUNNER_HOME}/work -- the SEC-3 rm chokepoint the history store
+# also lives under (#130) -- with RUNNER_WORK_ROOT overriding for tests/alternate
+# layouts. RUNNER_HOME, when unset, defaults to <repo_root>/runners EXACTLY as
+# common.sh resolves it: this file lives in lib/ beside common.sh, so the same
+# lib-relative `../runners` fallback yields the identical path whether reached via
+# common.sh (which sets RUNNER_HOME readonly) or via provision-job.sh's direct
+# source (which sets its own SCRIPT_DIR/../runners default -- the same dir).
+runner_work_root() {
+  local home="${RUNNER_HOME:-}"
+  if [[ -z "${home}" ]]; then
+    home="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/runners"
+  fi
+  printf '%s\n' "${RUNNER_WORK_ROOT:-${home%/}/work}"
+}
+
 # Emit the baseline hardening argv (#114) one token per array element, for the
 # caller to splice into `<cli> run`. cap-drop=ALL + optional minimal add-back,
 # no-new-privileges, and a pids-limit. Deliberately does NOT touch seccomp (the

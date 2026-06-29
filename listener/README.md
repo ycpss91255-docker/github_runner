@@ -109,7 +109,8 @@ docker run --rm -e GITHUB_CONFIG_URL -e GITHUB_TOKEN -e SCALE_SET_NAME \
 | `REAP_SCRIPT` | path to `reap.sh`, the orphan-sweep entrypoint (default sibling) |
 
 The bash seams read a few more knobs at provision/reap time:
-`RUNNER_WORK_ROOT` (parent of the per-job temp dir, default `/tmp`),
+`RUNNER_WORK_ROOT` (parent of the per-job temp dir, default `${RUNNER_HOME}/work`
+— #130; reap.sh prunes the **same** root, #148),
 `RUNNER_JOB_MAX_LIFETIME` (per-job watchdog ceiling in seconds, default 6h, 0
 disables, #107), and `RUNNER_MANAGED_BY` (the `managed-by` label value the
 reaper keys on, #104/#105).

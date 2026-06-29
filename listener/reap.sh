@@ -22,7 +22,14 @@ source "${SCRIPT_DIR}/../lib/runner-reaper.sh"
 # Sweep orphaned containers carrying our managed-by label, sparing tracked jobs.
 runner_reap_orphans "$@"
 
-# Prune leaked per-job temp dirs under the same work root provision-job.sh uses,
+# Prune leaked per-job temp dirs under the SAME work root provision-job.sh uses,
 # sparing tracked jobs. Scoped strictly to the work root (no path escape).
-work_root="${RUNNER_WORK_ROOT:-${TMPDIR:-/tmp}}"
+#
+# The root is resolved through runner_work_root (lib/runner-container.sh) -- the
+# single source of truth provision-job.sh also creates its per-job runner dirs
+# under -- so the two halves can never diverge. Resolving it independently here
+# (e.g. defaulting to /tmp) made this a silent no-op against the real residue
+# under RUNNER_HOME/work whenever RUNNER_WORK_ROOT was unset, the default config
+# (#148). RUNNER_HOME is already set (readonly) by common.sh, sourced above.
+work_root="$(runner_work_root)"
 runner_prune_temp_dirs "${work_root}" "$@"

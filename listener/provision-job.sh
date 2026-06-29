@@ -64,8 +64,13 @@ encoded=$(cat -- "${jit_file}")
 # (repo_root/runners) when unset, so the direct-source path (this script does
 # not source common.sh) still anchors under the same tree. RUNNER_WORK_ROOT
 # overrides it for tests / alternate layouts.
+#
+# runner_work_root (lib/runner-container.sh, sourced above) is the SINGLE source
+# of truth shared with reap.sh, so the reaper prunes EXACTLY this root and the two
+# halves can never diverge (#148). RUNNER_HOME is still materialised here for the
+# history store (lib/runner-history.sh) which also anchors under it.
 : "${RUNNER_HOME:=$(cd -- "${SCRIPT_DIR}/.." && pwd -P)/runners}"
-work_root="${RUNNER_WORK_ROOT:-${RUNNER_HOME%/}/work}"
+work_root="$(runner_work_root)"
 # Create the work root so mktemp -d can land the per-job dir under it on a fresh
 # host (RUNNER_HOME/work may not exist yet).
 mkdir -p "${work_root}"
