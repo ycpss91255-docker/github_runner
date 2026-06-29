@@ -174,7 +174,15 @@ runner_history_archive() {
   local job_id=$1 job_log=${2:-} runner_dir=${3:-} dest
   dest=$(runner_history_job_dir "${job_id}")
   mkdir -p "${dest}" || { echo "history: cannot create ${dest}" >&2; return 0; }
-  if [[ -n "${job_log}" && -f "${job_log}" ]]; then
+  # job_log is re-opened BY PATH here, so a SYMLINK at that path would be followed
+  # into the HOST namespace -- reading an arbitrary host file VERBATIM into the
+  # durable store (#145). Provisioning keeps job_log on a host-only sibling outside
+  # the job-writable /runner mount, but reject a symlinked source as belt-and-
+  # braces, consistent with the `find -P` skip-symlinks discipline used for _diag
+  # below. Never follow it: refuse and log, fail closed.
+  if [[ -n "${job_log}" && -L "${job_log}" ]]; then
+    echo "history: refusing to archive symlinked job_log for ${job_id}" >&2
+  elif [[ -n "${job_log}" && -f "${job_log}" ]]; then
     # job_log is the container's combined stdout/stderr (provision-job.sh), so it
     # is FULLY attacker-controlled job output -- a hostile step can print the JIT
     # credential (cat /proc/1/environ) or any harvested secret straight to stdout.

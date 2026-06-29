@@ -70,13 +70,27 @@ work_root="${RUNNER_WORK_ROOT:-${RUNNER_HOME%/}/work}"
 # host (RUNNER_HOME/work may not exist yet).
 mkdir -p "${work_root}"
 runner_dir="$(mktemp -d "${work_root%/}/jit-${job_id}.XXXXXX")"
-trap 'rm -rf "${runner_dir}"' EXIT
 
-# Capture the container's combined stdout/stderr to a per-job log under the
-# (throwaway) runner dir, so a copy survives for the history archive (#125). The
-# log file lives inside runner_dir so it is removed with it once the capture hook
-# has copied it into the durable history store.
-job_log="${runner_dir}/job.log"
+# Capture the container's combined stdout/stderr to a per-job log, copied into the
+# durable history archive (#125) before teardown.
+#
+# The log file MUST live OUTSIDE the bind-mounted runner dir (#145), mirroring the
+# JIT env-file fix (#140). `${runner_dir}` is mounted READ-WRITE at /runner and IS
+# the job's working directory, so a log file written under it (`${runner_dir}/
+# job.log`) is at /runner/job.log -- writable by the hostile job. The host opens
+# the log once for the run (`> "${job_log}"`, fd bound to the original inode) but
+# RE-OPENS it BY PATH afterwards (`cat`, and the history scrub), so a job step that
+# does `ln -sf /etc/shadow /runner/job.log` (the host fd keeps writing the now-
+# unlinked original inode, invisible mid-run) would make those by-path re-opens
+# follow the symlink in the HOST namespace -- exfiltrating an arbitrary host file
+# into provision-job's stdout (journald) and the durable, never-torn-down history
+# store. A SIBLING under the same throwaway work root is never reachable at
+# /runner, so the job can never tamper with the captured log's path.
+job_log="${runner_dir%/}.job.log"
+# Tear down BOTH the runner dir and the sibling log on exit (the sibling sits
+# beside -- not inside -- runner_dir, so `rm -rf "${runner_dir}"` alone would
+# leave it behind). No state from this job survives to poison the next.
+trap 'rm -rf "${runner_dir}" "${job_log}"' EXIT
 
 # Hand the single-use JIT config + image + job id to the Phase 3 seam; it runs
 # `<cli> run --rm ...` so the container is single-use and torn down on exit,

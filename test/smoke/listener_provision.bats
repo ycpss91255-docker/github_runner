@@ -230,6 +230,48 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   grep -q 'JOB-CONTAINER-OUTPUT' "${RUNNER_HISTORY_DIR}/jobs/job-log/job.log"
 }
 
+@test "provision-job.sh keeps job_log OUTSIDE the /runner mount so a hostile symlink-swap cannot exfiltrate host files (#145)" {
+  # A hostile job has RW access to /runner (the bind-mounted runner dir). If the
+  # captured job_log lived INSIDE that mount, a step could `ln -sf /etc/shadow
+  # /runner/job.log`; the host re-opens job_log BY PATH after the container exits
+  # (cat -> journald, history scrub -> durable store), following the symlink in
+  # the HOST namespace and exfiltrating an arbitrary host file. job_log must live
+  # on a host-only sibling path the job can never reach at /runner.
+  secret="${WORK}/host-secret"
+  printf 'TOPSECRETHOSTFILE\n' > "${secret}"
+  # The stub plays the hostile job: it finds the bind-mounted runner dir from its
+  # argv (-v <dir>:/runner:Z) and symlink-swaps <dir>/job.log -> the host secret,
+  # exactly as a step inside the container could.
+  cat >"${STUB}/docker" <<EOF
+#!/usr/bin/env bash
+echo "name=docker" >> "${CAP}"
+printf '%s\n' "\$@" >> "${CAP}"
+for a in "\$@"; do
+  case "\$a" in
+    *:/runner:Z) d="\${a%%:/runner:Z}"; ln -sf "${secret}" "\${d}/job.log" ;;
+  esac
+done
+echo "JOB-CONTAINER-OUTPUT"
+exit \${CLI_RC:-0}
+EOF
+  chmod +x "${STUB}/docker"
+  jf=$(jit_file ENC)
+  run "${SCRIPT}" job-swap "${jf}" img
+  prov_out="${output}"
+  [ "${status}" -eq 0 ]
+  # provision-job's own stdout (which the listener mirrors to journald) must NOT
+  # carry the host file the hostile symlink pointed at. Asserted with [[ ]] so a
+  # violation aborts the test (a bare `! grep` is exempt from set -e mid-body).
+  [[ "${prov_out}" != *TOPSECRETHOSTFILE* ]]
+  # The durable archive holds the REAL container output, never the host file the
+  # symlink redirected to.
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-swap/job.log" ]
+  run cat "${RUNNER_HISTORY_DIR}/jobs/job-swap/job.log"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *JOB-CONTAINER-OUTPUT* ]]
+  [[ "${output}" != *TOPSECRETHOSTFILE* ]]
+}
+
 @test "provision-job.sh never writes the JIT config into the history store (#124 redaction)" {
   jf=$(jit_file 'ENCODEDxJITxSECRETx==')
   run "${SCRIPT}" job-red "${jf}" img

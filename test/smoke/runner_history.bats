@@ -151,6 +151,24 @@ LEAK
   ! grep -q 'hunter2value'                 "${archived}"
 }
 
+# --- #145 job_log is re-opened by path: never follow a symlink into the host ---
+
+@test "runner_history_archive refuses a symlinked job_log (no symlink-follow into the host, #145)" {
+  # job_log is re-opened BY PATH on archive. A hostile job has RW access to the
+  # bind-mounted /runner tree, so if job_log lived there it could `ln -sf
+  # /etc/shadow <job_log>` and have the archive dereference the symlink in the
+  # HOST namespace, reading an arbitrary host file VERBATIM into the durable,
+  # never-torn-down store. The archive must NOT follow a symlinked job_log -- the
+  # belt-and-braces guard mirroring the `find -P` discipline used for _diag.
+  printf 'TOPSECRETHOSTFILE\n' > "${STORE}/host-secret"
+  ln -s "${STORE}/host-secret" "${STORE}/job.log"
+
+  runner_history_archive job-symlink "${STORE}/job.log" ""
+
+  # The host file's contents must never be read+written into the durable store.
+  ! grep -rq 'TOPSECRETHOSTFILE' "${RUNNER_HISTORY_DIR}"
+}
+
 # --- #143 bare-value JIT credential leak: redact known secret VALUES too ---
 
 @test "runner_history_scrub_secrets redacts a known secret VALUE with no KEY= prefix (#143)" {
