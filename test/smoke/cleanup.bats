@@ -281,6 +281,43 @@ EOF
   [[ "${output}" =~ ^[0-9]+$ ]]
 }
 
+@test "cleanup.sh does not rm through an interior _work symlink under the ephemeral work/ tree (#144 rm-safety)" {
+  # Hostile-job vector: the per-job container bind-mounts RUNNER_HOME/work/jit-*
+  # RW, so a job plants a fake .runner marker there and replaces _work with a
+  # symlink that escapes RUNNER_HOME. The scheduled `cleanup.sh --yes` must NOT
+  # follow that interior symlink and delete a victim outside RUNNER_HOME.
+  local victim; victim=$(mktemp -d)
+  mkdir -p "${victim}/_update"
+  touch "${victim}/_update.sh"
+
+  local jit="${FAKE_RH}/work/jit-evil.AbCdef"
+  mkdir -p "${jit}"
+  touch "${jit}/.runner"
+  ln -s "${victim}" "${jit}/_work"
+
+  run "${SCRIPT}" --yes
+  # The victim outside RUNNER_HOME must survive untouched.
+  [ -d "${victim}/_update" ]
+  [ -f "${victim}/_update.sh" ]
+  rm -rf "${victim}"
+}
+
+@test "cleanup.sh refuses an interior _work symlink on an enumerated runner (#144 rm-safety)" {
+  # Even a normally-enumerated runner dir (not under work/) whose _work was
+  # turned into a host-absolute symlink must not steer rm outside RUNNER_HOME:
+  # the rm site canonicalizes + anchors under RUNNER_HOME before deleting.
+  local victim; victim=$(mktemp -d)
+  mkdir -p "${victim}/_update"
+  local d="${FAKE_RH}/myorg/_org"
+  mkdir -p "${d}"
+  touch "${d}/.runner"
+  ln -s "${victim}" "${d}/_work"
+
+  run "${SCRIPT}" --yes
+  [ -d "${victim}/_update" ]
+  rm -rf "${victim}"
+}
+
 @test "cleanup.sh --yes a second time finds nothing to clean (idempotent)" {
   fake_runner myorg 2.334.0
   mkdir -p "${FAKE_RH}/myorg/_org/bin.2.319.1"
