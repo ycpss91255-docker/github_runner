@@ -76,26 +76,14 @@ work_root="$(runner_work_root)"
 mkdir -p "${work_root}"
 runner_dir="$(mktemp -d "${work_root%/}/jit-${job_id}.XXXXXX")"
 
-# Capture the container's combined stdout/stderr to a per-job log, copied into the
-# durable history archive (#125) before teardown.
-#
-# The log file MUST live OUTSIDE the bind-mounted runner dir (#145), mirroring the
-# JIT env-file fix (#140). `${runner_dir}` is mounted READ-WRITE at /runner and IS
-# the job's working directory, so a log file written under it (`${runner_dir}/
-# job.log`) is at /runner/job.log -- writable by the hostile job. The host opens
-# the log once for the run (`> "${job_log}"`, fd bound to the original inode) but
-# RE-OPENS it BY PATH afterwards (`cat`, and the history scrub), so a job step that
-# does `ln -sf /etc/shadow /runner/job.log` (the host fd keeps writing the now-
-# unlinked original inode, invisible mid-run) would make those by-path re-opens
-# follow the symlink in the HOST namespace -- exfiltrating an arbitrary host file
-# into provision-job's stdout (journald) and the durable, never-torn-down history
-# store. A SIBLING under the same throwaway work root is never reachable at
-# /runner, so the job can never tamper with the captured log's path.
-job_log="${runner_dir%/}.job.log"
-# Tear down BOTH the runner dir and the sibling log on exit (the sibling sits
-# beside -- not inside -- runner_dir, so `rm -rf "${runner_dir}"` alone would
-# leave it behind). No state from this job survives to poison the next.
-trap 'rm -rf "${runner_dir}" "${job_log}"' EXIT
+# No state from this job survives to poison the next: the per-job runner dir is
+# removed on exit. There is NO separate captured job log -- the container's
+# combined stdout/stderr is FULLY attacker-controlled job-console output whose
+# authoritative copy already lives in GitHub's job log, so we never durably
+# capture that stream on the host (ADR-0002 / #154). This also dissolves the
+# symlink-swap surface (#145): provision-job never re-opens any path the job
+# could influence.
+trap 'rm -rf "${runner_dir}"' EXIT
 
 # Hand the single-use JIT config + image + job id to the Phase 3 seam; it runs
 # `<cli> run --rm ...` so the container is single-use and torn down on exit,
@@ -109,48 +97,28 @@ trap 'rm -rf "${runner_dir}" "${job_log}"' EXIT
 # failure -- AFTER the job exits but BEFORE the EXIT trap removes the container's
 # runner dir. `|| status=$?` keeps `set -e` from aborting before capture.
 #
-# Output goes to job_log via a plain redirect (NOT process substitution), so the
-# file is guaranteed fully written -- and synchronously complete -- by the time
-# the capture hook archives it; a backgrounded `tee` could still be draining. We
-# then echo the log to our own stdout so the listener still sees the job output.
+# The container's combined stdout/stderr is sent to /dev/null, NOT forwarded to
+# provision-job's own stdout. That stdout is the listener's durable journald sink
+# (the Go provisioner sets cmd.Stdout = os.Stdout and the listener runs as a
+# systemd unit), so forwarding the raw, attacker-controlled stream there is what
+# let a hostile `echo "$JITCONFIG"` survive in journald (#151). Not forwarding it
+# at all is the root-cause fix (#154): the job console lives in GitHub; the
+# listener still gets the job's outcome via the exit status below and its own
+# structured per-job record (#131). provision-job's OWN diagnostics (FAIL lines)
+# remain on its stderr, unaffected by this redirect of the container run.
 status=0
 runner_container_run_bounded "${runner_dir}" "${encoded}" "${image}" "${job_id}" \
-  > "${job_log}" 2>&1 || status=$?
+  >/dev/null 2>&1 || status=$?
 
-# Defence-in-depth value redaction (#143/#151): a hostile step can print the
-# single-use JIT credential as a BARE value with no KEY= prefix (`printenv
-# JITCONFIG` / `echo "$JITCONFIG"`), which the key-anchored history scrubber
-# (#140/#141) cannot match. Hand the LIVE credential value to the scrubber so it
-# is redacted LITERALLY wherever it appears in the captured job.log / _diag,
-# before either reaches the durable, never-torn-down history store (or the
-# external push seam).
-#
-# Armed HERE -- BEFORE the log is echoed below (#151) -- because provision-job's
-# OWN stdout is a durable sink too: the Go provisioner sets cmd.Stdout =
-# os.Stdout (provisioner.go) and the listener runs as a systemd unit whose
-# stdout/stderr journald captures durably and never tears down (the same sink
-# the symlink guard above (#145) already protects). Echoing the RAW log first
-# (the old line ordering) leaked the credential verbatim into journald while the
-# sibling history-store copy was redacted -- a journald-vs-history scrub gap.
-export RUNNER_HISTORY_SCRUB_VALUES="${encoded}"
-
-# Echo the captured log to our own stdout so the listener still sees the job
-# output -- but through the SAME secret scrubber the durable history archive
-# uses (runner-history.sh), so the journald sink is treated identically to the
-# history store (#151). The key-anchored rule + the live-value redaction above
-# strip the JIT credential and known secret shapes before they reach journald.
-# Fail-open to a plain cat only if the scrubber itself errors, so a scrub bug
-# never silently swallows the job's console output.
-runner_history_scrub_secrets < "${job_log}" 2>/dev/null || cat -- "${job_log}" || true
-
-# Capture-before-teardown hook (ADR-0002, #123): write the ledger record (#124,
-# secrets redacted), archive the container log + runner _diag (#125), and run the
+# Capture-before-teardown hook (ADR-0002, #123/#154): write ONLY the trusted
+# ledger record (#124, secrets redacted; mirrored per-job) and run the
 # external-push seam (#128) -- BEST-EFFORT, so a capture failure is logged and
-# never blocks the teardown below. The per-type forensic context the listener
-# knows (image digest, host, runner type, devices, trigger, scale set/labels)
-# arrives as EXPLICIT environment (ADR-0003), forwarded as ledger fields; unset
-# ones are simply absent.
-runner_history_capture "${job_id}" "${status}" "${job_log}" "${runner_dir}" \
+# never blocks the teardown below. No attacker-controlled job stdout/_diag is
+# durably persisted. The per-type forensic context the listener knows (image
+# digest, host, runner type, devices, trigger, scale set/labels) arrives as
+# EXPLICIT environment (ADR-0003), forwarded as trusted ledger fields; unset ones
+# are simply absent.
+runner_history_capture "${job_id}" "${status}" \
   "image=${image}" \
   "image_digest=${RUNNER_IMAGE_DIGEST:-}" \
   "host=$(hostname 2>/dev/null || echo unknown)" \

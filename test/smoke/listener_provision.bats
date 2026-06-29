@@ -221,27 +221,27 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   grep -q 'exit_status=7' "${RUNNER_HISTORY_LEDGER}"
 }
 
-@test "provision-job.sh archives the container log + survives into the store (#125)" {
+@test "provision-job.sh does NOT durably persist the container's raw stdout/stderr (#154)" {
   jf=$(jit_file ENC)
   run "${SCRIPT}" job-log "${jf}" img
   [ "${status}" -eq 0 ]
-  # The container's stdout was teed into the durable per-job archive, keyed by id.
-  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-log/job.log" ]
-  grep -q 'JOB-CONTAINER-OUTPUT' "${RUNNER_HISTORY_DIR}/jobs/job-log/job.log"
+  # The container's combined stdout/stderr is FULLY attacker-controlled and its
+  # authoritative copy already lives in GitHub's job console log. The durable
+  # store must NOT keep a raw copy -- that whole stream is the root of the
+  # #140-#153 scrub cascade. Only the trusted per-job metadata record is kept.
+  [ -z "$(find "${RUNNER_HISTORY_DIR}" -name job.log)" ]
+  ! grep -rq 'JOB-CONTAINER-OUTPUT' "${RUNNER_HISTORY_DIR}"
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-log/record.tsv" ]
 }
 
-@test "provision-job.sh keeps job_log OUTSIDE the /runner mount so a hostile symlink-swap cannot exfiltrate host files (#145)" {
-  # A hostile job has RW access to /runner (the bind-mounted runner dir). If the
-  # captured job_log lived INSIDE that mount, a step could `ln -sf /etc/shadow
-  # /runner/job.log`; the host re-opens job_log BY PATH after the container exits
-  # (cat -> journald, history scrub -> durable store), following the symlink in
-  # the HOST namespace and exfiltrating an arbitrary host file. job_log must live
-  # on a host-only sibling path the job can never reach at /runner.
+@test "provision-job.sh never re-opens a job-controlled path, so a /runner symlink-swap cannot exfiltrate host files (#145/#154)" {
+  # A hostile job has RW access to /runner (the bind-mounted runner dir) and can
+  # `ln -sf /etc/shadow /runner/job.log`. The OLD design re-opened a captured log
+  # BY PATH after the container exited, dereferencing such a symlink in the HOST
+  # namespace. The root-cause fix captures NO job log at all -- provision-job
+  # never re-opens any path the job could influence -- so the swap is inert.
   secret="${WORK}/host-secret"
   printf 'TOPSECRETHOSTFILE\n' > "${secret}"
-  # The stub plays the hostile job: it finds the bind-mounted runner dir from its
-  # argv (-v <dir>:/runner:Z) and symlink-swaps <dir>/job.log -> the host secret,
-  # exactly as a step inside the container could.
   cat >"${STUB}/docker" <<EOF
 #!/usr/bin/env bash
 echo "name=docker" >> "${CAP}"
@@ -259,27 +259,21 @@ EOF
   run "${SCRIPT}" job-swap "${jf}" img
   prov_out="${output}"
   [ "${status}" -eq 0 ]
-  # provision-job's own stdout (which the listener mirrors to journald) must NOT
-  # carry the host file the hostile symlink pointed at. Asserted with [[ ]] so a
-  # violation aborts the test (a bare `! grep` is exempt from set -e mid-body).
+  # The host file the symlink pointed at reaches neither provision-job's stdout
+  # (the listener's journald sink) nor the durable store.
   [[ "${prov_out}" != *TOPSECRETHOSTFILE* ]]
-  # The durable archive holds the REAL container output, never the host file the
-  # symlink redirected to.
-  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-swap/job.log" ]
-  run cat "${RUNNER_HISTORY_DIR}/jobs/job-swap/job.log"
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *JOB-CONTAINER-OUTPUT* ]]
-  [[ "${output}" != *TOPSECRETHOSTFILE* ]]
+  ! grep -rq 'TOPSECRETHOSTFILE' "${RUNNER_HISTORY_DIR}"
+  [ -z "$(find "${RUNNER_HISTORY_DIR}" -name job.log)" ]
 }
 
-@test "provision-job.sh scrubs the JIT credential from its own stdout/journald, at parity with the history store (#151)" {
+@test "provision-job.sh does not forward the raw container stream (incl. a printed JIT credential) to its journald stdout (#151/#154)" {
   # A hostile job step prints the single-use JIT credential to stdout (`echo
-  # "$JITCONFIG"`). provision-job cats the captured container log to its OWN
-  # stdout, which the Go provisioner mirrors to the listener's systemd journal
-  # -- a durable, never-torn-down host sink. That stdout MUST be scrubbed with
-  # the same value-redaction the durable history-store copy gets, so the
-  # credential never survives verbatim in journald while the sibling archive is
-  # redacted (#141/#143). Regression for the journald-vs-history scrub gap.
+  # "$JITCONFIG"`). The OLD design cat'd the captured container log to
+  # provision-job's OWN stdout, which the Go provisioner mirrors to the
+  # listener's systemd journal (a durable, never-torn-down host sink), and tried
+  # to SCRUB it on the way (#151) -- a bypass-prone arms race. The root-cause fix
+  # does not forward the attacker-controlled stream to that durable sink at all,
+  # so there is nothing to scrub and nothing to leak.
   secret='ENCODEDxJITxCREDENTIALxSURVIVESxJOURNALD=='
   cat >"${STUB}/docker" <<EOF
 #!/usr/bin/env bash
@@ -287,24 +281,21 @@ echo "name=docker" >> "${CAP}"
 printf '%s\n' "\$@" >> "${CAP}"
 # Hostile step prints the single-use JIT credential straight to stdout.
 echo "${secret}"
+echo "JOB-CONTAINER-OUTPUT"
 exit \${CLI_RC:-0}
 EOF
   chmod +x "${STUB}/docker"
   jf=$(jit_file "${secret}")
   run "${SCRIPT}" job-jitcred "${jf}" img
   [ "${status}" -eq 0 ]
-  # provision-job's own stdout (journald) must NOT carry the raw credential.
-  # Asserted with [[ ]] so a violation aborts (a bare `! grep` is exempt from
-  # set -e mid-body).
+  # Neither the credential nor the benign container line reaches provision-job's
+  # own stdout (journald). Asserted with [[ ]] so a violation aborts (a bare
+  # `! grep` is exempt from set -e mid-body).
   [[ "${output}" != *"${secret}"* ]]
-  # The redaction marker proves the line was passed through the scrubber, not
-  # merely dropped.
-  [[ "${output}" == *REDACTED* ]]
-  # Parity: the durable history-store copy is redacted too.
-  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-jitcred/job.log" ]
-  run cat "${RUNNER_HISTORY_DIR}/jobs/job-jitcred/job.log"
-  [ "${status}" -eq 0 ]
-  [[ "${output}" != *"${secret}"* ]]
+  [[ "${output}" != *JOB-CONTAINER-OUTPUT* ]]
+  # And nothing of it is durably persisted in the history store either.
+  ! grep -rq "${secret}" "${RUNNER_HISTORY_DIR}"
+  [ -z "$(find "${RUNNER_HISTORY_DIR}" -name job.log)" ]
 }
 
 @test "provision-job.sh never writes the JIT config into the history store (#124 redaction)" {
