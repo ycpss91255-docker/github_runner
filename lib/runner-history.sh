@@ -138,7 +138,11 @@ runner_history_scrub_secrets() {
 # Archive a job's container stdout/stderr and runner _diag logs into its per-job
 # history dir, keyed by job id (#125), BEFORE the container/temp dir is removed.
 #   runner_history_archive <job_id> <job_log> <runner_dir>
-# <job_log>    a file holding the captured container stdout+stderr (may be absent)
+# <job_log>    a file holding the captured container stdout+stderr (may be absent).
+#              This is FULLY attacker-controlled job console output, so it is
+#              copied through the same secret scrubber (#140/#141) as _diag,
+#              never `cp` verbatim -- a JIT credential / secret a hostile step
+#              printed to stdout is redacted before it reaches the durable store.
 # <runner_dir> the per-job runner dir mounted into the container; its _diag/
 #              subtree (if any) is archived -- but as UNTRUSTED job output: it is
 #              copied through a secret scrubber (#140), never `cp -a` verbatim,
@@ -151,7 +155,12 @@ runner_history_archive() {
   dest=$(runner_history_job_dir "${job_id}")
   mkdir -p "${dest}" || { echo "history: cannot create ${dest}" >&2; return 0; }
   if [[ -n "${job_log}" && -f "${job_log}" ]]; then
-    cp -f -- "${job_log}" "${dest}/job.log" 2>/dev/null \
+    # job_log is the container's combined stdout/stderr (provision-job.sh), so it
+    # is FULLY attacker-controlled job output -- a hostile step can print the JIT
+    # credential (cat /proc/1/environ) or any harvested secret straight to stdout.
+    # Scrub on the way into the durable store, identical to the _diag path (#140),
+    # so a JITCONFIG/token/secret line never survives teardown here either (#141).
+    runner_history_scrub_secrets <"${job_log}" >"${dest}/job.log" 2>/dev/null \
       || echo "history: failed to archive job log for ${job_id}" >&2
   fi
   if [[ -n "${runner_dir}" && -d "${runner_dir}/_diag" ]]; then

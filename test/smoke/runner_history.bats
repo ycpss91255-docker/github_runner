@@ -120,6 +120,37 @@ LEAK
   ! grep -q 'hunter2value'                 "${archived}"
 }
 
+# --- #141 job_log is attacker-controlled console output: scrub on archive ---
+
+@test "runner_history_archive scrubs secret content a hostile job printed to job_log (#141)" {
+  # The container's combined stdout/stderr is captured into job_log
+  # (provision-job.sh: runner_container_run_bounded ... > job_log 2>&1), so its
+  # contents are FULLY attacker-controlled. A hostile job step can dump the JIT
+  # credential from its own container env (e.g. `cat /proc/1/environ` / `env`,
+  # printing JITCONFIG=<encoded single-use credential>) -- or any harvested
+  # secret -- straight to stdout. The archive must treat job_log as untrusted and
+  # scrub secret patterns, exactly like the #140 _diag path, so a credential
+  # printed to job stdout never reaches the durable, never-torn-down history
+  # store (or the external push hook).
+  cat > "${STORE}/captured.log" <<'LEAK'
+JITCONFIG=ENCODEDxJITxSECRETxPLANTED==
+github_token=ghp_supersecretvalue
+runner_secret: hunter2value
+benign console output line
+LEAK
+
+  runner_history_archive job-stdout-leak "${STORE}/captured.log" ""
+
+  archived="${RUNNER_HISTORY_DIR}/jobs/job-stdout-leak/job.log"
+  [ -f "${archived}" ]
+  # The benign console line survives (we keep real forensics).
+  grep -q 'benign console output line' "${archived}"
+  # But none of the printed secret VALUES may land in the durable store.
+  ! grep -q 'ENCODEDxJITxSECRETxPLANTED==' "${archived}"
+  ! grep -q 'ghp_supersecretvalue'         "${archived}"
+  ! grep -q 'hunter2value'                 "${archived}"
+}
+
 # --- #139 path-reserved job id must not escape the jobs/ subtree ----------
 
 @test "runner_history_safe_id never yields a path-reserved token (#139)" {
