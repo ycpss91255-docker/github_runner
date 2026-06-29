@@ -20,6 +20,17 @@
 # is an orphan (the startup sweep, when nothing is in-flight yet). Scoped to our
 # label so foreign containers are never touched. A failed remove of one
 # container does not stop the sweep. Returns 0.
+#
+# SECURITY (#137): the removal target is the engine-assigned container ID, which
+# is newline-free hex, NEVER a name or label value. The job-id label is
+# attacker-influenced free-form (the scale-set JobID flows into it unsanitized),
+# so it may carry a newline or spaces. If we listed "<name> <label>" rows and
+# parsed them, a newline in the label would split one container into TWO rows --
+# the second naming an arbitrary victim we would then rm -f, bypassing the
+# managed-by/prefix scoping. Instead we list ONLY the container ID (one per row,
+# injection-proof) and read the job-id back via a SEPARATE `inspect` keyed on
+# that ID, so a hostile label value can never be parsed as a removal target. As
+# belt-and-braces we also re-verify managed-by by ID before removing.
 runner_reap_orphans() {
   local -a tracked=("$@")
   local cli
@@ -28,21 +39,32 @@ runner_reap_orphans() {
     return 0
   }
 
-  # List our containers as "<name> <job-id>" rows. --filter scopes to our label
-  # so we only ever see (and remove) containers this tool provisioned.
-  local name job_id
-  while read -r name job_id; do
-    [[ -n "${name}" ]] || continue
+  # List our containers as bare IDs (newline-free hex), one per line. --filter
+  # scopes to our label so we only ever see containers this tool provisioned;
+  # the ID is the unambiguous removal handle (a label value never is).
+  local id job_id managed_by
+  while read -r id; do
+    [[ -n "${id}" ]] || continue
+    # Read the (possibly hostile) job-id label back by ID, never from the list.
+    job_id=$("${cli}" inspect --format '{{ index .Config.Labels "job-id" }}' "${id}" 2>/dev/null)
     if _runner_reaper_is_tracked "${job_id}" "${tracked[@]}"; then
       continue
     fi
-    echo "reaper: removing orphan container ${name} (job-id=${job_id:-?})" >&2
-    "${cli}" rm -f "${name}" >/dev/null 2>&1 || \
-      echo "reaper: failed to remove ${name}" >&2
+    # Defence in depth: confirm this ID really carries OUR managed-by label
+    # before removing, so even a stale/forged listing can never reap a foreign
+    # container. The --filter already scoped the list; this re-checks the sink.
+    managed_by=$("${cli}" inspect --format '{{ index .Config.Labels "managed-by" }}' "${id}" 2>/dev/null)
+    if [[ "${managed_by}" != "${RUNNER_MANAGED_BY}" ]]; then
+      echo "reaper: skipping ${id}: not managed by us (managed-by=${managed_by:-?})" >&2
+      continue
+    fi
+    echo "reaper: removing orphan container ${id} (job-id=${job_id:-?})" >&2
+    "${cli}" rm -f "${id}" >/dev/null 2>&1 || \
+      echo "reaper: failed to remove ${id}" >&2
   done < <(
     "${cli}" ps --all \
       --filter "label=managed-by=${RUNNER_MANAGED_BY}" \
-      --format '{{.Names}} {{.Label "job-id"}}' 2>/dev/null
+      --format '{{.ID}}' 2>/dev/null
   )
   return 0
 }

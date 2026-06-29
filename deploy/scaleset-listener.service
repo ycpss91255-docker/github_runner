@@ -52,10 +52,16 @@ ProtectControlGroups=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RestrictSUIDSGID=true
-# The per-job temp dirs land under RUNNER_WORK_ROOT (default /tmp); PrivateTmp
-# already isolates /tmp. If RUNNER_WORK_ROOT is set elsewhere, add it to
-# ReadWritePaths so the provisioner/reaper can create+prune there.
-# ReadWritePaths=/var/lib/github-runner-listener
+# The per-job temp dirs land under RUNNER_WORK_ROOT, which DEFAULTS to
+# ${RUNNER_HOME}/work (#130/#148) -- i.e. <repo_root>/runners/work, here
+# /opt/github-runner-listener/runners/work -- NOT /tmp. Both provision-job.sh
+# (which creates the per-job runner dir there) and reap.sh (which prunes leaked
+# dirs from it) resolve this SAME root via runner_work_root, so they never
+# diverge. ProtectSystem=strict makes that path READ-ONLY by default, so the
+# provisioner/reaper cannot create+prune there unless it is granted below. Add
+# the resolved work root (or RUNNER_HOME, or RUNNER_WORK_ROOT if you point it
+# elsewhere) to ReadWritePaths.
+# ReadWritePaths=/opt/github-runner-listener/runners/work
 
 [Install]
 WantedBy=multi-user.target

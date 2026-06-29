@@ -11,11 +11,20 @@
 # sourced by the per-job provisioner (listener/provision-job.sh) for the
 # capture-before-teardown hook, and by script/history.sh for query + retention.
 #
+# ROOT-CAUSE HARDENING (#154, supersedes the #140-#153 scrub cascade): the
+# durable store keeps ONLY TRUSTED METADATA. It NEVER ingests attacker-
+# controlled raw job output -- not the container's stdout/stderr, not the
+# job-writable _diag subtree (content OR file/dir names). An attacker-controlled
+# stream cannot be safely "scrubbed then trusted" (every scrub got bypassed by a
+# new encoding: cross-line, sub-16-char, path-component, symlink swap), so it is
+# simply not durably persisted. Its authoritative copy already lives in GitHub's
+# job console log (~90 days). The fragile content/name scrubbers are GONE.
+#
 #   Ledger  (append-only, one line per job; NEVER any secret/JIT config) -- #124
-#   Archive (container stdout/stderr + runner _diag, keyed by job id)     -- #125
+#   Per-job record (trusted, redacted ledger line mirrored per job id)   -- #154
 #   Capture hook (runs after the job exits, before --rm / temp-dir rm)    -- #123
 #   Retention (bounded by BOTH size GB + age days, oldest-first)          -- #127
-#   External-push seam (pluggable, no-op default, config-driven)          -- #128
+#   External-push seam (ships ONLY the trusted record, config-driven)     -- #128
 # shellcheck shell=bash
 
 # The history store root. Lives under RUNNER_HOME so it ports with the runner
@@ -48,16 +57,28 @@
 # hardcoded.
 : "${RUNNER_HISTORY_PUSH_HOOK:=}"
 
-# Sanitise a job id to the filesystem-safe [a-zA-Z0-9_.-] set (anything else
-# becomes '-'), matching runner_container_name's rule so the history dir and the
-# container name correlate by the same key.
+# Sanitise a job id into a filesystem-safe DIRECTORY key. Unlike a container
+# NAME (runner_container_name), a directory key must never be a path-reserved
+# token: '.', '..', or empty would let the per-job archive escape jobs/<id>/
+# (e.g. job_id='..' resolves jobs/.. back to the store root -- #139). So '.' is
+# DROPPED from the allowlist (no dot-only token can form, neutralising any
+# future multi-segment dot trick) and any residual empty result is mapped to a
+# safe sentinel.
 runner_history_safe_id() {
-  printf '%s' "$1" | tr -c 'a-zA-Z0-9_.-' '-'
+  local safe
+  safe=$(printf '%s' "$1" | tr -c 'a-zA-Z0-9_-' '-')
+  # Belt-and-braces: a bare '.'/'..' can no longer form once '.' is dropped, but
+  # an empty input still yields empty -- map it (and any reserved token) to a
+  # sentinel so the dir is always a real child of jobs/.
+  case "${safe}" in
+    ''|.|..) safe=_invalid ;;
+  esac
+  printf '%s' "${safe}"
 }
 
-# The per-job archive dir, keyed by the sanitised job id (#125). Created lazily
-# by the archive/capture functions; never removed by teardown (that is the whole
-# point -- it outlives the container).
+# The per-job dir, keyed by the sanitised job id. Holds the trusted, redacted
+# per-job record (#154); created lazily by runner_history_record and never
+# removed by teardown (that is the whole point -- it outlives the container).
 runner_history_job_dir() {
   printf '%s/jobs/%s' "${RUNNER_HISTORY_DIR}" "$(runner_history_safe_id "$1")"
 }
@@ -71,9 +92,21 @@ runner_history_job_dir() {
 # name (jit / token / secret / credential / password) is DROPPED rather than
 # written, so a careless caller cannot leak a credential into the audit trail.
 #   runner_history_record <job_id> KEY=VALUE [KEY=VALUE ...]
+# Create the history store root with 0700 perms (defence in depth). The store
+# holds only trusted, redacted metadata, but it must still not be world-listable
+# -- a local unprivileged user must not traverse jobs/ and read per-job records.
+# Restricting the root to 0700 denies traversal into the whole subtree (a child
+# needs +x on every ancestor), so this single chmod hardens the entire store.
+# Best-effort: a chmod failure is swallowed so it can never block capture/teardown.
+runner_history_mkstore() {
+  mkdir -p "${RUNNER_HISTORY_DIR}" || return 1
+  chmod 0700 "${RUNNER_HISTORY_DIR}" 2>/dev/null || true
+  return 0
+}
+
 runner_history_record() {
   local job_id=$1; shift
-  mkdir -p "${RUNNER_HISTORY_DIR}"
+  runner_history_mkstore || mkdir -p "${RUNNER_HISTORY_DIR}"
   local ts line kv k v
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   # The leading, fixed columns: a write timestamp + the job id, so every line is
@@ -95,6 +128,17 @@ runner_history_record() {
   done
   printf '%s\n' "${line}" >> "${RUNNER_HISTORY_LEDGER}"
   runner_history_journal "${line}"
+  # Mirror this TRUSTED, redacted record into the per-job dir (#154). It is the
+  # ONLY per-job artifact the durable store keeps -- the metadata the push seam
+  # (#128) ships and retention (#127) prunes -- and it is exactly the redacted
+  # ledger line (no secret, no raw job output ever reaches it). Keyed by the
+  # sanitised job id so it stays strictly under jobs/<id>/ (#139). Best-effort:
+  # a failure here must never break the ledger write or block teardown.
+  local dest
+  dest=$(runner_history_job_dir "${job_id}")
+  if mkdir -p "${dest}" 2>/dev/null; then
+    printf '%s\n' "${line}" > "${dest}/record.tsv" 2>/dev/null || true
+  fi
 }
 
 # Mirror one ledger line to journald (#124), best-effort. Uses systemd-cat when
@@ -105,35 +149,15 @@ runner_history_journal() {
   printf '%s\n' "$1" | systemd-cat -t "${RUNNER_HISTORY_JOURNAL_TAG}" 2>/dev/null || true
 }
 
-# Archive a job's container stdout/stderr and runner _diag logs into its per-job
-# history dir, keyed by job id (#125), BEFORE the container/temp dir is removed.
-#   runner_history_archive <job_id> <job_log> <runner_dir>
-# <job_log>    a file holding the captured container stdout+stderr (may be absent)
-# <runner_dir> the per-job runner dir mounted into the container; its _diag/
-#              subtree (if any) is copied verbatim.
-# Best-effort: a missing source is skipped, an individual copy failure is logged
-# and swallowed, so archiving never blocks teardown.
-runner_history_archive() {
-  local job_id=$1 job_log=${2:-} runner_dir=${3:-} dest
-  dest=$(runner_history_job_dir "${job_id}")
-  mkdir -p "${dest}" || { echo "history: cannot create ${dest}" >&2; return 0; }
-  if [[ -n "${job_log}" && -f "${job_log}" ]]; then
-    cp -f -- "${job_log}" "${dest}/job.log" 2>/dev/null \
-      || echo "history: failed to archive job log for ${job_id}" >&2
-  fi
-  if [[ -n "${runner_dir}" && -d "${runner_dir}/_diag" ]]; then
-    cp -a -- "${runner_dir}/_diag" "${dest}/_diag" 2>/dev/null \
-      || echo "history: failed to archive _diag for ${job_id}" >&2
-  fi
-  return 0
-}
 
 # The external-push seam (#128): invoke the configured push hook (if any) for a
-# captured job, handing it the job id and its archive dir. The DEFAULT is a pure
+# captured job, handing it the job id and its per-job dir. The DEFAULT is a pure
 # NO-OP (RUNNER_HISTORY_PUSH_HOOK empty) -- local store only. Enabling it is
 # config-driven: set RUNNER_HISTORY_PUSH_HOOK to the name of a function that
-# ships the record/archive elsewhere. Best-effort: a hook failure is logged and
-# swallowed so a flaky external store never blocks capture/teardown.
+# ships the record elsewhere. The dir holds ONLY the trusted, redacted per-job
+# record (#154) -- never raw job output -- so the hook can never exfiltrate
+# anything the job wrote. Best-effort: a hook failure is logged and swallowed so
+# a flaky external store never blocks capture/teardown.
 #   runner_history_push <job_id>
 runner_history_push() {
   local job_id=$1 dest
@@ -231,21 +255,22 @@ runner_history_prune() {
 
 # The capture-before-teardown HOOK (#123): the single lifecycle step the
 # provisioner calls AFTER a job exits but BEFORE the container/temp dir is
-# removed, on EVERY job (success and failure). It writes the ledger record (#124,
-# secrets redacted), archives the logs (#125), and runs the external-push seam
-# (#128) -- in that order. The whole thing is BEST-EFFORT: it is wrapped so a
-# capture failure is logged and never propagates, so it can NEVER block teardown
-# (a failed capture must not strand a container or leave a temp dir).
-#   runner_history_capture <job_id> <exit_status> <job_log> <runner_dir> \
-#                          [KEY=VALUE ...]
-# The trailing KEY=VALUE pairs are extra ledger fields (image, digest, host,
-# runner type, devices, trigger, ...). exit_status is recorded as a field too.
+# removed, on EVERY job (success and failure). It writes the trusted ledger
+# record (#124, secrets redacted; mirrored per-job, #154) and runs the
+# external-push seam (#128) -- in that order. It NO LONGER takes (or archives) a
+# job log or a runner dir: the container's raw stdout/stderr and the job-writable
+# _diag are attacker-controlled streams the durable store never ingests (#154).
+# The whole thing is BEST-EFFORT: it is wrapped so a capture failure is logged
+# and never propagates, so it can NEVER block teardown (a failed capture must not
+# strand a container or leave a temp dir).
+#   runner_history_capture <job_id> <exit_status> [KEY=VALUE ...]
+# The trailing KEY=VALUE pairs are extra TRUSTED ledger fields (image, digest,
+# host, runner type, devices, trigger, ...). exit_status is recorded as a field.
 runner_history_capture() {
-  local job_id=$1 exit_status=$2 job_log=$3 runner_dir=$4
-  shift 4
+  local job_id=$1 exit_status=$2
+  shift 2
   {
     runner_history_record "${job_id}" "exit_status=${exit_status}" "$@"
-    runner_history_archive "${job_id}" "${job_log}" "${runner_dir}"
     runner_history_push "${job_id}"
   } || echo "history: capture failed for ${job_id} (teardown continues)" >&2
   return 0

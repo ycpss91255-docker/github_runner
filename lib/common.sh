@@ -180,9 +180,19 @@ runner_agent_id() {
 list_runners() {
   shopt -s nullglob
   local org_dir org scope_dir scope_id scope name
+  # SEC: the per-job ephemeral work root (listener/provision-job.sh) defaults
+  # UNDER RUNNER_HOME (#130) and is bind-mounted RW into the untrusted per-job
+  # container (lib/runner-container.sh). A hostile job can plant a `.runner`
+  # marker and an interior `_work` symlink there, which -- if enumerated as a
+  # runner -- steers cleanup.sh's rm -rf outside RUNNER_HOME (#144). Skip its
+  # top-level dir the same way `.bin` is skipped; its basename ('work' by
+  # default) mirrors provision-job.sh's RUNNER_WORK_ROOT default.
+  local work_root_base
+  work_root_base=$(basename "${RUNNER_WORK_ROOT:-work}")
   for org_dir in "${RUNNER_HOME}"/*/; do
     org=$(basename "${org_dir}")
     [[ ${org} == ".bin" ]] && continue
+    [[ ${org} == "${work_root_base}" ]] && continue
     for scope_dir in "${org_dir}"*/; do
       [[ -f "$(runner_marker_file "${scope_dir}")" ]] || continue
       scope=$(runner_scope_of "${scope_dir}")

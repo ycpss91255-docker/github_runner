@@ -11,7 +11,10 @@
 # Sourced by lib/common.sh. This is the SINGLE place the one-job
 # `run.sh --jitconfig <encoded>` invocation lives, executed INSIDE the throwaway
 # container rather than directly on the host. The encoded JIT config is minted
-# by the Go scale-set client (ADR-0001/ADR-0003), not by any bash seam.
+# by the Go scale-set client (ADR-0001/ADR-0003), not by any bash seam, and is
+# delivered into the container OFF the host argv via a mode-0600 --env-file
+# (#136), so the single-use credential never lands in the HOST process table --
+# the ADR-0003 invariant holds on the bash side, not just the Go side.
 # shellcheck shell=bash
 
 # The label value that marks every container THIS tool provisions, so the
@@ -52,6 +55,30 @@
 # pass the type's device list verbatim. Empty (a plain CPU type) = no --device.
 : "${RUNNER_DEVICES:=}"
 
+# runner_work_root -- the SINGLE source of truth for the per-job work root, the
+# dir provision-job.sh creates each job's runner dir under (mktemp -d
+# "<root>/jit-<id>.XXXXXX") and reap.sh prunes leaked dirs from. BOTH halves MUST
+# agree on this path or the reaper sweeps the WRONG directory: provision-job.sh
+# would strand residue under RUNNER_HOME/work while reap.sh globbed a different
+# root and reported success having cleaned nothing (#148). Sourced by BOTH
+# provision-job.sh (directly) and reap.sh (via common.sh), so the resolution can
+# never re-diverge.
+#
+# Defaults to ${RUNNER_HOME}/work -- the SEC-3 rm chokepoint the history store
+# also lives under (#130) -- with RUNNER_WORK_ROOT overriding for tests/alternate
+# layouts. RUNNER_HOME, when unset, defaults to <repo_root>/runners EXACTLY as
+# common.sh resolves it: this file lives in lib/ beside common.sh, so the same
+# lib-relative `../runners` fallback yields the identical path whether reached via
+# common.sh (which sets RUNNER_HOME readonly) or via provision-job.sh's direct
+# source (which sets its own SCRIPT_DIR/../runners default -- the same dir).
+runner_work_root() {
+  local home="${RUNNER_HOME:-}"
+  if [[ -z "${home}" ]]; then
+    home="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/runners"
+  fi
+  printf '%s\n' "${RUNNER_WORK_ROOT:-${home%/}/work}"
+}
+
 # Emit the baseline hardening argv (#114) one token per array element, for the
 # caller to splice into `<cli> run`. cap-drop=ALL + optional minimal add-back,
 # no-new-privileges, and a pids-limit. Deliberately does NOT touch seccomp (the
@@ -81,6 +108,21 @@ runner_container_name() {
   printf 'gha-jit-%s' "${safe}"
 }
 
+# Sanitise the attacker-influenced job id for use as a LABEL value (#137). The
+# scale-set JobID flows into our job-id label unsanitized; a NEWLINE (or other
+# control char) in that label is what let the reaper's old "<name> <label>"
+# listing be split into a forged phantom row naming an arbitrary victim. Strip
+# every control character (incl. CR/LF/TAB) so the label can never carry a line
+# break. Kept less aggressive than the name sanitiser (the label is
+# informational, not a shell/engine identifier); the control-char strip is the
+# security-load-bearing part, and the reaper additionally reaps by container ID
+# so it never parses this value as a removal target.
+#   runner_job_id_label <job_id>
+runner_job_id_label() {
+  local job_id=$1
+  printf '%s' "${job_id}" | tr -d '[:cntrl:]'
+}
+
 # Pick the rootless container CLI: podman preferred over docker (rootless is
 # podman's default mode -- no daemon, no root -- which is the #82 goal; docker
 # is the fallback for hosts that only ship it). Prints the CLI name, or returns
@@ -102,6 +144,9 @@ runner_container_cli() {
 # Detects the CLI (runner_container_cli), then `<cli> run --rm ...` the image so
 # the container is single-use and removed on exit (--rm: no state survives),
 # executing the Phase 2 ephemeral run (run.sh --jitconfig <encoded>) inside it.
+# The encoded credential is passed to the container via a mode-0600 --env-file
+# (#136), never on the host `<cli> run` argv, so it stays off the host process
+# table; run.sh reads it from $JITCONFIG inside the container's own namespace.
 # Rootless-appropriate: --init reaps the runner's child PIDs (no host init); the
 # baseline hardening flags (#114) and the :Z-relabelled mount (#115, MAC kept
 # enforced) keep it an unprivileged, self-contained unit. When a job id is given,
@@ -124,7 +169,7 @@ runner_container_run() {
     id_args=(
       --name "$(runner_container_name "${job_id}")"
       --label "managed-by=${RUNNER_MANAGED_BY}"
-      --label "job-id=${job_id}"
+      --label "job-id=$(runner_job_id_label "${job_id}")"
     )
   fi
   # Baseline hardening flags (#114): read one-per-line into an array so each
@@ -145,6 +190,80 @@ runner_container_run() {
   for dev in ${RUNNER_DEVICES}; do
     device_args+=(--device "${dev}")
   done
+  # Deliver the single-use JIT credential to the container OFF the host argv
+  # (#136, restores the ADR-0003 invariant). Splicing `--jitconfig "${encoded}"`
+  # directly onto the host `<cli> run ...` argv put the credential in the HOST
+  # process table (/proc/<pid>/cmdline, world-readable) for the container's whole
+  # life -- the exact exposure the Go->bash file handoff exists to prevent. The
+  # Go side keeps it off ITS argv (a 0600 file, ADR-0003); bash must not undo
+  # that here. Instead write the credential to a mode-0600 --env-file inside the
+  # (throwaway, per-job) runner dir as KEY=VALUE; the engine reads the VALUE from
+  # the file, so only the env-file PATH -- never the secret -- is on the host
+  # argv. The env-file is named in the dir torn down with the job (--rm + the
+  # caller's rm -rf), so the credential file does not survive teardown.
+  #
+  # The container then receives the credential through its environment ONLY, set
+  # from this --env-file as the runner's native ACTIONS_RUNNER_INPUT_JITCONFIG
+  # input. It is NEVER spliced onto any process argv -- not the host CLI argv and
+  # not the in-container run.sh argv (#155). The earlier form
+  # `./run.sh --jitconfig "${JITCONFIG}"` looked safe because the host string is
+  # kept literal, but the CONTAINER's `sh -c` expands $JITCONFIG onto run.sh's
+  # argv, and for rootless/rootful engines run.sh is an ordinary HOST process:
+  # its /proc/<pid>/cmdline is mode 0444 (world-readable, no ptrace/owner check,
+  # unlike /proc/<pid>/environ), so ANY local host user could read the base64 JIT
+  # config off run.sh's cmdline for the whole job -- the exact off-argv invariant
+  # #136/ADR-0003 exists to hold. A PID namespace only renumbers PIDs as seen
+  # from inside the container; it does not remove run.sh's task from the host
+  # procfs. Delivering via the env (ACTIONS_RUNNER_INPUT_JITCONFIG, which the
+  # official runner reads natively) keeps the secret on /proc/<pid>/environ
+  # (ptrace-protected) and off the world-readable cmdline end to end.
+  # The env-file MUST live OUTSIDE the bind-mounted runner dir (#140). `${dir}`
+  # is mounted READ-WRITE at /runner and IS the job's working directory, so a
+  # file written under it (`${dir}/.jitconfig.env`) is visible to -- and copyable
+  # by -- the hostile job at /runner/.jitconfig.env. The job could then plant the
+  # single-use credential into /runner/_diag, which the history hook durably
+  # archives, surviving the --rm teardown. Writing the env-file as a SIBLING of
+  # the mounted dir keeps the credential out of every job-reachable path while
+  # the engine still reads its VALUE from the file (never the host argv, #136).
+  # The sibling sits beside `${dir}` under the same throwaway work root, so the
+  # caller's `rm -rf "${runner_dir}"` does not remove it -- we delete it here on
+  # return (success or failure) via a RETURN trap so the credential file does not
+  # outlive this function.
+  local env_file="${dir%/}.jitconfig.env"
+  # Restrict before writing so the secret never exists world-readable, even
+  # briefly. printf (not echo) so a value with leading '-' is written verbatim;
+  # the single KEY=VALUE line is the --env-file format the engines expect.
+  ( umask 077; : >"${env_file}"; )
+  # Set the env var the official runner reads natively (ACTIONS_RUNNER_INPUT_
+  # JITCONFIG), so run.sh consumes the credential from its ENVIRONMENT and we
+  # never have to put it on run.sh's argv (#155).
+  printf 'ACTIONS_RUNNER_INPUT_JITCONFIG=%s\n' "${encoded}" >"${env_file}"
+  # Shred the sibling env-file when this function returns, by ANY path, so the
+  # single-use credential never lingers on disk past the container's run.
+  #
+  # The trap action MUST embed the path as code, because `env_file` is a function
+  # LOCAL and bash runs a RETURN trap in the CALLER's scope (the bounded wrapper),
+  # where the local is already gone -- a deferred `"${env_file}"` would hit
+  # `set -u` "unbound variable" and abort the job. So the path is expanded now;
+  # the danger is that `dir` (hence env_file) embeds the only-control-char-
+  # stripped scale-set JobID verbatim (mktemp -d jit-<job_id>.XXXXXX). A path
+  # spliced inside single quotes in a double-quoted trap let a `'` in a hostile
+  # JobID close the quoting so a trailing `; <cmd> #` ran on the HOST when the
+  # trap fired (#142). printf %q renders the path in a re-parse-safe form
+  # (quotes, ;, space, $(...) all escaped), so the trap is exactly one `rm`
+  # argument and no attacker data is ever parsed as a command.
+  local env_file_q
+  printf -v env_file_q '%q' "${env_file}"
+  # shellcheck disable=SC2064  # expand NOW (local not in scope on RETURN); %q-safe
+  trap "rm -f -- ${env_file_q}" RETURN
+
+  # The in-container command. run.sh reads the credential from its ENVIRONMENT
+  # (ACTIONS_RUNNER_INPUT_JITCONFIG, set from --env-file), so we pass NO
+  # credential on its argv -- not the value and not a $JITCONFIG expansion. This
+  # keeps the secret off run.sh's world-readable host /proc/<pid>/cmdline (#155);
+  # do NOT add `--jitconfig "${JITCONFIG}"` back here -- that re-exposes it.
+  local run_in_container='./run.sh'
+
   # Bind the runner dir with :Z so the engine relabels it for this container
   # (#115) -- MAC (SELinux/AppArmor) stays ENFORCED; we never disable it.
   "${cli}" run --rm --init \
@@ -152,9 +271,10 @@ runner_container_run() {
     "${socket_args[@]}" \
     "${device_args[@]}" \
     "${id_args[@]}" \
+    --env-file "${env_file}" \
     -v "${dir}:/runner:Z" -w /runner \
     "${image}" \
-    ./run.sh --jitconfig "${encoded}"
+    sh -c "${run_in_container}"
 }
 
 # runner_container_kill <name>

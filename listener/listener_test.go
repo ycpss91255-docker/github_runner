@@ -866,3 +866,158 @@ func TestCleanShutdownWaitsForInFlightJobs(t *testing.T) {
 		t.Error("session must still be torn down after the drain")
 	}
 }
+
+// --- #147 tracked must be a refcount, not a presence set (canonical collision) -
+
+// Two DISTINCT raw scale-set JobIDs that differ only by a control char
+// canonicalize (canonicalJobID, #138) to the SAME key, yet start two SEPARATE
+// live containers (the container NAME sanitizer in lib/runner-container.sh:83
+// maps the control char to '-', so "abcd" and "ab\tcd" yield distinct names
+// gha-jit-abcd vs gha-jit-ab-cd). Both jobs are therefore in-flight at once and
+// each runs `track`/`defer untrack` on that one shared canonical key. If
+// `tracked` is a presence SET with an unconditional delete, the FIRST sibling's
+// untrack removes the shared key while the OTHER container is still running --
+// trackedJobIDs() then omits the key, and the next reaper sweep rm -f's the
+// live container mid-job (#105 invariant violated, cross-tenant kill). The key
+// must stay tracked until the LAST live job sharing it finishes, i.e. tracking
+// must be reference-counted.
+func TestTrackedKeyRefcountedAcrossCanonicalCollision(t *testing.T) {
+	l := New(&fakeSession{}, &recordingMinter{config: "jit"},
+		&recordingProvisioner{}, Config{Image: "img"})
+
+	// Mirror provision()'s exact path: each job is tracked under
+	// canonicalJobID(rawJobID). Two raw ids, one canonical key.
+	keyA := canonicalJobID("abcd")   // job A: "abcd"
+	keyB := canonicalJobID("ab\tcd") // job B: control char stripped -> "abcd"
+	if keyA != keyB {
+		t.Fatalf("precondition: expected the two raw JobIDs to canonicalize to one key, got %q and %q", keyA, keyB)
+	}
+
+	l.track(keyA) // job A dispatched, still running
+	l.track(keyB) // job B dispatched, still running (same canonical key)
+
+	// Job B exits first and runs its deferred untrack.
+	l.untrack(keyB)
+
+	// Job A is STILL live: its canonical key must remain in the tracked set the
+	// reaper is handed, or its container gets reaped mid-run.
+	got := l.trackedJobIDs()
+	found := false
+	for _, id := range got {
+		if id == keyA {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("canonical key %q untracked while a sibling job is still live (tracked=%v); "+
+			"presence-set delete is not reference-counted, so the reaper would rm -f the live container (#147)",
+			keyA, got)
+	}
+
+	// And once the LAST live job (A) finishes, the key is fully released.
+	l.untrack(keyA)
+	if rest := l.trackedJobIDs(); len(rest) != 0 {
+		t.Fatalf("expected the canonical key fully released after the last sibling finished, still tracked=%v", rest)
+	}
+}
+
+// --- #138 JobID canonicalization (tracked-set vs sanitized container label) ----
+
+// gateReaper records the tracked ids from the FIRST sweep that observes a
+// non-empty tracked set (i.e. the first sweep after a job is in-flight),
+// signalling so the test knows that sweep ran. Earlier startup sweeps (before
+// any job is tracked) are skipped so the assertion is about the in-flight job.
+type gateReaper struct {
+	mu    sync.Mutex
+	first []string
+	fired chan struct{} // closed once the first non-empty sweep is captured
+	once  sync.Once
+}
+
+func (r *gateReaper) Reap(_ context.Context, tracked []string) error {
+	if len(tracked) == 0 {
+		return nil // a pre-job startup sweep: nothing in-flight yet
+	}
+	r.once.Do(func() {
+		r.mu.Lock()
+		r.first = append([]string(nil), tracked...)
+		r.mu.Unlock()
+		close(r.fired)
+	})
+	return nil
+}
+
+func (r *gateReaper) firstSweep() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.first...)
+}
+
+// A JobID carrying a control char (here a TAB) must reach the reaper in the
+// SAME canonical form the container's sanitized job-id label carries
+// (lib/runner-container.sh runner_job_id_label = `tr -d '[:cntrl:]'`).
+// Otherwise the reaper's exact-string compare (lib/runner-reaper.sh
+// _runner_reaper_is_tracked) treats the live job's own container as an orphan
+// and rm -f's it mid-run (#138). The Go tracked set, the script argv, and the
+// resulting label must all derive from one identical sanitized string, so the
+// id the reaper is handed for an IN-FLIGHT job must equal the control-char-
+// stripped JobID -- never the raw one.
+func TestTrackedJobIDIsSanitizedToMatchContainerLabel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const rawJobID = "job\tA"  // attacker-influenced control char
+	const wantTracked = "jobA" // what runner_job_id_label strips it to (the label)
+
+	// A provisioner that blocks the single job keeps it IN-FLIGHT (tracked)
+	// across the reaper sweep.
+	probe := &concurrencyProbe{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	sess := &fakeSession{
+		messages: []*scaleset.RunnerScaleSetMessage{
+			msgWithAssigned(1, 1, assigned(1, rawJobID)),
+		},
+		// no cancel: the loop stays alive while the job is held and the reaper ticks.
+	}
+	reaper := &gateReaper{fired: make(chan struct{})}
+	l := New(sess, &recordingMinter{config: "jit"}, probe,
+		Config{Image: "img", Reaper: reaper, ReapInterval: 10 * time.Millisecond})
+
+	done := make(chan struct{})
+	go func() { _ = l.Listen(ctx); close(done) }()
+
+	// Wait for the held job to be in-flight (tracked) before the sweep matters.
+	select {
+	case <-probe.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provisioner never started the held job")
+	}
+
+	// Wait for the reaper's first sweep while the job is held in-flight.
+	select {
+	case <-reaper.fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reaper never swept while the job was in-flight")
+	}
+
+	tracked := reaper.firstSweep()
+	if len(tracked) != 1 {
+		t.Fatalf("expected exactly 1 tracked id during the in-flight sweep, got %v", tracked)
+	}
+	if tracked[0] != wantTracked {
+		t.Errorf("tracked id handed to reaper = %q, want %q (the sanitized job-id label); "+
+			"a raw control-char key %q != the container label desyncs and the reaper reaps the live job (#138)",
+			tracked[0], wantTracked, rawJobID)
+	}
+
+	// Wind the held job down so Listen can return.
+	close(probe.release)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Listen did not return after the held job was released")
+	}
+}

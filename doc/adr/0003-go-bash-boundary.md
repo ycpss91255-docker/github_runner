@@ -60,7 +60,24 @@ Go if it cannot be done without the scale-set client.**
 - Each side is tested in its own idiom: Go deep modules via mock/fake; bash
   seams via bats stub-and-capture. CI runs both (Go in a container).
 - The JIT config crosses the boundary **as a file**, never on argv, so it is not
-  exposed in the process table.
+  exposed in the process table. **This file-not-argv rule is necessary but not
+  sufficient**: bash must also avoid re-splicing the credential back onto the
+  HOST `podman/docker run` argv (which would re-expose it in the host process
+  table, /proc/<pid>/cmdline). Bash therefore hands the credential to the engine
+  via a mode-0600 `--env-file` and lets `run.sh` read it from the env inside the
+  container's own process namespace — the secret stays off the host argv end to
+  end (#136). **This must hold for the IN-CONTAINER argv too**: passing
+  `./run.sh --jitconfig "${JITCONFIG}"` lets the container's `sh -c` expand the
+  credential onto `run.sh`'s argv, and for rootless/rootful engines `run.sh` is
+  an ordinary HOST process whose `/proc/<pid>/cmdline` (mode 0444, no ptrace
+  check, unlike `/proc/<pid>/environ`) is world-readable — re-exposing the secret
+  to any local host user. So the env-file sets the runner's native
+  `ACTIONS_RUNNER_INPUT_JITCONFIG` input and the in-container command is just
+  `./run.sh` with NO `--jitconfig` flag: the credential rides the environment
+  only, never any cmdline (#155). As defense-in-depth, mount host `/proc` with
+  `hidepid=2` (see
+  [HOST-HARDENING](../runbook/HOST-HARDENING.md)) so non-CI local users cannot
+  read other processes' cmdline at all.
 
 ## References
 

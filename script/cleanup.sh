@@ -130,6 +130,16 @@ enumerate_items() {
         done
       done
     fi
+    # #144 rm-safety: a hostile job (the per-job container mounts its work tree
+    # RW) can replace `_work` with a host-absolute symlink that escapes
+    # RUNNER_HOME. `_work` is an INTERIOR path component, so a later rm -rf
+    # resolves THROUGH it (coreutils only refuses a symlink as the FINAL
+    # component). Never enumerate prunables under a symlinked `_work`; the rm
+    # site below additionally canonicalizes + anchors every path.
+    if [[ -L "${runner_dir}/_work" ]]; then
+      echo "note: ${org}/${scope_label}/_work is a symlink; skipping (rm-safety #144)" >&2
+      continue
+    fi
     work_update="${runner_dir}/_work/_update"
     work_update_sh="${runner_dir}/_work/_update.sh"
     if [[ -d ${work_update} ]]; then
@@ -282,7 +292,19 @@ main() {
   local removed=0 failed=0
   local fail_lines=()
   while IFS=$'\t' read -r path label; do
-    if rm -rf -- "${path}"; then
+    # #144 rm-safety: CANONICALIZE then anchor before deleting. A purely lexical
+    # assert is insufficient -- the offending path STRING is already under
+    # RUNNER_HOME; only realpath resolution exposes an interior `_work` symlink
+    # that escapes the tree. We then rm the resolved path (no symlink in any
+    # component), so the delete cannot leave RUNNER_HOME.
+    local real
+    if ! real=$(readlink -f -- "${path}") || ! assert_under_runner_home "${real}"; then
+      printf '  %s  FAILED (refused: not under RUNNER_HOME)\n' "${label}"
+      fail_lines+=("${label}")
+      failed=$(( failed + 1 ))
+      continue
+    fi
+    if rm -rf -- "${real}"; then
       printf '  %s  removed\n' "${label}"
       removed=$(( removed + 1 ))
     else

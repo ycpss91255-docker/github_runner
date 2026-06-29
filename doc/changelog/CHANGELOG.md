@@ -29,6 +29,22 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Adversarial hardening of the ephemeral-runner path (red-team campaign,
+  #136–#155). The single-use JIT credential is delivered only via a mode-0600
+  env-file (`ACTIONS_RUNNER_INPUT_JITCONFIG`) and never appears on any host or
+  in-container argv / `/proc/<pid>/cmdline` (#136, #155). An attacker-controlled
+  `JobID` can no longer break out of the credential-shred trap into host command
+  execution (#142) nor steer `cleanup.sh`'s `rm -rf` outside `RUNNER_HOME`
+  (#144); the orphan reaper reaps by container **ID** with a refcounted
+  tracked-set, so a forged / newline-bearing label can neither remove arbitrary
+  host containers nor untrack a live job (#137, #138, #147, #148). The durable
+  job-history store no longer ingests attacker-controlled streams at all: raw job
+  stdout/stderr is not persisted (its authoritative copy is GitHub's job console
+  log), `_diag` is not captured from the job-writable mount, the store holds only
+  the trusted, secret-redacted ledger (`0700`), and the external push hook ships
+  only trusted metadata — ending a secret-redaction-bypass cascade at the root
+  instead of chasing per-encoding scrubbers (#140, #141, #143, #145, #146,
+  #149–#154). See ADR-0002 / ADR-0003.
 - Per-job containers are hardened by default: `--cap-drop=ALL`,
   `--security-opt no-new-privileges`, seccomp + MAC kept enforced (no
   `label=disable`; `:Z` relabel), `--pids-limit`, and the Docker socket is
