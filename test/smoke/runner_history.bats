@@ -210,6 +210,41 @@ LEAK
   ! grep -qF 'ENCODEDxJITxBAREVALUE/+==' "${archived}"
 }
 
+# --- #146 value redaction must never put the secret on an external proc argv ---
+
+@test "runner_history_scrub_secrets never places a secret VALUE on an external sed argv (#146)" {
+  # #143's value-literal redaction builds `sed -e "s/<value>/[REDACTED]/g"` and
+  # runs sed as an EXTERNAL process -- carrying the credential VERBATIM on the
+  # sed command line (/proc/<pid>/cmdline, world-readable 0444). That re-creates
+  # the exact host-process-table exposure #133/#136 closed by moving the JIT
+  # credential off the host argv. The redaction must happen WITHOUT placing the
+  # secret value on any subprocess's argv (pure-bash literal substitution, or an
+  # external tool fed via a 0600 file / stdin -- never argv).
+  #
+  # Stub-and-capture: override `sed` to record every argv it is invoked with,
+  # then delegate to the real sed so the function still scrubs. A purely
+  # alphanumeric value is matched verbatim (the #143 escaper only backslash-
+  # escapes non-alnum bytes), so it would appear on argv unchanged if leaked.
+  CAP="${STORE}/sed.argv"
+  : > "${CAP}"
+  sed() { printf '%s\0' "$@" >> "${CAP}"; command sed "$@"; }
+
+  local secret='LIVEJITCREDENTIAL0123456789abcdefXYZ'
+  export RUNNER_HISTORY_SCRUB_VALUES="${secret}"
+  out=$(printf 'bare %s here\nbenign line\n' "${secret}" | runner_history_scrub_secrets)
+
+  # Functional: the secret is redacted from the OUTPUT, benign content survives.
+  [[ "${out}" != *"${secret}"* ]] || { echo "secret value survived in output: ${out}"; return 1; }
+  [[ "${out}" == *'benign line'* ]]
+
+  # Security: the secret value must NEVER appear on any sed argv -- i.e. never on
+  # /proc/<pid>/cmdline. This is the regression #146 locks.
+  if grep -aqF "${secret}" "${CAP}"; then
+    echo "secret value leaked onto an external sed argv: $(tr '\0' ' ' < "${CAP}")"
+    return 1
+  fi
+}
+
 # --- #139 path-reserved job id must not escape the jobs/ subtree ----------
 
 @test "runner_history_safe_id never yields a path-reserved token (#139)" {

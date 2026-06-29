@@ -143,16 +143,34 @@ runner_history_journal() {
 # high-entropy credential, and redacting a 1-2 char string across a whole log
 # would be destructive without protecting anything real.
 runner_history_scrub_secrets() {
-  # ERE, case-insensitive: a secret-ish key token immediately followed by a
-  # '=' or ':' delimiter, then the (greedy) value to end-of-line -> redacted.
-  local -a sed_args=(-E -e 's/((jitconfig|token|secret|credential|password|passwd|api[_-]?key)[^=:[:space:]]*[[:space:]]*[=:])[[:space:]]*.*$/\1 [REDACTED]/I')
-  local val esc
+  # KEY-anchored rule: a secret-ish key token immediately followed by a '=' or
+  # ':' delimiter, then the (greedy) value to end-of-line -> redacted. This is a
+  # STATIC ERE (no secret in it), so running it via an external sed is safe --
+  # nothing sensitive lands on the sed argv / /proc/<pid>/cmdline.
+  local key_rule='s/((jitconfig|token|secret|credential|password|passwd|api[_-]?key)[^=:[:space:]]*[[:space:]]*[=:])[[:space:]]*.*$/\1 [REDACTED]/I'
+  # Collect the LITERAL secret values to redact (newline-separated; <6 chars
+  # skipped -- redacting a 1-2 char string would be destructive without
+  # protecting anything real).
+  local -a vals=()
+  local val line
   while IFS= read -r val; do
-    [[ ${#val} -ge 6 ]] || continue
-    esc=$(printf '%s' "${val}" | sed -e 's/[^[:alnum:]]/\\&/g')
-    sed_args+=(-e "s/${esc}/[REDACTED]/g")
+    [[ ${#val} -ge 6 ]] && vals+=("${val}")
   done <<< "${RUNNER_HISTORY_SCRUB_VALUES:-}"
-  sed "${sed_args[@]}"
+  # VALUE-literal redaction is done in PURE BASH -- NEVER by building a
+  # `sed -e "s/<value>/..."` arm. Putting the credential on an external sed's
+  # argv would re-expose it in the host process table (/proc/<pid>/cmdline,
+  # world-readable 0444) -- the exact host-argv leak #133/#136 closed by moving
+  # the JIT config off the host run argv (file-not-argv handoff). So the secret
+  # value never leaves this shell's memory: `${line//"$val"/[REDACTED]}` does a
+  # literal (not regex) substitution, so a metacharacter or the sed delimiter in
+  # the credential cannot subvert it either. The static key rule still runs via
+  # sed; only the value-literal arms move off argv.
+  sed -E -e "${key_rule}" | while IFS= read -r line || [[ -n "${line}" ]]; do
+    for val in "${vals[@]}"; do
+      line=${line//"${val}"/[REDACTED]}
+    done
+    printf '%s\n' "${line}"
+  done
 }
 
 # Archive a job's container stdout/stderr and runner _diag logs into its per-job
