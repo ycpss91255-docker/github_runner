@@ -867,6 +867,60 @@ func TestCleanShutdownWaitsForInFlightJobs(t *testing.T) {
 	}
 }
 
+// --- #147 tracked must be a refcount, not a presence set (canonical collision) -
+
+// Two DISTINCT raw scale-set JobIDs that differ only by a control char
+// canonicalize (canonicalJobID, #138) to the SAME key, yet start two SEPARATE
+// live containers (the container NAME sanitizer in lib/runner-container.sh:83
+// maps the control char to '-', so "abcd" and "ab\tcd" yield distinct names
+// gha-jit-abcd vs gha-jit-ab-cd). Both jobs are therefore in-flight at once and
+// each runs `track`/`defer untrack` on that one shared canonical key. If
+// `tracked` is a presence SET with an unconditional delete, the FIRST sibling's
+// untrack removes the shared key while the OTHER container is still running --
+// trackedJobIDs() then omits the key, and the next reaper sweep rm -f's the
+// live container mid-job (#105 invariant violated, cross-tenant kill). The key
+// must stay tracked until the LAST live job sharing it finishes, i.e. tracking
+// must be reference-counted.
+func TestTrackedKeyRefcountedAcrossCanonicalCollision(t *testing.T) {
+	l := New(&fakeSession{}, &recordingMinter{config: "jit"},
+		&recordingProvisioner{}, Config{Image: "img"})
+
+	// Mirror provision()'s exact path: each job is tracked under
+	// canonicalJobID(rawJobID). Two raw ids, one canonical key.
+	keyA := canonicalJobID("abcd")   // job A: "abcd"
+	keyB := canonicalJobID("ab\tcd") // job B: control char stripped -> "abcd"
+	if keyA != keyB {
+		t.Fatalf("precondition: expected the two raw JobIDs to canonicalize to one key, got %q and %q", keyA, keyB)
+	}
+
+	l.track(keyA) // job A dispatched, still running
+	l.track(keyB) // job B dispatched, still running (same canonical key)
+
+	// Job B exits first and runs its deferred untrack.
+	l.untrack(keyB)
+
+	// Job A is STILL live: its canonical key must remain in the tracked set the
+	// reaper is handed, or its container gets reaped mid-run.
+	got := l.trackedJobIDs()
+	found := false
+	for _, id := range got {
+		if id == keyA {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("canonical key %q untracked while a sibling job is still live (tracked=%v); "+
+			"presence-set delete is not reference-counted, so the reaper would rm -f the live container (#147)",
+			keyA, got)
+	}
+
+	// And once the LAST live job (A) finishes, the key is fully released.
+	l.untrack(keyA)
+	if rest := l.trackedJobIDs(); len(rest) != 0 {
+		t.Fatalf("expected the canonical key fully released after the last sibling finished, still tracked=%v", rest)
+	}
+}
+
 // --- #138 JobID canonicalization (tracked-set vs sanitized container label) ----
 
 // gateReaper records the tracked ids from the FIRST sweep that observes a

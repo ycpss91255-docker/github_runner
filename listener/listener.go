@@ -191,8 +191,8 @@ type Listener struct {
 	wg       sync.WaitGroup
 	inFlight atomic.Int64 // jobs currently being provisioned (locally derived capacity, #102)
 
-	trackedMu sync.Mutex          // guards tracked
-	tracked   map[string]struct{} // job ids currently in-flight (spared by the reaper, #105)
+	trackedMu sync.Mutex     // guards tracked
+	tracked   map[string]int // canonical job id -> count of in-flight jobs sharing it (spared by the reaper, #105/#147)
 }
 
 // New wires a Session + JITConfigMinter + Provisioner + Config into a Listener.
@@ -208,7 +208,7 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 		cfg:     cfg,
 		bound:   bound,
 		sem:     make(chan struct{}, bound),
-		tracked: make(map[string]struct{}),
+		tracked: make(map[string]int),
 	}
 }
 
@@ -488,26 +488,44 @@ func canonicalJobID(jobID string) string {
 
 // track / untrack maintain the set of in-flight job ids the reaper must spare
 // (#105): a job's container is only an orphan once the job is no longer tracked.
+//
+// tracked is REFERENCE-COUNTED, not a presence set (#147). canonicalJobID is
+// many-to-one: two distinct raw scale-set JobIDs differing only by a control
+// char canonicalize to the same key, yet start two SEPARATE live containers
+// (the container-name sanitizer maps the control char to '-', so the names
+// differ -- lib/runner-container.sh:83 -- while the job-id LABEL the reaper
+// compares is identical -- lib/runner-container.sh:99). Both jobs are therefore
+// in-flight at once under one key. With a presence set + unconditional delete,
+// the first sibling's untrack would expose the still-running other to the
+// reaper (rm -f mid-job). Counting keeps the key tracked until the LAST live
+// job sharing it finishes.
 func (l *Listener) track(jobID string) {
 	l.trackedMu.Lock()
-	l.tracked[jobID] = struct{}{}
+	l.tracked[jobID]++
 	l.trackedMu.Unlock()
 }
 
 func (l *Listener) untrack(jobID string) {
 	l.trackedMu.Lock()
-	delete(l.tracked, jobID)
+	if l.tracked[jobID] <= 1 {
+		delete(l.tracked, jobID)
+	} else {
+		l.tracked[jobID]--
+	}
 	l.trackedMu.Unlock()
 }
 
 // trackedJobIDs snapshots the currently in-flight job ids, handed to the reaper
-// so their live containers are spared.
+// so their live containers are spared. A key is present iff at least one job
+// sharing it is still in-flight (count > 0).
 func (l *Listener) trackedJobIDs() []string {
 	l.trackedMu.Lock()
 	defer l.trackedMu.Unlock()
 	ids := make([]string, 0, len(l.tracked))
-	for id := range l.tracked {
-		ids = append(ids, id)
+	for id, n := range l.tracked {
+		if n > 0 {
+			ids = append(ids, id)
+		}
 	}
 	return ids
 }
