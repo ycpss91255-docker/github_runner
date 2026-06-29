@@ -23,6 +23,12 @@ setup() {
 
   STUB=$(mktemp -d)
   CAP="${FAKE_RH}/cli.args"
+  # The engine reads the credential from an --env-file that the RETURN trap
+  # shreds before the function returns, so a test cannot read it afterwards.
+  # The stub therefore copies any --env-file content into ENVCAP WHILE the file
+  # still exists (the stub runs during the `<cli> run`, before the RETURN trap),
+  # so a test can assert HOW the credential is delivered to the container env.
+  ENVCAP="${FAKE_RH}/envfile.content"
   # A container-CLI stub records WHICH cli was chosen (its argv[0] name) and
   # the full argv it was handed, one token per line so --rm / the image / the
   # passed-through run command can be grepped exactly. Exits CLI_RC (default 0)
@@ -33,6 +39,11 @@ setup() {
 #!/usr/bin/env bash
 echo "name=$1" >> "${CAP}"
 printf '%s\n' "\$@" >> "${CAP}"
+prev=""
+for a in "\$@"; do
+  if [ "\$prev" = "--env-file" ]; then cat "\$a" >> "${ENVCAP}" 2>/dev/null; fi
+  prev="\$a"
+done
 exit \${CLI_RC:-0}
 EOF
     chmod +x "${STUB}/$1"
@@ -52,15 +63,40 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   grep -qxF -- '--rm' "${CAP}"
 }
 
-@test "runner_container_run delivers the JIT config to the in-container run via the container env (#136)" {
+@test "runner_container_run delivers the JIT config to the in-container run via the container env (#136/#155)" {
   make_cli docker
   run runner_container_run "${RUNNER_DIR}" ENCODEDxJITxCONFIGx== my/image:tag
   [ "${status}" -eq 0 ]
-  # The in-container run still receives the credential (run.sh --jitconfig),
-  # but the value is delivered through the container ENV, not spliced onto the
-  # host CLI argv. The flag itself may appear; the VALUE must not (see the
-  # process-table regression test below).
-  grep -qF -- '--jitconfig' "${CAP}"
+  # The credential is delivered through the container ENV (the --env-file sets
+  # the env var the official runner consumes natively), NOT spliced onto any
+  # process argv. The env-file the engine reads must set the runner's native
+  # ACTIONS_RUNNER_INPUT_JITCONFIG to the encoded credential.
+  grep -qxF -- 'ACTIONS_RUNNER_INPUT_JITCONFIG=ENCODEDxJITxCONFIGx==' "${ENVCAP}"
+}
+
+# --- #155 the JIT credential must NEVER land on the in-container run.sh argv ---
+# (world-readable host /proc/<pid>/cmdline; defeats the off-argv invariant)
+
+@test "runner_container_run keeps the JIT config OFF the in-container run.sh argv (#155)" {
+  # For rootless/rootful engines the container's run.sh is an ordinary HOST
+  # process; /proc/<pid>/cmdline is mode 0444 (world-readable, no ptrace check),
+  # unlike /proc/<pid>/environ. So the in-container command the engine runs must
+  # NOT splice the credential onto run.sh's argv: it must neither pass
+  # --jitconfig nor expand $JITCONFIG onto argv. The shell command string passed
+  # to `sh -c` is the last captured token.
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENCODEDxJITxSECRETx== my/image:tag
+  [ "${status}" -eq 0 ]
+  # Grab the in-container command (the argument to `sh -c`).
+  incmd=$(grep -A1 -xF -- '-c' "${CAP}" | tail -n1)
+  [ -n "${incmd}" ]
+  # No --jitconfig flag on the in-container run.sh argv.
+  case "${incmd}" in *--jitconfig*) echo "in-container argv: ${incmd}"; return 1 ;; esac
+  # And no JITCONFIG env expansion spliced onto argv either (the bug spliced
+  # `"${JITCONFIG}"`, which the container shell expands onto run.sh's cmdline).
+  case "${incmd}" in *JITCONFIG*) echo "in-container argv: ${incmd}"; return 1 ;; esac
+  # The literal encoded value must not appear on the in-container argv at all.
+  case "${incmd}" in *ENCODEDxJITxSECRETx==*) echo "in-container argv: ${incmd}"; return 1 ;; esac
 }
 
 # --- #136 the JIT credential must NEVER land on the HOST podman/docker argv ---

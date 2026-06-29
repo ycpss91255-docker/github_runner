@@ -202,10 +202,21 @@ runner_container_run() {
   # argv. The env-file is named in the dir torn down with the job (--rm + the
   # caller's rm -rf), so the credential file does not survive teardown.
   #
-  # The container then receives the credential via $JITCONFIG in ITS OWN process
-  # namespace and passes it to run.sh; `sh -c` expands it inside the container,
-  # not on the host CLI argv. The container's /proc shows only container PIDs
-  # (rootless), so this re-exposes nothing to other HOST users.
+  # The container then receives the credential through its environment ONLY, set
+  # from this --env-file as the runner's native ACTIONS_RUNNER_INPUT_JITCONFIG
+  # input. It is NEVER spliced onto any process argv -- not the host CLI argv and
+  # not the in-container run.sh argv (#155). The earlier form
+  # `./run.sh --jitconfig "${JITCONFIG}"` looked safe because the host string is
+  # kept literal, but the CONTAINER's `sh -c` expands $JITCONFIG onto run.sh's
+  # argv, and for rootless/rootful engines run.sh is an ordinary HOST process:
+  # its /proc/<pid>/cmdline is mode 0444 (world-readable, no ptrace/owner check,
+  # unlike /proc/<pid>/environ), so ANY local host user could read the base64 JIT
+  # config off run.sh's cmdline for the whole job -- the exact off-argv invariant
+  # #136/ADR-0003 exists to hold. A PID namespace only renumbers PIDs as seen
+  # from inside the container; it does not remove run.sh's task from the host
+  # procfs. Delivering via the env (ACTIONS_RUNNER_INPUT_JITCONFIG, which the
+  # official runner reads natively) keeps the secret on /proc/<pid>/environ
+  # (ptrace-protected) and off the world-readable cmdline end to end.
   # The env-file MUST live OUTSIDE the bind-mounted runner dir (#140). `${dir}`
   # is mounted READ-WRITE at /runner and IS the job's working directory, so a
   # file written under it (`${dir}/.jitconfig.env`) is visible to -- and copyable
@@ -223,7 +234,10 @@ runner_container_run() {
   # briefly. printf (not echo) so a value with leading '-' is written verbatim;
   # the single KEY=VALUE line is the --env-file format the engines expect.
   ( umask 077; : >"${env_file}"; )
-  printf 'JITCONFIG=%s\n' "${encoded}" >"${env_file}"
+  # Set the env var the official runner reads natively (ACTIONS_RUNNER_INPUT_
+  # JITCONFIG), so run.sh consumes the credential from its ENVIRONMENT and we
+  # never have to put it on run.sh's argv (#155).
+  printf 'ACTIONS_RUNNER_INPUT_JITCONFIG=%s\n' "${encoded}" >"${env_file}"
   # Shred the sibling env-file when this function returns, by ANY path, so the
   # single-use credential never lingers on disk past the container's run.
   #
@@ -243,12 +257,12 @@ runner_container_run() {
   # shellcheck disable=SC2064  # expand NOW (local not in scope on RETURN); %q-safe
   trap "rm -f -- ${env_file_q}" RETURN
 
-  # The in-container command. $JITCONFIG is expanded by the CONTAINER's shell
-  # (set there from --env-file), so this string is kept literal on the host --
-  # the credential never appears on the host argv. The single quotes are
-  # deliberate (#136); SC2016 is expected and would defeat the fix if "fixed".
-  # shellcheck disable=SC2016
-  local run_in_container='./run.sh --jitconfig "${JITCONFIG}"'
+  # The in-container command. run.sh reads the credential from its ENVIRONMENT
+  # (ACTIONS_RUNNER_INPUT_JITCONFIG, set from --env-file), so we pass NO
+  # credential on its argv -- not the value and not a $JITCONFIG expansion. This
+  # keeps the secret off run.sh's world-readable host /proc/<pid>/cmdline (#155);
+  # do NOT add `--jitconfig "${JITCONFIG}"` back here -- that re-exposes it.
+  local run_in_container='./run.sh'
 
   # Bind the runner dir with :Z so the engine relabels it for this container
   # (#115) -- MAC (SELinux/AppArmor) stays ENFORCED; we never disable it.

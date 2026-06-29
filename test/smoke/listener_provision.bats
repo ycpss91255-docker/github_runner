@@ -61,18 +61,21 @@ teardown() { rm -rf "${WORK}" "${STUB}"; }
   [ -x "${SCRIPT}" ]
 }
 
-@test "provision-job.sh reads the JIT config from a FILE and never puts it on argv (#133/#136)" {
+@test "provision-job.sh reads the JIT config from a FILE and never puts it on argv (#133/#136/#155)" {
   # The encoded config arrives as a file PATH; the script reads the file and
   # hands the value to the container seam -- but the encoded value must NOT
   # appear anywhere on the HOST container CLI argv (the process table). The
-  # credential reaches the container off-argv via --env-file (#136).
+  # credential reaches the container off-argv via --env-file (#136), and run.sh
+  # consumes it from its ENVIRONMENT, never from any argv (#155).
   jf=$(jit_file 'ENCODEDxJITxCONFIGx==')
   run "${SCRIPT}" job-abc "${jf}" ghcr.io/acme/runner:latest
   [ "${status}" -eq 0 ]
   grep -qxF -- '--rm' "${CAP}"
-  # run.sh still receives --jitconfig inside the container (the flag is carried
-  # in the in-container `sh -c` invocation, not as a host argv token).
-  grep -qF -- '--jitconfig' "${CAP}"
+  # run.sh must NOT receive --jitconfig (nor a $JITCONFIG expansion) on its argv:
+  # the in-container run.sh is a HOST-visible process and /proc/<pid>/cmdline is
+  # world-readable, so the credential rides the env-file only (#155).
+  ! grep -qF -- '--jitconfig' "${CAP}"
+  ! grep -qF -- 'JITCONFIG' "${CAP}"
   grep -qxF -- 'ghcr.io/acme/runner:latest' "${CAP}"
   # The single-use credential must NOT be on the host podman/docker argv (#136).
   ! grep -qF -- 'ENCODEDxJITxCONFIGx==' "${CAP}"
