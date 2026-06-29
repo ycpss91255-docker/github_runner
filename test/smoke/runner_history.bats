@@ -210,6 +210,46 @@ LEAK
   ! grep -qF 'ENCODEDxJITxBAREVALUE/+==' "${archived}"
 }
 
+# --- #150 value scrub must survive a credential split across a line boundary ---
+
+@test "runner_history_scrub_secrets redacts a secret VALUE emitted split across a newline (#150)" {
+  # The value-literal arm (#143) is the ONLY defense for a BARE credential (the
+  # key rule cannot match a key-less base64 blob). It does
+  # `${line//"${val}"/[REDACTED]}` PER INPUT LINE, so a hostile step that prints
+  # the live JIT credential VERBATIM but split across a newline
+  # (`echo "${JITCONFIG:0:30}"; echo "${JITCONFIG:30}"`, or `fold -w64`) defeats
+  # it: no single line equals the literal value, so each fragment passes through
+  # untouched and the full credential is reassembled with `tr -d '\n'`. Each
+  # emitted fragment is itself a contiguous substring of the credential, so the
+  # scrubber must redact any line that is a long-enough substring of a secret.
+  local secret='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwx=='
+  export RUNNER_HISTORY_SCRUB_VALUES="${secret}"
+  # Split the credential across a real newline (two halves, neither equal to the
+  # whole value), bracketed by benign lines that must survive.
+  out=$(printf '%s\n%s\n%s\nbenign line\n' \
+        "${secret:0:30}" "${secret:30}" "tail" | runner_history_scrub_secrets)
+
+  # Neither fragment may survive, and the credential must not be reconstructable
+  # by stripping newlines from the scrubbed output.
+  [[ "${out}" != *"${secret:0:30}"* ]] || { echo "first fragment survived: ${out}"; return 1; }
+  [[ "${out}" != *"${secret:30}"* ]] || { echo "second fragment survived: ${out}"; return 1; }
+  reassembled=$(printf '%s' "${out}" | tr -d '\n')
+  [[ "${reassembled}" != *"${secret}"* ]] || { echo "credential reconstructable: ${reassembled}"; return 1; }
+  # Benign content must still survive (the scrub is not gutting the log).
+  [[ "${out}" == *'benign line'* ]]
+}
+
+@test "runner_history_scrub_secrets keeps benign short lines when a secret is set (#150)" {
+  # The substring-of-secret guard must not over-redact ordinary short diagnostic
+  # lines that merely happen to be short -- only lines that are an actual
+  # contiguous substring of an injected secret are redacted.
+  export RUNNER_HISTORY_SCRUB_VALUES='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwx=='
+  out=$(printf 'ok\nWorker_1 started\nexit 0\n' | runner_history_scrub_secrets)
+  [[ "${out}" == *'Worker_1 started'* ]] || { echo "benign line over-redacted: ${out}"; return 1; }
+  [[ "${out}" == *'exit 0'* ]]
+  [[ "${out}" != *'[REDACTED]'* ]] || { echo "benign content was redacted: ${out}"; return 1; }
+}
+
 # --- #146 value redaction must never put the secret on an external proc argv ---
 
 @test "runner_history_scrub_secrets never places a secret VALUE on an external sed argv (#146)" {

@@ -180,7 +180,23 @@ runner_history_scrub_secrets() {
   # sed; only the value-literal arms move off argv.
   sed -E -e "${key_rule}" | while IFS= read -r line || [[ -n "${line}" ]]; do
     for val in "${vals[@]}"; do
+      # 1) Whole-line literal pass: redact every in-line occurrence of the value.
       line=${line//"${val}"/[REDACTED]}
+      # 2) Fragment pass (#150): the literal pass above is line-bounded, so a
+      #    hostile step that prints the credential split across a newline
+      #    (`echo "${JITCONFIG:0:30}"; echo "${JITCONFIG:30}"`, or `fold -w64`)
+      #    defeats it -- no single line equals the whole value. But each emitted
+      #    fragment is itself a CONTIGUOUS substring of the secret, so redact any
+      #    line that is a long-enough substring of the value. A whole-buffer slurp
+      #    would NOT help: splitting inserts a real '\n' between fragments, so the
+      #    value is no longer contiguous in the buffer; the substring-of-secret
+      #    test on each line is what closes it. The 16-char floor avoids
+      #    over-redacting benign short lines that coincidentally appear in the
+      #    credential's alphabet.
+      if [[ ${#line} -ge 16 && "${val}" == *"${line}"* ]]; then
+        line='[REDACTED]'
+        break
+      fi
     done
     printf '%s\n' "${line}"
   done
