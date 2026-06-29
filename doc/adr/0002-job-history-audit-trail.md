@@ -1,6 +1,6 @@
 # 0002 — Job history / audit trail for ephemeral runners
 
-- **Status**: accepted
+- **Status**: accepted (amended 2026-06-29, #154)
 - **Date**: 2026-06-23
 
 ## Context
@@ -29,7 +29,12 @@ local store, with a management/query tool and bounded retention.
   - **Ledger** (append-only): job id, scale set / labels, image + digest, host,
     runner type, device(s), start / end, duration, exit status, trigger (repo /
     workflow / commit / actor). **Never the JIT config / any secret.**
-  - **Archive**: full container stdout/stderr + the runner `_diag` logs.
+  - **Per-job record** (#154): the trusted, redacted ledger line mirrored into
+    `jobs/<id>/record.tsv` — the only per-job artifact retention prunes and the
+    push seam ships.
+  - ~~**Archive**: full container stdout/stderr + the runner `_diag` logs.~~
+    **Superseded by #154 (see below): the durable store no longer ingests any
+    attacker-controlled raw job output.**
 - **Storage**: under `RUNNER_HOME/history/` (+ ledger lines mirrored to
   journald). A **pluggable push seam is reserved** for shipping to an external
   store (Loki / ELK / object storage) later; local is the v1 default.
@@ -39,6 +44,45 @@ local store, with a management/query tool and bounded retention.
 - **Retention**: bounded by **both a size cap (GB) and an age (days)**,
   oldest-first eviction, reusing the `schedule-cleanup.sh` harness. Defaults
   configurable (e.g. 20 GB / 30 days).
+
+## Amendment (#154) — the durable store keeps only TRUSTED metadata
+
+The original decision archived **full container stdout/stderr + the runner
+`_diag` logs**. A red-team round (#140, #141, #143, #145, #146, #149, #150,
+#151, #152, #153) showed this is **not safely achievable**: that data is *fully
+attacker-controlled* (the job writes its own stdout/stderr, and `_diag` lives
+inside the read-write `/runner` bind mount — content **and** file/dir names), so
+"archive it but scrub the secrets first" is a non-convergent arms race. Each
+content/name scrubber was bypassed by a new encoding (cross-line splits,
+sub-16-char chunks, path-component chunking, bare values, symlink swaps), and one
+scrub even put the live credential back on a host `sed` argv (#146).
+
+The resolution is to fix the **root cause**, not add another scrub pass:
+
+- **The durable store never ingests attacker-controlled raw streams.** The
+  container's stdout/stderr is **not** durably persisted on the host — its
+  authoritative copy already lives in GitHub's job console log (~90 days). This
+  *supersedes* the "archive full container stdout/stderr" intent above, and the
+  fragile content/name scrubbers are **deleted**.
+- **`_diag` is captured only from a trusted, non-job-writable path, safely** (no
+  symlink follow, anchored strictly under `RUNNER_HOME`, attacker-chosen names
+  neutralised, treated as sensitive). In today's architecture the only `_diag`
+  available lives *inside* the job-writable `/runner` mount, so there is **no
+  trusted source** — and per policy we **prefer not capturing it** over capturing
+  it unsafely. So `_diag` is not archived either.
+- **The push hook ships only the trusted ledger metadata** — never raw job
+  output, never anything the job could have written. The whole store is `0700`.
+- **Credential reachability:** the enforced boundary is "the JIT credential must
+  not survive teardown or leave the container." We accept that the single-use
+  container's sole tenant can read its own already-redeemed credential; what we
+  guarantee is that it reaches **no host-side durable sink** — neither the
+  history store nor the listener's journald stdout (the container run's output is
+  sent to `/dev/null`, not forwarded to provision-job's stdout).
+
+Net: the durable store now holds **only trusted metadata** (ledger + per-job
+`record.tsv`). Forensic "logs" are deferred to GitHub's console log; the
+self-hosted execution context (host / image+digest / runner type / device /
+outcome / trigger) is fully retained in the ledger.
 
 ## Considered options
 
