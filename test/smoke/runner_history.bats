@@ -332,6 +332,65 @@ LEAK
   [ -f "${RUNNER_HISTORY_DIR}/jobs/job-benign/_diag/sub/Runner_2.log" ]
 }
 
+# --- #152 _diag filename scrubber must have a fragment pass like content -----
+
+@test "runner_history_archive scrubs a secret a hostile job CHUNKED across _diag path components (#152)" {
+  # The single-use JIT config the runner injects into RUNNER_HISTORY_SCRUB_VALUES
+  # is a base64 blob of ~1-2 KB -- far larger than NAME_MAX (255). A hostile job
+  # cannot encode it in a single filename, so it splits it into < NAME_MAX chunks
+  # and nests them as empty dirs/files:
+  #   mkdir -p /runner/_diag/<chunk1>/<chunk2>/...; : > /runner/_diag/.../<chunkN>
+  # The whole-value substitution in runner_history_scrub_name operates on the FULL
+  # rel path (chunk1/chunk2/...): because the secret has no '/' and the inserted
+  # separators break contiguity across components, the whole value never appears
+  # as a substring of rel and the substitution never fires. The credential then
+  # survives VERBATIM as durable path components, reassembled by stripping '/'
+  # (`ls -R`/`find`) long after the container was --rm'd. The name scrubber needs
+  # the same per-component FRAGMENT pass the content scrubber got in #150.
+  rdir=$(mktemp -d)
+  mkdir -p "${rdir}/_diag"
+  # A credential larger than NAME_MAX so it MUST be chunked to land on disk.
+  local secret; secret=$(head -c 600 /dev/zero | tr '\0' 'A')
+  secret="${secret}JITxTAILx0123456789=="
+  export RUNNER_HISTORY_SCRUB_VALUES="${secret}"
+  # Encode the secret as nested 200-char path components (each < NAME_MAX).
+  local s="${secret}" rel="" comp
+  while [[ -n "${s}" ]]; do
+    comp="${s:0:200}"
+    rel="${rel}${rel:+/}${comp}"
+    s="${s:200}"
+  done
+  mkdir -p "${rdir}/_diag/${rel}"
+  : > "${rdir}/_diag/${rel}/x.log"
+
+  runner_history_archive job-chunk "" "${rdir}"
+
+  # The live JIT credential must not be reconstructable from the durable store.
+  # Reassemble every archived path with its '/' separators stripped (exactly what
+  # an attacker does post-teardown) and assert the contiguous secret is gone.
+  local p joined
+  while IFS= read -r p; do
+    joined=${p//\//}
+    [[ "${joined}" != *"${secret}"* ]] || {
+      echo "secret reconstructable from path: ${p}"; return 1;
+    }
+  done < <(find "${RUNNER_HISTORY_DIR}/jobs/job-chunk" -mindepth 1)
+  # The benign archive root still exists (the fix does not gut the store).
+  [ -d "${RUNNER_HISTORY_DIR}/jobs/job-chunk/_diag" ]
+}
+
+@test "runner_history_scrub_name leaks no IFS/parts into the calling shell (#152)" {
+  # The fix splits rel on '/'; that local IFS/read -a state must not escape into
+  # the surrounding shell or it would corrupt later word splitting.
+  local before_ifs="${IFS:-unset}"
+  export RUNNER_HISTORY_SCRUB_VALUES="someverylongsecretvalue0123456789"
+  runner_history_scrub_name "a/b/c" >/dev/null
+  [ "${IFS:-unset}" = "${before_ifs}" ]
+  # Word splitting still uses the default IFS after the call.
+  set -- $(printf 'one two three')
+  [ "$#" -eq 3 ]
+}
+
 # --- #139 path-reserved job id must not escape the jobs/ subtree ----------
 
 @test "runner_history_safe_id never yields a path-reserved token (#139)" {

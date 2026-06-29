@@ -223,19 +223,50 @@ runner_history_scrub_secrets() {
 # sanitised rel.
 runner_history_scrub_name() {
   local rel=$1 val
-  # Literal redaction of every LIVE secret value the runner injected. The
-  # substitution is literal (not regex), so a metacharacter or the path
-  # separator in the credential cannot subvert it; pure-bash, so the value never
-  # reaches an external argv (#146).
-  while IFS= read -r val; do
-    [[ ${#val} -ge 6 ]] || continue
-    rel=${rel//"${val}"/[REDACTED]}
-  done <<< "${RUNNER_HISTORY_SCRUB_VALUES:-}"
+  # PER-COMPONENT scrub (#152). The injected JIT credential is a ~1-2 KB base64
+  # blob, far larger than NAME_MAX (255), so a hostile job cannot encode it in a
+  # single filename -- it CHUNKS it across nested path components
+  # (`mkdir -p _diag/<c1>/<c2>/...`). A whole-rel substitution can never match
+  # such a secret: the value has no '/', but the chunk boundaries insert real
+  # '/' separators, so the contiguous value never appears as a substring of the
+  # joined `rel` and the substitution silently no-ops -- the credential then
+  # survives VERBATIM as durable path components, reassembled by stripping '/'.
+  # The content scrubber closed the identical split-secret evasion in #150 with a
+  # FRAGMENT pass; the name scrubber needs the same, applied to EACH component so
+  # the '/' boundaries that break whole-value contiguity are exactly the per-
+  # component test's edges. Split on '/' with a function-local IFS so the split
+  # state never leaks into the caller's word splitting.
+  local IFS='/' part p out=() joined
+  read -r -a part <<< "${rel}"
+  for p in "${part[@]}"; do
+    # Literal redaction of every LIVE secret value the runner injected. Literal
+    # (not regex), so a metacharacter in the credential cannot subvert it; pure
+    # bash, so the value never reaches an external argv (#146). Reads on a
+    # DIFFERENT, function-local IFS via the herestring's own IFS= reset below.
+    while IFS= read -r val; do
+      [[ ${#val} -ge 6 ]] || continue
+      # 1) Whole-value pass: redact an in-component occurrence of the value (a
+      #    short secret that still fits in one filename, the #149 case).
+      p=${p//"${val}"/[REDACTED]}
+      # 2) Fragment pass (mirrors content scrubber #150, lines 196-199): a chunk
+      #    encoded as a component is itself a CONTIGUOUS slice of the secret, so
+      #    redact any component that is a long-enough substring of the value. The
+      #    16-char floor avoids over-redacting benign short names that happen to
+      #    appear in the credential's base64 alphabet.
+      if [[ ${#p} -ge 16 && "${val}" == *"${p}"* ]]; then
+        p='[REDACTED]'
+        break
+      fi
+    done <<< "${RUNNER_HISTORY_SCRUB_VALUES:-}"
+    out+=("${p}")
+  done
+  # Rejoin on '/' (IFS is '/' here, so "${out[*]}" joins with the separator).
+  joined="${out[*]}"
   # Neutralise control bytes (newline/tab/NUL-adjacent control chars) a hostile
   # name might carry as an alternate encoding channel; '/' is preserved so the
   # tree structure is kept, but each control byte becomes '_'.
-  rel=${rel//[[:cntrl:]]/_}
-  printf '%s' "${rel}"
+  joined=${joined//[[:cntrl:]]/_}
+  printf '%s' "${joined}"
 }
 
 # Archive a job's container stdout/stderr and runner _diag logs into its per-job
