@@ -272,6 +272,41 @@ EOF
   [[ "${output}" != *TOPSECRETHOSTFILE* ]]
 }
 
+@test "provision-job.sh scrubs the JIT credential from its own stdout/journald, at parity with the history store (#151)" {
+  # A hostile job step prints the single-use JIT credential to stdout (`echo
+  # "$JITCONFIG"`). provision-job cats the captured container log to its OWN
+  # stdout, which the Go provisioner mirrors to the listener's systemd journal
+  # -- a durable, never-torn-down host sink. That stdout MUST be scrubbed with
+  # the same value-redaction the durable history-store copy gets, so the
+  # credential never survives verbatim in journald while the sibling archive is
+  # redacted (#141/#143). Regression for the journald-vs-history scrub gap.
+  secret='ENCODEDxJITxCREDENTIALxSURVIVESxJOURNALD=='
+  cat >"${STUB}/docker" <<EOF
+#!/usr/bin/env bash
+echo "name=docker" >> "${CAP}"
+printf '%s\n' "\$@" >> "${CAP}"
+# Hostile step prints the single-use JIT credential straight to stdout.
+echo "${secret}"
+exit \${CLI_RC:-0}
+EOF
+  chmod +x "${STUB}/docker"
+  jf=$(jit_file "${secret}")
+  run "${SCRIPT}" job-jitcred "${jf}" img
+  [ "${status}" -eq 0 ]
+  # provision-job's own stdout (journald) must NOT carry the raw credential.
+  # Asserted with [[ ]] so a violation aborts (a bare `! grep` is exempt from
+  # set -e mid-body).
+  [[ "${output}" != *"${secret}"* ]]
+  # The redaction marker proves the line was passed through the scrubber, not
+  # merely dropped.
+  [[ "${output}" == *REDACTED* ]]
+  # Parity: the durable history-store copy is redacted too.
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-jitcred/job.log" ]
+  run cat "${RUNNER_HISTORY_DIR}/jobs/job-jitcred/job.log"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"${secret}"* ]]
+}
+
 @test "provision-job.sh never writes the JIT config into the history store (#124 redaction)" {
   jf=$(jit_file 'ENCODEDxJITxSECRETx==')
   run "${SCRIPT}" job-red "${jf}" img

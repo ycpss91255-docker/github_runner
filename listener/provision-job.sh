@@ -116,15 +116,32 @@ trap 'rm -rf "${runner_dir}" "${job_log}"' EXIT
 status=0
 runner_container_run_bounded "${runner_dir}" "${encoded}" "${image}" "${job_id}" \
   > "${job_log}" 2>&1 || status=$?
-cat -- "${job_log}" || true
 
-# Defence-in-depth value redaction (#143): a hostile step can print the single-
-# use JIT credential as a BARE value with no KEY= prefix (`printenv JITCONFIG` /
-# `echo "$JITCONFIG"`), which the key-anchored history scrubber (#140/#141)
-# cannot match. Hand the LIVE credential value to the scrubber so it is redacted
-# LITERALLY wherever it appears in the captured job.log / _diag, before either
-# reaches the durable, never-torn-down history store (or the external push seam).
+# Defence-in-depth value redaction (#143/#151): a hostile step can print the
+# single-use JIT credential as a BARE value with no KEY= prefix (`printenv
+# JITCONFIG` / `echo "$JITCONFIG"`), which the key-anchored history scrubber
+# (#140/#141) cannot match. Hand the LIVE credential value to the scrubber so it
+# is redacted LITERALLY wherever it appears in the captured job.log / _diag,
+# before either reaches the durable, never-torn-down history store (or the
+# external push seam).
+#
+# Armed HERE -- BEFORE the log is echoed below (#151) -- because provision-job's
+# OWN stdout is a durable sink too: the Go provisioner sets cmd.Stdout =
+# os.Stdout (provisioner.go) and the listener runs as a systemd unit whose
+# stdout/stderr journald captures durably and never tears down (the same sink
+# the symlink guard above (#145) already protects). Echoing the RAW log first
+# (the old line ordering) leaked the credential verbatim into journald while the
+# sibling history-store copy was redacted -- a journald-vs-history scrub gap.
 export RUNNER_HISTORY_SCRUB_VALUES="${encoded}"
+
+# Echo the captured log to our own stdout so the listener still sees the job
+# output -- but through the SAME secret scrubber the durable history archive
+# uses (runner-history.sh), so the journald sink is treated identically to the
+# history store (#151). The key-anchored rule + the live-value redaction above
+# strip the JIT credential and known secret shapes before they reach journald.
+# Fail-open to a plain cat only if the scrubber itself errors, so a scrub bug
+# never silently swallows the job's console output.
+runner_history_scrub_secrets < "${job_log}" 2>/dev/null || cat -- "${job_log}" || true
 
 # Capture-before-teardown hook (ADR-0002, #123): write the ledger record (#124,
 # secrets redacted), archive the container log + runner _diag (#125), and run the
