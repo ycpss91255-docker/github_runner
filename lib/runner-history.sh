@@ -83,9 +83,22 @@ runner_history_job_dir() {
 # name (jit / token / secret / credential / password) is DROPPED rather than
 # written, so a careless caller cannot leak a credential into the audit trail.
 #   runner_history_record <job_id> KEY=VALUE [KEY=VALUE ...]
+# Create the history store root with 0700 perms (#149 defence in depth). The
+# durable archive holds scrubbed-but-untrusted job output; even after name +
+# content scrubbing it must not be world-listable, so a local unprivileged user
+# cannot traverse jobs/ and read what landed there. Restricting the root to 0700
+# denies traversal into the whole subtree (a child needs +x on every ancestor),
+# so this single chmod hardens the entire store. Best-effort: a chmod failure is
+# swallowed so it can never block capture/teardown.
+runner_history_mkstore() {
+  mkdir -p "${RUNNER_HISTORY_DIR}" || return 1
+  chmod 0700 "${RUNNER_HISTORY_DIR}" 2>/dev/null || true
+  return 0
+}
+
 runner_history_record() {
   local job_id=$1; shift
-  mkdir -p "${RUNNER_HISTORY_DIR}"
+  runner_history_mkstore || mkdir -p "${RUNNER_HISTORY_DIR}"
   local ts line kv k v
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   # The leading, fixed columns: a write timestamp + the job id, so every line is
@@ -173,6 +186,42 @@ runner_history_scrub_secrets() {
   done
 }
 
+# Secret-pattern scrubber for archived _diag PATH COMPONENTS -- filenames and
+# dirnames (#149). The _diag subtree is bind-mounted READ-WRITE into the job
+# container at /runner, so a hostile job can encode a harvested secret (the
+# single-use JIT credential, or any workflow secret it holds) into the *names*
+# of empty/benign _diag files, chunked under NAME_MAX. The content scrubber
+# (#140/#141/#143) only ever inspects file CONTENT (its stdin), so a secret that
+# lives in the path component slips past it entirely and lands VERBATIM in the
+# durable, never-torn-down store -- reassembled by any local user via `ls -R`
+# long after the container was --rm'd. So filenames are UNTRUSTED job output too
+# and must be redacted exactly like content.
+#
+# This applies the SAME literal value redaction the content scrubber uses
+# (RUNNER_HISTORY_SCRUB_VALUES, newline-separated; values <6 chars skipped so a
+# 1-2 char string is not destructively stripped) to the relative path, in PURE
+# BASH so the credential never lands on a subprocess argv (/proc/<pid>/cmdline,
+# #146). It then neutralises control bytes (the chunk-encoding channel can carry
+# raw bytes) so an unknown secret cannot be smuggled through them either. Benign
+# diagnostic names pass through untouched. Reads the rel path as $1, prints the
+# sanitised rel.
+runner_history_scrub_name() {
+  local rel=$1 val
+  # Literal redaction of every LIVE secret value the runner injected. The
+  # substitution is literal (not regex), so a metacharacter or the path
+  # separator in the credential cannot subvert it; pure-bash, so the value never
+  # reaches an external argv (#146).
+  while IFS= read -r val; do
+    [[ ${#val} -ge 6 ]] || continue
+    rel=${rel//"${val}"/[REDACTED]}
+  done <<< "${RUNNER_HISTORY_SCRUB_VALUES:-}"
+  # Neutralise control bytes (newline/tab/NUL-adjacent control chars) a hostile
+  # name might carry as an alternate encoding channel; '/' is preserved so the
+  # tree structure is kept, but each control byte becomes '_'.
+  rel=${rel//[[:cntrl:]]/_}
+  printf '%s' "${rel}"
+}
+
 # Archive a job's container stdout/stderr and runner _diag logs into its per-job
 # history dir, keyed by job id (#125), BEFORE the container/temp dir is removed.
 #   runner_history_archive <job_id> <job_log> <runner_dir>
@@ -191,6 +240,8 @@ runner_history_scrub_secrets() {
 runner_history_archive() {
   local job_id=$1 job_log=${2:-} runner_dir=${3:-} dest
   dest=$(runner_history_job_dir "${job_id}")
+  # Ensure the store root is 0700 before populating it (#149 defence in depth).
+  runner_history_mkstore
   mkdir -p "${dest}" || { echo "history: cannot create ${dest}" >&2; return 0; }
   # job_log is re-opened BY PATH here, so a SYMLINK at that path would be followed
   # into the HOST namespace -- reading an arbitrary host file VERBATIM into the
@@ -229,6 +280,12 @@ runner_history_archive_diag() {
   # ever scrub real files, so a planted symlink cannot redirect the copy.
   while IFS= read -r -d '' path; do
     rel=${path#"${src}"/}
+    # FILENAMES/DIRNAMES are attacker-controlled job output too (#149): redact
+    # any injected secret value and neutralise control bytes BEFORE the name is
+    # used as a literal path, so a credential the job chunk-encoded into _diag
+    # names cannot survive as a durable path component. The redacted name is the
+    # destination for BOTH dir and file passes, so parents stay consistent.
+    rel=$(runner_history_scrub_name "${rel}")
     if [[ -d "${path}" ]]; then
       mkdir -p "${dest}/${rel}" || return 1
     elif [[ -f "${path}" ]]; then

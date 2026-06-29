@@ -245,6 +245,53 @@ LEAK
   fi
 }
 
+# --- #149 _diag FILENAMES are attacker-controlled job output: scrub names too ---
+
+@test "runner_history_archive scrubs a secret a hostile job encoded into _diag FILENAMES (#149)" {
+  # _diag is bind-mounted READ-WRITE into the job container at /runner, so a
+  # hostile job can encode the single-use JIT credential into _diag *filenames*
+  # (and dirnames) with EMPTY/benign bodies -- the content scrubber (#140) never
+  # sees the secret because it lives in the path component, not the file content.
+  # The archive recreates the tree as `rel=${path#src/}` -> `${dest}/${rel}`, so
+  # without name scrubbing the credential survives VERBATIM as a path component
+  # in the durable, never-torn-down store, reassembled by any local user via
+  # `ls -R` long after the container was --rm'd. The runner injected the live
+  # credential, so it can redact that value from names exactly as it does from
+  # content.
+  rdir=$(mktemp -d)
+  mkdir -p "${rdir}/_diag"
+  local secret='ENCODEDxJITxBAREVALUE0123456789=='
+  export RUNNER_HISTORY_SCRUB_VALUES="${secret}"
+  # The secret smuggled as a filename AND as a dirname (empty/benign bodies).
+  : > "${rdir}/_diag/leak-${secret}.log"
+  mkdir -p "${rdir}/_diag/d-${secret}"
+  : > "${rdir}/_diag/d-${secret}/x.log"
+
+  runner_history_archive job-fname "" "${rdir}"
+
+  # The live JIT credential must not survive anywhere under the store -- neither
+  # in file CONTENTS nor as a path component (filename / dirname).
+  ! grep -rqF "${secret}" "${RUNNER_HISTORY_DIR}"
+  found=$(find "${RUNNER_HISTORY_DIR}" -path "*${secret}*")
+  [ -z "${found}" ] || { echo "secret survived as a path component: ${found}"; return 1; }
+  # Benign forensics still land (the archive is not gutted).
+  [ -d "${RUNNER_HISTORY_DIR}/jobs/job-fname/_diag" ]
+}
+
+@test "runner_history_archive preserves benign _diag filenames verbatim (#149)" {
+  # Name scrubbing must only redact the injected secret value -- ordinary
+  # diagnostic names survive so real forensics are kept.
+  rdir=$(mktemp -d)
+  mkdir -p "${rdir}/_diag/sub"
+  echo "diag" > "${rdir}/_diag/Worker_1.log"
+  echo "more" > "${rdir}/_diag/sub/Runner_2.log"
+
+  runner_history_archive job-benign "" "${rdir}"
+
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-benign/_diag/Worker_1.log" ]
+  [ -f "${RUNNER_HISTORY_DIR}/jobs/job-benign/_diag/sub/Runner_2.log" ]
+}
+
 # --- #139 path-reserved job id must not escape the jobs/ subtree ----------
 
 @test "runner_history_safe_id never yields a path-reserved token (#139)" {
