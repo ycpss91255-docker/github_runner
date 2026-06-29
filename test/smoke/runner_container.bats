@@ -109,6 +109,41 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   [ ! -e "${RUNNER_DIR}/.jitconfig.env" ]
 }
 
+# --- #142 the RETURN credential-cleanup trap must not execute injected commands ---
+
+@test "runner_container_run does NOT execute injected commands from a quote-bearing dir via the RETURN trap (#142)" {
+  # The per-job dir name embeds the (only-control-char-stripped) scale-set JobID
+  # verbatim (mktemp -d jit-<job_id>.XXXXXX). A no-slash payload bearing a single
+  # quote survives canonicalJobID + os.MkdirTemp and lands here as `dir`. The
+  # credential-cleanup RETURN trap derives env_file from `dir`; if it splices the
+  # value into a code string, the embedded quote breaks out and the trailing
+  # `; <cmd> #` runs ON THE HOST when the function returns. Assert it does not.
+  make_cli docker
+  local marker="${FAKE_RH}/pwned_host_marker"
+  [ ! -e "${marker}" ]
+  # A real per-job dir whose name carries the single-quote breakout payload, just
+  # as mktemp would create it from a hostile JobID. Its parent (FAKE_RH) exists,
+  # so the sibling env-file write succeeds exactly as in the real flow.
+  local evil_dir="${FAKE_RH}/jit-x'; touch ${marker} #.AbCdEf"
+  mkdir -p "${evil_dir}"
+  run runner_container_run "${evil_dir}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # The RETURN trap fired on return; the injected `touch` must NOT have run.
+  [ ! -e "${marker}" ]
+}
+
+@test "runner_container_run still shreds the JIT env-file on return for a quote-bearing dir (#142/#136)" {
+  # The fix must keep the #136/#140 invariant: the single-use credential file is
+  # removed when the function returns, even for an unusual (quote-bearing) dir.
+  make_cli docker
+  local evil_dir="${FAKE_RH}/jit-y'; :  #.GhIjKl"
+  mkdir -p "${evil_dir}"
+  run runner_container_run "${evil_dir}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # The sibling env-file (dir + .jitconfig.env) must not survive the return.
+  [ ! -e "${evil_dir}.jitconfig.env" ]
+}
+
 @test "runner_container_run runs the requested image" {
   make_cli docker
   run runner_container_run "${RUNNER_DIR}" ENC my/image:tag

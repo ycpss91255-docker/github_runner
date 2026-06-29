@@ -202,8 +202,22 @@ runner_container_run() {
   printf 'JITCONFIG=%s\n' "${encoded}" >"${env_file}"
   # Shred the sibling env-file when this function returns, by ANY path, so the
   # single-use credential never lingers on disk past the container's run.
-  # shellcheck disable=SC2064
-  trap "rm -f -- '${env_file}'" RETURN
+  #
+  # The trap action MUST embed the path as code, because `env_file` is a function
+  # LOCAL and bash runs a RETURN trap in the CALLER's scope (the bounded wrapper),
+  # where the local is already gone -- a deferred `"${env_file}"` would hit
+  # `set -u` "unbound variable" and abort the job. So the path is expanded now;
+  # the danger is that `dir` (hence env_file) embeds the only-control-char-
+  # stripped scale-set JobID verbatim (mktemp -d jit-<job_id>.XXXXXX). A path
+  # spliced inside single quotes in a double-quoted trap let a `'` in a hostile
+  # JobID close the quoting so a trailing `; <cmd> #` ran on the HOST when the
+  # trap fired (#142). printf %q renders the path in a re-parse-safe form
+  # (quotes, ;, space, $(...) all escaped), so the trap is exactly one `rm`
+  # argument and no attacker data is ever parsed as a command.
+  local env_file_q
+  printf -v env_file_q '%q' "${env_file}"
+  # shellcheck disable=SC2064  # expand NOW (local not in scope on RETURN); %q-safe
+  trap "rm -f -- ${env_file_q}" RETURN
 
   # The in-container command. $JITCONFIG is expanded by the CONTAINER's shell
   # (set there from --env-file), so this string is kept literal on the host --
