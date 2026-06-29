@@ -129,10 +129,30 @@ runner_history_journal() {
 # in KEY=VALUE or KEY: VALUE form), replacing the value with a fixed marker so
 # the forensic line is retained but the secret is not. Benign diagnostic lines
 # pass through untouched. Reads stdin, writes scrubbed stdout.
+#
+# VALUE-anchored redaction (#143): the key-anchored rule above only catches
+# KEY=VALUE / KEY:VALUE shapes. A hostile step can print the single-use JIT
+# credential as a BARE value with NO key (`printenv JITCONFIG` / `echo
+# "$JITCONFIG"` emit only the encoded string), which the key rule cannot match.
+# So the runner hands the LIVE secret value(s) it injected to the scrubber via
+# RUNNER_HISTORY_SCRUB_VALUES (newline-separated); each is redacted LITERALLY
+# wherever it appears, regardless of any surrounding key. Every non-alphanumeric
+# byte in the value is backslash-escaped so the value is matched as a literal --
+# a regex metacharacter (or the '/' delimiter) in the credential cannot subvert
+# the substitution. Very short values are skipped: the seam carries a single
+# high-entropy credential, and redacting a 1-2 char string across a whole log
+# would be destructive without protecting anything real.
 runner_history_scrub_secrets() {
   # ERE, case-insensitive: a secret-ish key token immediately followed by a
   # '=' or ':' delimiter, then the (greedy) value to end-of-line -> redacted.
-  sed -E 's/((jitconfig|token|secret|credential|password|passwd|api[_-]?key)[^=:[:space:]]*[[:space:]]*[=:])[[:space:]]*.*$/\1 [REDACTED]/I'
+  local -a sed_args=(-E -e 's/((jitconfig|token|secret|credential|password|passwd|api[_-]?key)[^=:[:space:]]*[[:space:]]*[=:])[[:space:]]*.*$/\1 [REDACTED]/I')
+  local val esc
+  while IFS= read -r val; do
+    [[ ${#val} -ge 6 ]] || continue
+    esc=$(printf '%s' "${val}" | sed -e 's/[^[:alnum:]]/\\&/g')
+    sed_args+=(-e "s/${esc}/[REDACTED]/g")
+  done <<< "${RUNNER_HISTORY_SCRUB_VALUES:-}"
+  sed "${sed_args[@]}"
 }
 
 # Archive a job's container stdout/stderr and runner _diag logs into its per-job

@@ -99,6 +99,14 @@ runner_container_run_bounded "${runner_dir}" "${encoded}" "${image}" "${job_id}"
   > "${job_log}" 2>&1 || status=$?
 cat -- "${job_log}" || true
 
+# Defence-in-depth value redaction (#143): a hostile step can print the single-
+# use JIT credential as a BARE value with no KEY= prefix (`printenv JITCONFIG` /
+# `echo "$JITCONFIG"`), which the key-anchored history scrubber (#140/#141)
+# cannot match. Hand the LIVE credential value to the scrubber so it is redacted
+# LITERALLY wherever it appears in the captured job.log / _diag, before either
+# reaches the durable, never-torn-down history store (or the external push seam).
+export RUNNER_HISTORY_SCRUB_VALUES="${encoded}"
+
 # Capture-before-teardown hook (ADR-0002, #123): write the ledger record (#124,
 # secrets redacted), archive the container log + runner _diag (#125), and run the
 # external-push seam (#128) -- BEST-EFFORT, so a capture failure is logged and

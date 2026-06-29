@@ -151,6 +151,47 @@ LEAK
   ! grep -q 'hunter2value'                 "${archived}"
 }
 
+# --- #143 bare-value JIT credential leak: redact known secret VALUES too ---
+
+@test "runner_history_scrub_secrets redacts a known secret VALUE with no KEY= prefix (#143)" {
+  # The key-anchored scrubber (#140/#141) only matches KEY=VALUE / KEY:VALUE
+  # forms. A hostile step can print the single-use JIT credential as a BARE
+  # value with NO key (`printenv JITCONFIG` / `echo "$JITCONFIG"` emit only the
+  # encoded string), which that rule cannot catch. The runner hands the LIVE
+  # secret value(s) it injected to the scrubber via RUNNER_HISTORY_SCRUB_VALUES
+  # (newline-separated); each is redacted LITERALLY wherever it appears -- even
+  # if it embeds regex metacharacters or the sed delimiter '/'.
+  # The value deliberately carries regex metacharacters and the sed delimiter
+  # '/' but NO secret-ish key token, so ONLY value-based redaction can catch it
+  # (the key-anchored rule must not match it by coincidence).
+  export RUNNER_HISTORY_SCRUB_VALUES='a.b*c[d]+e/f-XYZ987=='
+  out=$(printf 'bare a.b*c[d]+e/f-XYZ987== here\nfield=a.b*c[d]+e/f-XYZ987==\nbenign line\n' \
+        | runner_history_scrub_secrets)
+  # The literal secret value must be gone from BOTH the bare and key-prefixed
+  # occurrences, and the benign line must survive.
+  [[ "${out}" != *'a.b*c[d]+e/f-XYZ987=='* ]] || { echo "secret value survived: ${out}"; return 1; }
+  [[ "${out}" == *'benign line'* ]]
+}
+
+@test "runner_history_archive redacts a bare JIT credential printed to job_log (#143)" {
+  # `printenv JITCONFIG` prints ONLY the encoded credential, no KEY= prefix --
+  # the most direct leak of the single-use JIT config. With the live value
+  # exported, the archive must redact it before job.log lands in the durable,
+  # never-torn-down history store.
+  export RUNNER_HISTORY_SCRUB_VALUES='ENCODEDxJITxBAREVALUE/+=='
+  cat > "${STORE}/captured.log" <<'LEAK'
+ENCODEDxJITxBAREVALUE/+==
+benign console output line
+LEAK
+
+  runner_history_archive job-bare "${STORE}/captured.log" ""
+
+  archived="${RUNNER_HISTORY_DIR}/jobs/job-bare/job.log"
+  [ -f "${archived}" ]
+  grep -q 'benign console output line' "${archived}"
+  ! grep -qF 'ENCODEDxJITxBAREVALUE/+==' "${archived}"
+}
+
 # --- #139 path-reserved job id must not escape the jobs/ subtree ----------
 
 @test "runner_history_safe_id never yields a path-reserved token (#139)" {
