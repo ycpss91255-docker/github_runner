@@ -8,8 +8,40 @@
 # RUNNER_HOME holds the tarball cache (.bin/) and per-target runner install
 # dirs (<org>/_org/, <owner>/<repo>/). It defaults to <repo_root>/runners/
 # (i.e. alongside this checkout) so a single clone owns all runner state
-# without polluting $HOME. Override with RUNNER_HOME=... before invoking
-# any script to install runners elsewhere.
+# without polluting $HOME. Set it with the --runner-home <path> CLI option,
+# the RUNNER_HOME=... env var, or leave it to the default -- precedence is
+# option > env > default.
+#
+# common.sh is sourced at the top of every script while the script's raw CLI
+# args are still its positional parameters ($@) -- BEFORE the per-script arg
+# parser runs in main(). So the option is resolved here, at the same single
+# source-time chokepoint that validates and freezes RUNNER_HOME (SEC-3 below),
+# rather than in each script's parser (which runs too late: RUNNER_HOME is
+# already readonly and SETUP_CONF / layout constants are derived from it).
+#
+# Scan "$@" for --runner-home <path>: capture its value into RUNNER_HOME_OPT
+# and rebuild the positional params WITHOUT the consumed flag+value, so each
+# script's own parser never sees it (no "unknown option") and needs no change.
+RUNNER_HOME_OPT=""
+_runner_home_kept=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --runner-home)
+      [[ $# -ge 2 ]] || { echo "FATAL: --runner-home requires a path argument" >&2; exit 1; }
+      RUNNER_HOME_OPT="$2"
+      shift 2
+      ;;
+    *) _runner_home_kept+=("$1"); shift ;;
+  esac
+done
+set -- ${_runner_home_kept[@]+"${_runner_home_kept[@]}"}
+unset _runner_home_kept
+
+# Precedence: the option overrides the env var, which overrides the default.
+if [[ -n "${RUNNER_HOME_OPT}" ]]; then
+  RUNNER_HOME="${RUNNER_HOME_OPT}"
+fi
+unset RUNNER_HOME_OPT
 if [[ -z "${RUNNER_HOME:-}" ]]; then
   RUNNER_HOME="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/runners"
 fi
