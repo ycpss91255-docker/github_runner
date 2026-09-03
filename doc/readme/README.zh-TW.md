@@ -162,9 +162,8 @@ Public repo 的 workflow 在 self-hosted runner 上 dispatch，GitHub 有兩個
 開關需同時對齊：
 
 1. **外部貢獻者 approval gate**（org Settings → Actions → General →
-   「Require approval for all outside collaborators」）。依 ADR-0011 Public
-   repo security 設定。擋住 fork PR 在 runner 上任意執行 code，直到
-   maintainer 按「Approve and run」。
+   「Require approval for all outside collaborators」）。擋住 fork PR 在
+   runner 上任意執行 code，直到 maintainer 按「Approve and run」。
 2. **Runner group `allows_public_repositories` flag**（各 org 的 Default
    group）。GitHub 2024 起預設 `false`，會把 public repo 的 workflow
    永遠卡在 queued 狀態 — runner 顯示 `online` + idle 但實際不接 job。
@@ -352,9 +351,6 @@ on-call 對照表:把 `status.sh` 的每個狀態(`offline` / `not-found` / `n/a
 
 ## 參考資料
 
-- [ADR-0011] — 原始 CI 架構（已修訂）
-- [ADR-0012] — research org 切分 + dual org-level runner（本 repo 實作其
-  tooling section）
 - GitHub docs：[Adding self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners)
 - GitHub docs：[Security hardening for self-hosted runners](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#hardening-for-self-hosted-runners)
 
@@ -363,6 +359,4 @@ on-call 對照表:把 `status.sh` 的每個狀態(`offline` / `not-found` / `n/a
 [Apache-2.0](../../LICENSE) — 與 [ycpss91255-docker/base] 以及 org 內其他
 repo 一致。
 
-[ADR-0011]: https://github.com/ycpss91255-research/isaac/blob/main/doc/adr/0011-ci-architecture-with-self-hosted-gpu-runner.md
-[ADR-0012]: https://github.com/ycpss91255-research/isaac/blob/main/doc/adr/0012-research-org-split-dual-org-runners.md
 [ycpss91255-docker/base]: https://github.com/ycpss91255-docker/base
