@@ -12,6 +12,7 @@ package listener
 import (
 	"context"
 	"log"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,12 @@ import (
 // defaultReapInterval is how often the periodic orphan sweep runs (#105) when
 // a Reaper is configured but no interval is set.
 const defaultReapInterval = 5 * time.Minute
+
+// defaultSettleWindow is how long reactive admission waits before re-probing
+// when the host is at/over the reserve line (#163): long enough for a just-
+// started job to begin showing in the lagging loadavg, short enough not to stall
+// throughput. Overridable via Config.SettleWindow (tests use milliseconds).
+const defaultSettleWindow = 3 * time.Second
 
 // defaultPoolBound is the worker-pool ceiling used when no MaxRunners is
 // configured -- a sane, conservative concurrency default so an unconfigured
@@ -212,6 +219,14 @@ type Listener struct {
 	wg       sync.WaitGroup
 	inFlight atomic.Int64 // jobs currently being provisioned (locally derived capacity, #102)
 
+	// Reactive live-admission (ADR-0005, #163): when probe is set, each job is
+	// admitted only while every resource keeps reserve headroom free; settle is
+	// how long admission waits before re-probing at/over the line. Nil probe =
+	// the fixed/device ceiling path (probe-less).
+	probe   HostProbe
+	reserve float64 // fraction in [0,1]; the per-resource headroom kept free
+	settle  time.Duration
+
 	trackedMu sync.Mutex     // guards tracked
 	tracked   map[string]int // canonical job id -> count of in-flight jobs sharing it (spared by the reaper, #105/#147)
 }
@@ -222,6 +237,14 @@ type Listener struct {
 // sized to it.
 func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) *Listener {
 	bound := resolveBound(cfg)
+	reserve := float64(defaultReservePercent) / 100
+	if cfg.Reserve > 0 {
+		reserve = float64(cfg.Reserve) / 100
+	}
+	settle := cfg.SettleWindow
+	if settle <= 0 {
+		settle = defaultSettleWindow
+	}
 	return &Listener{
 		session: session,
 		minter:  minter,
@@ -229,6 +252,9 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 		cfg:     cfg,
 		bound:   bound,
 		sem:     make(chan struct{}, bound),
+		probe:   cfg.HostProbe,
+		reserve: reserve,
+		settle:  settle,
 		tracked: make(map[string]int),
 	}
 }
@@ -238,7 +264,9 @@ func New(session Session, minter JITConfigMinter, prov Provisioner, cfg Config) 
 //  1. an explicit Config.MaxRunners (> 0) -- an operator override always wins;
 //  2. otherwise the auto-detected host device count, when a DeviceDetector is
 //     supplied and reports a positive count;
-//  3. otherwise defaultPoolBound -- the sane fallback when detection is absent,
+//  3. a reactive type (HostProbe set) sizes the SAFETY ceiling from the host CPU
+//     count -- the reactive gate is the real limiter, this only bounds goroutines;
+//  4. otherwise defaultPoolBound -- the sane fallback when detection is absent,
 //     errors, or reports a non-positive count (a zero bound would offer no
 //     capacity and never run a job).
 func resolveBound(cfg Config) int {
@@ -247,6 +275,11 @@ func resolveBound(cfg Config) int {
 	}
 	if cfg.DeviceDetector != nil {
 		if n, err := cfg.DeviceDetector.DetectDevices(); err == nil && n > 0 {
+			return n
+		}
+	}
+	if cfg.HostProbe != nil {
+		if n := runtime.NumCPU(); n > 0 {
 			return n
 		}
 	}
@@ -390,6 +423,13 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 // job is tracked on the WaitGroup so a clean shutdown drains them.
 func (l *Listener) provision(ctx context.Context, reqs []ProvisionRequest) {
 	for _, req := range reqs {
+		// Reactive gate (ADR-0005, #163): a single message can carry a whole
+		// matrix, so the per-poll capacity report cannot brake mid-batch -- this
+		// does. Block until the host has reserve headroom for one more job, or
+		// bail out cleanly on shutdown. No-op for probe-less (device/fixed) types.
+		if l.probe != nil && !l.admitOne(ctx) {
+			return
+		}
 		// Acquire a worker slot (back-pressure when the pool is full). Honour
 		// cancellation so shutdown does not block forever waiting for a slot.
 		select {
@@ -592,16 +632,47 @@ func (l *Listener) startReaper(ctx context.Context) (stop func()) {
 	return func() { <-done }
 }
 
-// capacityFor is the spare-runner count to offer GitHub: the pool bound less
-// the given local in-flight count (#102), clamped to [0, bound]. It is computed
-// purely from local occupancy -- never the server's TotalAssignedJobs -- so the
-// reported headroom is exactly what this host can still run. An over-subscribed
-// count (more in-flight than the bound, which the semaphore prevents anyway)
-// clamps to 0 rather than going negative.
+// capacityFor is the spare-runner count to offer GitHub. For a reactive type it
+// is derived from a live probe (ADR-0005, #163): how many more jobs fit while
+// every resource keeps reserve headroom, capped by the safety ceiling -- a batch
+// far from the line, 1 near it (source-level serialization), 0 over it, and a
+// conservative 1 if the probe fails (never 0, which would starve). Otherwise it
+// is the pool bound less the local in-flight count (#102), clamped to [0, bound],
+// computed purely from local occupancy -- never the server's TotalAssignedJobs.
 func (l *Listener) capacityFor(inFlight int) int {
+	if l.probe != nil {
+		h, err := l.probe.Probe(context.Background())
+		if err != nil {
+			return 1
+		}
+		return admitCount(h, inFlight, l.reserve, l.bound)
+	}
 	spare := l.bound - inFlight
 	if spare < 0 {
 		return 0
 	}
 	return spare
+}
+
+// admitOne is the per-job reactive gate (#163): it blocks until admitting one
+// more job keeps every resource at/above the reserve, re-probing after a settle
+// window while the host is at/over the line (near-line serialization). It fails
+// safe -- a probe error admits (the semaphore ceiling is the backstop, and
+// stranding acquired work is worse than a brief over-admit). It returns false
+// only when the context is cancelled, so a shutdown never blocks on a full host.
+func (l *Listener) admitOne(ctx context.Context) bool {
+	for {
+		h, err := l.probe.Probe(ctx)
+		if err != nil {
+			return true
+		}
+		if admits(h, int(l.inFlight.Load()), l.reserve) {
+			return true
+		}
+		select {
+		case <-time.After(l.settle):
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
