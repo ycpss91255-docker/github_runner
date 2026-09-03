@@ -3,6 +3,7 @@ package listener
 import (
 	"context"
 	"fmt"
+	"math"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -97,6 +98,42 @@ func (p CommandHostProbe) Probe(ctx context.Context) (HostResources, error) {
 		},
 		Footprint: 1 / nproc,
 	}, nil
+}
+
+// Binding returns the scarcest resource and its free fraction -- the constraint
+// that gates admission -- for logging which resource is binding (#159 Q1a).
+func (h HostResources) Binding() (Resource, float64) {
+	var res Resource
+	free := math.Inf(1)
+	for r, f := range h.Free {
+		if f < free {
+			res, free = r, f
+		}
+	}
+	return res, free
+}
+
+// admits reports whether admitting ONE more job keeps every resource at or
+// above the reserve, counting the job being admitted. CPU is discounted by
+// (inFlight+1)*footprint because loadavg LAGS a burst (#163): jobs that just
+// started are not yet in the 1-minute average, so their load is predicted from
+// the in-flight count. Memory is instantaneous (a started job shows in the very
+// next MemAvailable) so it is checked raw.
+func admits(h HostResources, inFlight int, reserve float64) bool {
+	cpuOK := h.Free[ResourceCPU]-float64(inFlight+1)*h.Footprint >= reserve
+	memOK := h.Free[ResourceMem] >= reserve
+	return cpuOK && memOK
+}
+
+// admitCount returns how many ADDITIONAL jobs can be admitted now without any
+// resource crossing the reserve, clamped to ceiling. It walks up from the
+// current in-flight count so the coarse CPU footprint compounds per job.
+func admitCount(h HostResources, inFlight int, reserve float64, ceiling int) int {
+	n := 0
+	for n < ceiling && admits(h, inFlight+n, reserve) {
+		n++
+	}
+	return n
 }
 
 // clamp01 bounds x to [0,1] so a transient load spike above the core count
