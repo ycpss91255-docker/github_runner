@@ -18,7 +18,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	"github.com/actions/scaleset"
@@ -39,7 +38,7 @@ func envOr(key, fallback string) string {
 // type. When typeName is empty it must resolve unambiguously -- exactly one type
 // in the file -- otherwise the operator must name which type this listener
 // serves (one listener process serves one homogeneous scale set, ADR-0001).
-func selectInstance(path, typeName string, det listener.DeviceDetector) (listener.Instance, error) {
+func selectInstance(path, typeName string, deps listener.InstanceDeps) (listener.Instance, error) {
 	types, err := listener.LoadConfig(path)
 	if err != nil {
 		return listener.Instance{}, err
@@ -48,11 +47,11 @@ func selectInstance(path, typeName string, det listener.DeviceDetector) (listene
 		if len(types) != 1 {
 			return listener.Instance{}, fmt.Errorf("RUNNER_TYPE must name one of %d configured runner types", len(types))
 		}
-		return types[0].Instance(det), nil
+		return types[0].Instance(deps), nil
 	}
 	for _, rt := range types {
 		if rt.Name == typeName {
-			return rt.Instance(det), nil
+			return rt.Instance(deps), nil
 		}
 	}
 	return listener.Instance{}, fmt.Errorf("no runner type named %q in %s", typeName, path)
@@ -71,22 +70,27 @@ func main() {
 		log.Fatal("set GITHUB_CONFIG_URL and GITHUB_TOKEN")
 	}
 
-	// The GPU/auto-size detector (#103/#113): one line per device from the
-	// enumeration command (default nvidia-smi -L). A detection failure falls
-	// back to the listener's default bound, so a host without the tool still
-	// runs. Always available so an auto-concurrency runner type can size to it.
+	// Host-inspection seams shared across runner types:
+	//   - the GPU/device detector (#103/#113): one line per device from the
+	//     enumeration command (default nvidia-smi -L), sizing a mode: auto type;
+	//   - the reactive host probe (ADR-0005, #163): live per-resource headroom
+	//     from host-probe.sh, driving reactive live-admission for the default types.
+	// A missing tool falls back to the listener's conservative default bound.
 	detector := listener.DeviceDetector(listener.CommandDeviceDetector{Name: envOr("DEVICE_DETECT_CMD", "nvidia-smi")})
+	hostProbe := listener.HostProbe(listener.CommandHostProbe{Name: envOr("HOST_PROBE_CMD", "host-probe.sh")})
+	deps := listener.InstanceDeps{Detector: detector, HostProbe: hostProbe}
 
 	// Per-runner-type config (#110/#112): when RUNNER_TYPES_CONFIG is set, the Go
 	// loader is the authoritative parser (ADR-0003). The selected runner type
 	// (RUNNER_TYPE, or the sole type when there is exactly one) drives the scale
 	// set, image and concurrency -- so adding/serving a second type is a config
 	// entry, not a code change. Without it, the listener falls back to the
-	// discrete SCALE_SET_NAME / RUNNER_IMAGE / MAX_RUNNERS env knobs.
+	// discrete SCALE_SET_NAME / RUNNER_IMAGE env knobs (reactive by default;
+	// AUTO_SIZE_DEVICES opts into device sizing).
 	var (
 		scaleSetName string
 		image        string
-		maxRunners   int
+		reserve      int
 		// Per-type provisioning fields carried across the widened shell-out
 		// (#117/#119): devices for precise --device passthrough, the hardening
 		// posture, and the daemonless build tool. Empty in the discrete-env path.
@@ -95,33 +99,29 @@ func main() {
 		buildTool        string
 	)
 	if cfgPath := os.Getenv("RUNNER_TYPES_CONFIG"); cfgPath != "" {
-		inst, err := selectInstance(cfgPath, os.Getenv("RUNNER_TYPE"), detector)
+		inst, err := selectInstance(cfgPath, os.Getenv("RUNNER_TYPE"), deps)
 		if err != nil {
 			log.Fatalf("runner-type config: %v", err)
 		}
 		scaleSetName = inst.ScaleSet
 		image = inst.Config.Image
-		maxRunners = inst.Config.MaxRunners
 		devices = inst.Config.Devices
 		hardeningProfile = inst.Config.HardeningProfile
 		buildTool = inst.Config.BuildTool
-		if inst.Config.DeviceDetector == nil {
-			// A fixed-concurrency type pins MaxRunners and must not be auto-sized.
-			detector = nil
-		}
+		reserve = inst.Config.Reserve
+		// Carry exactly the seam this type resolved to: a device-sized (GPU) type
+		// gets the detector and no probe; a reactive type gets the probe and no
+		// detector.
+		detector = inst.Config.DeviceDetector
+		hostProbe = inst.Config.HostProbe
 		log.Printf("runner type %q -> scale set %q (labels=%v)", inst.Name, inst.ScaleSet, inst.Labels)
 	} else {
 		scaleSetName = os.Getenv("SCALE_SET_NAME") // the workflows' runs-on target
 		image = envOr("RUNNER_IMAGE", "ghcr.io/actions/actions-runner:latest")
-		if v := os.Getenv("MAX_RUNNERS"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				log.Fatalf("MAX_RUNNERS must be an integer: %v", err)
-			}
-			maxRunners = n
-		}
-		// In the discrete-env path, auto-size only when explicitly asked.
-		if os.Getenv("AUTO_SIZE_DEVICES") == "" {
+		// Reactive by default; AUTO_SIZE_DEVICES opts into device sizing instead.
+		if os.Getenv("AUTO_SIZE_DEVICES") != "" {
+			hostProbe = nil
+		} else {
 			detector = nil
 		}
 	}
@@ -161,8 +161,9 @@ func main() {
 	// to stderr, which journald captures when this runs as a systemd unit.
 	l := listener.New(session, minter, prov, listener.Config{
 		Image:            image,
-		MaxRunners:       maxRunners,
 		DeviceDetector:   detector,
+		HostProbe:        hostProbe,
+		Reserve:          reserve,
 		Reaper:           reaper,
 		Devices:          devices,
 		HardeningProfile: hardeningProfile,

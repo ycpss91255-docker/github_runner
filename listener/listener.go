@@ -126,12 +126,33 @@ type DeviceDetector interface {
 	DetectDevices() (int, error)
 }
 
+// HostProbe reads the host's current free headroom per resource. Unlike
+// DeviceDetector (call-once sizing), it is called once per admission decision so
+// reactive live-admission (ADR-0005, #163) can gate each job against a live
+// reading. The production implementation is a thin shell-out; tests inject a
+// stub.
+type HostProbe interface {
+	Probe(ctx context.Context) (HostResources, error)
+}
+
 // Config holds the listener's static knobs.
 type Config struct {
 	// DeviceDetector, when set and no explicit MaxRunners overrides it,
 	// auto-sizes the worker-pool bound from the detected device count (#103).
 	// A detection error or a non-positive count falls back to defaultPoolBound.
 	DeviceDetector DeviceDetector
+	// HostProbe, when set, drives reactive live-admission (ADR-0005, #163): the
+	// listener admits each job only while every resource keeps Reserve headroom
+	// free. Mutually exclusive with DeviceDetector (a type is reactive OR
+	// device-sized). Nil = no reactive gate.
+	HostProbe HostProbe
+	// Reserve is the percent of each resource reactive admission keeps free.
+	// Zero falls back to defaultReservePercent. Ignored when HostProbe is nil.
+	Reserve int
+	// SettleWindow is how long admission waits before re-probing when the host is
+	// at/over the reserve line (near-line serialization, #163). Zero falls back
+	// to defaultSettleWindow. Ignored when HostProbe is nil.
+	SettleWindow time.Duration
 	// Reaper, when set, sweeps orphaned containers on startup and on
 	// ReapInterval (#105), sparing the listener's currently-tracked jobs. Nil
 	// disables reaping.

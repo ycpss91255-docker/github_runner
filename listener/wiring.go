@@ -25,23 +25,33 @@ type Instance struct {
 	Config Config
 }
 
+// InstanceDeps are the shared host-inspection seams wired into every instance:
+// the GPU device detector for mode: auto types, and the reactive host probe for
+// the default (reactive live-admission) types. Either may be nil, in which case
+// the listener falls back to its conservative default bound.
+type InstanceDeps struct {
+	Detector  DeviceDetector
+	HostProbe HostProbe
+}
+
 // Instance maps this runner type to its scale-set listener inputs. Concurrency
-// is resolved here: a fixed mode pins Config.MaxRunners to the count (an
-// operator override that always wins); auto mode leaves MaxRunners 0 and
-// attaches det so the listener sizes the pool from detected host capacity
-// (#113: GPU count). det may be nil for an auto type, in which case the
-// listener falls back to its conservative default bound.
-func (rt RunnerType) Instance(det DeviceDetector) Instance {
+// is resolved here: mode: auto attaches the device detector so the listener
+// sizes the pool from detected host capacity (#113: GPU count); the default
+// (reactive) attaches the host probe and carries the reserve so the listener
+// admits each job against live headroom (ADR-0005, #163). There is no fixed
+// operator count -- the concurrent-runner number is derived, not configured.
+func (rt RunnerType) Instance(deps InstanceDeps) Instance {
 	cfg := Config{
 		Image:            rt.Image,
 		Devices:          rt.Devices,
 		HardeningProfile: rt.HardeningProfile,
 		BuildTool:        rt.BuildTool,
 	}
-	if rt.Concurrency.Auto() {
-		cfg.DeviceDetector = det
+	if rt.Concurrency.DeviceSized() {
+		cfg.DeviceDetector = deps.Detector
 	} else {
-		cfg.MaxRunners = rt.Concurrency.Count
+		cfg.HostProbe = deps.HostProbe
+		cfg.Reserve = rt.Concurrency.Reserve
 	}
 	return Instance{
 		Name:     rt.Name,
@@ -52,14 +62,14 @@ func (rt RunnerType) Instance(det DeviceDetector) Instance {
 }
 
 // Instances maps every loaded runner type to its scale-set listener inputs,
-// sharing one device detector across the auto-sized types. The result is one
+// sharing one set of host-inspection deps across all types. The result is one
 // Instance per type, each independently bound to its own scale set, image and
 // concurrency -- the basis for running multiple types side by side from a
 // single config file.
-func Instances(types []RunnerType, det DeviceDetector) []Instance {
+func Instances(types []RunnerType, deps InstanceDeps) []Instance {
 	insts := make([]Instance, 0, len(types))
 	for _, rt := range types {
-		insts = append(insts, rt.Instance(det))
+		insts = append(insts, rt.Instance(deps))
 	}
 	return insts
 }
