@@ -26,6 +26,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `add-runner.sh` now defaults to the ephemeral / scale-set path; the legacy
   persistent `config.sh`-once + `svc.sh` systemd runner is kept behind an
   explicit `--persistent` opt-in. (#84)
+- CI / tooling entry ported from `make` to a root `justfile`, mirroring the
+  base repo (which migrated its self-test entry to `just`). `just lint` /
+  `test` / `check` / `coverage` / `pull` (+ `lint-host` / `test-host`) replace
+  the `Makefile.ci` targets verbatim, and the listener build/install
+  (`just build-listener` / `install-listener`) replaces the top-level
+  `Makefile`; image pins stay overridable and the kcov `seccomp=unconfined`
+  ptrace flags carry over unchanged. Both makefiles are removed. (#78)
 
 ### Security
 

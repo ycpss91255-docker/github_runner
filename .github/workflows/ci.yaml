@@ -21,19 +21,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: shellcheck
-        run: make -f Makefile.ci lint
+        run: just lint
 
   bats:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: bats smoke
-        run: make -f Makefile.ci test
+        run: just test
 
   go:
     # Containerized Go build + vet + test for the listener module (#129),
@@ -58,10 +62,10 @@ jobs:
     # main push picks up the coverage signal for Codecov.
     #
     # continue-on-error: coverage is a METRIC, never a gate. It runs in the
-    # Debian kcov image (Makefile.ci's COVERAGE_IMAGE), which diverges from
+    # Debian kcov image (the justfile's COVERAGE_IMAGE), which diverges from
     # the alpine test-tools image the `bats` job uses: a known subset of
     # source-the-script tests deterministically misbehaves under kcov's
-    # ptrace in the full suite (they pass under `make test` and in
+    # ptrace in the full suite (they pass under `just test` and in
     # isolation). Per base/self-test.yaml, a coverage hiccup must never turn
     # the workflow — and therefore the CI badge — red, so the whole job is
     # allowed to fail without failing the run.
@@ -70,8 +74,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: run kcov coverage
-        run: make -f Makefile.ci coverage
+        run: just coverage
       - name: upload to Codecov
         # fail_ci_if_error: false mirrors base/self-test.yaml — a Codecov
         # upload glitch (or a missing token on forks) must not fail the job.

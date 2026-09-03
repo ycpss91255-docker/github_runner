@@ -1,6 +1,6 @@
 [Unit]
 # systemd unit for the scale-set listener (ADR-0001 Phase 4 deployment, #109).
-# Supervises the host binary built/installed by `make install-listener` (#108).
+# Supervises the host binary built/installed by `just install-listener` (#108).
 Description=GitHub scale-set ephemeral runner listener
 Documentation=https://github.com/ycpss91255-docker/github_runner
 # The listener provisions per-job containers (podman/docker), so start after the

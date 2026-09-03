@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # Static invariants of the self-built runner-image Dockerfiles (#120 base, #121
 # GPU). These guard the supply-chain + reproducibility promises WITHOUT building
-# a real image (the actual `docker build` is exercised by the make/CI gate):
+# a real image (the actual `docker build` is exercised by the just/CI gate):
 #   * the base bakes in the SEC-5-verified tarball from the build context and
 #     NEVER downloads a runner tarball itself,
 #   * every FROM is pinned by digest (no floating :latest baked in),

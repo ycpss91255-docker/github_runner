@@ -186,10 +186,10 @@ installed.
 
 ```sh
 # Build the static binary (containerized; reproducible, CGO off):
-make build-listener            # -> bin/scaleset-listener
+just build-listener            # -> bin/scaleset-listener
 
 # Install binary + provision-job.sh + reap.sh + lib/ to PREFIX:
-sudo make install-listener PREFIX=/opt/github-runner-listener
+sudo just PREFIX=/opt/github-runner-listener install-listener
 ```
 
 The install preserves the sibling layout the listener shells out against:

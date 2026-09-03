@@ -144,29 +144,29 @@ bats + shellcheck + hadolint, same image used by `ycpss91255-docker/base`).
 Coverage runs inside `kcov/kcov` (Debian, ships `kcov`; `bats` is
 apt-installed at run time). Local and CI runs share the same images.
 
-The Makefile is named `Makefile.ci` (no top-level `Makefile`) to match the
-base repo convention -- always invoke with `-f Makefile.ci`:
+The self-test entry is a root `justfile`, matching the base repo convention
+(base migrated its self-test entry to `just`):
 
 ```bash
-make -f Makefile.ci pull       # pull test-tools + kcov images (once)
-make -f Makefile.ci lint       # shellcheck on all scripts (in docker)
-make -f Makefile.ci test       # bats smoke tests (in docker)
-make -f Makefile.ci check      # lint + test (no coverage)
-make -f Makefile.ci coverage   # bats with kcov coverage -> ./coverage/
-make -f Makefile.ci help       # list targets
+just pull       # pull test-tools + kcov images (once)
+just lint       # shellcheck on all scripts (in docker)
+just test       # bats smoke tests (in docker)
+just check      # lint + test (no coverage)
+just coverage   # bats with kcov coverage -> ./coverage/
+just            # list recipes
 ```
 
 If you prefer to run on the host (requires `shellcheck` / `bats` installed
 locally):
 
 ```bash
-make -f Makefile.ci lint-host
-make -f Makefile.ci test-host
+just lint-host
+just test-host
 ```
 
-CI mirrors `make -f Makefile.ci lint` + `test` on every push / PR and
-`coverage` on push-to-main only (kcov is 2-5x slower than plain bats, so
-coverage is reserved for release-quality signal). Codecov upload uses the
+CI mirrors `just lint` + `test` on every push / PR and `coverage` on
+push-to-main only (kcov is 2-5x slower than plain bats, so coverage is
+reserved for release-quality signal). Codecov upload uses the
 `CODECOV_TOKEN` repo secret.
 
 ## Security model

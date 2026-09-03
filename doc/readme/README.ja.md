@@ -140,23 +140,23 @@ runner の登録時に、オプションの設定ファイル `${RUNNER_HOME}/se
 （Debian、`kcov` 同梱；`bats` は実行時に apt インストール）。ローカルと
 CI で同じイメージを共有します。
 
-Makefile は `Makefile.ci` にリネーム（top-level の `Makefile` なし）。
-base リポジトリの慣例に合わせて常に `-f Makefile.ci` 経由で呼び出します。
+self-test のエントリは root `justfile` です。base リポジトリの慣例に合わせ
+ています（base も self-test エントリを `just` へ移行済み）。
 
 ```bash
-make -f Makefile.ci pull       # test-tools + kcov イメージを pull（初回）
-make -f Makefile.ci lint       # shellcheck（docker 内）
-make -f Makefile.ci test       # bats smoke tests（docker 内）
-make -f Makefile.ci check      # lint + test（coverage を含まない）
-make -f Makefile.ci coverage   # bats + kcov カバレッジ → ./coverage/
-make -f Makefile.ci help       # ターゲット一覧
+just pull       # test-tools + kcov イメージを pull（初回）
+just lint       # shellcheck（docker 内）
+just test       # bats smoke tests（docker 内）
+just check      # lint + test（coverage を含まない）
+just coverage   # bats + kcov カバレッジ → ./coverage/
+just            # recipe 一覧
 ```
 
 ホスト直接実行（`shellcheck` / `bats` のローカルインストールが必要）：
 
 ```bash
-make -f Makefile.ci lint-host
-make -f Makefile.ci test-host
+just lint-host
+just test-host
 ```
 
 CI は push / PR ごとに `lint` + `test` を実行し、**main への push 時のみ
