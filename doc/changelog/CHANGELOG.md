@@ -87,6 +87,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- README self-containment (#83): removed the ADR-0011 / ADR-0012 (and the
+  stray ADR-0001) citations from all four READMEs -- the Security model now
+  explains the two GitHub knobs (outside-collaborator approval gate +
+  `allows_public_repositories`) purely inline, and the References section drops
+  the external `ycpss91255-research/isaac` ADR links, keeping only the GitHub
+  docs. An executable spec (`test/smoke/readme_no_adr_refs.bats`) guards the
+  no-`ADR-00xx` rule going forward.
 - README accuracy + locale sync (#70): the `status.sh` sample output now shows
   the `APPROVAL-GATE` column, the Security model documents that `add-runner.sh
   org` verifies the approval gate before enabling public-repo dispatch (and the
