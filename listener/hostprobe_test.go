@@ -60,3 +60,56 @@ func TestCommandHostProbeErrorsOnMissingOrMalformed(t *testing.T) {
 		})
 	}
 }
+
+// admits gates each resource independently against the reserve. CPU is
+// discounted by (inFlight+1)*footprint because loadavg lags a burst; memory is
+// checked raw. On an 8-core host (footprint 0.125) at reserve 0.10, admitting
+// the k-th extra job keeps CPU free = 1 - (k+1)*0.125, so it holds through
+// inFlight 6 (0.125 free) and refuses at 7 (0.0 free).
+func TestAdmitsGatesEachResource(t *testing.T) {
+	full := HostResources{Free: map[Resource]float64{ResourceCPU: 1.0, ResourceMem: 1.0}, Footprint: 0.125}
+	memTight := HostResources{Free: map[Resource]float64{ResourceCPU: 1.0, ResourceMem: 0.05}, Footprint: 0.125}
+	cases := []struct {
+		name     string
+		h        HostResources
+		inFlight int
+		reserve  float64
+		want     bool
+	}{
+		{"abundant admits", full, 0, 0.10, true},
+		{"cpu just under the line admits", full, 6, 0.10, true},
+		{"cpu at the line refuses", full, 7, 0.10, false},
+		{"memory binding refuses despite free cpu", memTight, 0, 0.10, false},
+	}
+	for _, c := range cases {
+		if got := admits(c.h, c.inFlight, c.reserve); got != c.want {
+			t.Errorf("%s: admits(inFlight=%d) = %v, want %v", c.name, c.inFlight, got, c.want)
+		}
+	}
+}
+
+// admitCount reports how many MORE jobs fit: it walks up from the current
+// in-flight count until the next job would cross the reserve, clamped to the
+// ceiling.
+func TestAdmitCountStopsAtReserveAndCeiling(t *testing.T) {
+	full := HostResources{Free: map[Resource]float64{ResourceCPU: 1.0, ResourceMem: 1.0}, Footprint: 0.125}
+	if got := admitCount(full, 0, 0.10, 100); got != 7 {
+		t.Errorf("admitCount abundant = %d, want 7", got)
+	}
+	if got := admitCount(full, 0, 0.10, 3); got != 3 {
+		t.Errorf("admitCount clamped to ceiling = %d, want 3", got)
+	}
+	if got := admitCount(full, 7, 0.10, 100); got != 0 {
+		t.Errorf("admitCount already at the line = %d, want 0", got)
+	}
+}
+
+// Binding names the scarcest resource and its free fraction, for logging which
+// resource is the constraint (#159 Q1a).
+func TestBindingNamesScarcestResource(t *testing.T) {
+	h := HostResources{Free: map[Resource]float64{ResourceCPU: 0.8, ResourceMem: 0.2}}
+	r, free := h.Binding()
+	if r != ResourceMem || !approxEqual(free, 0.2) {
+		t.Errorf("Binding = (%v, %v), want (mem, 0.2)", r, free)
+	}
+}
