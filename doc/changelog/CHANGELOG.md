@@ -8,6 +8,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`--runner-home <path>` CLI option**: every runner-managing script now
+  accepts the runner-home path as a flag, not only the `RUNNER_HOME` env var.
+  Precedence is option > env > default. Resolved and validated once at the
+  single SEC-3 chokepoint in `lib/common.sh` (a bad path from the flag is
+  refused exactly like a bad env value), so a stale exported `RUNNER_HOME` no
+  longer silently points a script at the wrong place. (#76)
+
 - **Ephemeral / just-in-time (JIT) runner mode** (ADR-0001/0002/0003, PRD #132):
   a Go scale-set listener (official `actions/scaleset`, built in-container so the
   host needs no Go) provisions one fresh single-use container per job, minting
