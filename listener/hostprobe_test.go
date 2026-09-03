@@ -8,6 +8,15 @@ import (
 
 func approxEqual(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
+// stubProbe injects a fixed host reading (or error) so admission behaviour can
+// be exercised without a real host, the HostProbe analog of stubDetector.
+type stubProbe struct {
+	res HostResources
+	err error
+}
+
+func (s stubProbe) Probe(context.Context) (HostResources, error) { return s.res, s.err }
+
 // CommandHostProbe reads raw /proc figures from a thin shell-out (key value
 // lines) and computes the free-headroom fractions in Go (ADR-0003): CPU free =
 // 1 - loadavg1/nproc, memory free = mem_available/mem_total, and one heavy
