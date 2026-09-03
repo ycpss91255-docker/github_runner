@@ -133,23 +133,23 @@ bats + shellcheck + hadolint，跟 `ycpss91255-docker/base` 用同一個 image�
 覆蓋率在 `kcov/kcov` 內跑（Debian，內含 `kcov`；`bats` runtime apt 裝）。
 本機跟 CI 共用相同 image。
 
-Makefile 改名 `Makefile.ci`（無 top-level `Makefile`）對齊 base repo 慣例 —
-都用 `-f Makefile.ci` 呼叫：
+self-test 入口是 root `justfile`，對齊 base repo 慣例（base 已把 self-test
+入口改用 `just`）：
 
 ```bash
-make -f Makefile.ci pull       # 拉 test-tools + kcov image（首次）
-make -f Makefile.ci lint       # shellcheck（在 docker 內）
-make -f Makefile.ci test       # bats smoke tests（在 docker 內）
-make -f Makefile.ci check      # lint + test（不含 coverage）
-make -f Makefile.ci coverage   # bats + kcov 覆蓋率 → ./coverage/
-make -f Makefile.ci help       # 列 targets
+just pull       # 拉 test-tools + kcov image（首次）
+just lint       # shellcheck（在 docker 內）
+just test       # bats smoke tests（在 docker 內）
+just check      # lint + test（不含 coverage）
+just coverage   # bats + kcov 覆蓋率 → ./coverage/
+just            # 列 recipes
 ```
 
 若想直接在 host 跑（需本機已裝 `shellcheck` / `bats`）：
 
 ```bash
-make -f Makefile.ci lint-host
-make -f Makefile.ci test-host
+just lint-host
+just test-host
 ```
 
 CI 每次 push / PR 跑 `lint` + `test`，**push 到 main 才跑 `coverage`**

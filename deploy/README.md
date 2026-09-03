@@ -10,10 +10,10 @@ installed.
 
 ```sh
 # Build the static binary inside a pinned golang container:
-make build-listener                 # -> bin/scaleset-listener
+just build-listener                 # -> bin/scaleset-listener
 
 # Install binary + provision-job.sh + reap.sh + lib/ under PREFIX:
-sudo make install-listener PREFIX=/opt/github-runner-listener
+sudo just PREFIX=/opt/github-runner-listener install-listener
 ```
 
 This lays down a self-contained tree the listener shells out against:
