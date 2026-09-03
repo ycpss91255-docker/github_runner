@@ -171,9 +171,8 @@ Self-hosted runner 上での public リポジトリの workflow ディスパッ�
 
 1. **外部コントリビューター approval gate**（org Settings → Actions →
    General → 「Require approval for all outside collaborators」）。
-   ADR-0011 Public repo security に従って設定。fork PR が runner 上で
-   任意のコードを実行することを、maintainer が「Approve and run」を
-   クリックするまでブロックします。
+   fork PR が runner 上で任意のコードを実行することを、maintainer が
+   「Approve and run」をクリックするまでブロックします。
 2. **Runner group `allows_public_repositories` フラグ**（各 org の
    Default group）。GitHub の 2024 年以降のデフォルトは `false` で、
    runner が `online` + idle に見えても public リポジトリの workflow
@@ -383,9 +382,6 @@ on-call 向け対応表:`status.sh` の各状態(`offline` / `not-found` / `n/a`
 
 ## 参考資料
 
-- [ADR-0011] — 元の CI アーキテクチャ（改訂済み）
-- [ADR-0012] — research org の分離 + dual org-level runner（本リポジト
-  リは tooling セクションの実装）
 - GitHub docs: [Adding self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners)
 - GitHub docs: [Security hardening for self-hosted runners](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#hardening-for-self-hosted-runners)
 
@@ -394,6 +390,4 @@ on-call 向け対応表:`status.sh` の各状態(`offline` / `not-found` / `n/a`
 [Apache-2.0](../../LICENSE) — [ycpss91255-docker/base] および org 内の
 他のリポジトリと整合。
 
-[ADR-0011]: https://github.com/ycpss91255-research/isaac/blob/main/doc/adr/0011-ci-architecture-with-self-hosted-gpu-runner.md
-[ADR-0012]: https://github.com/ycpss91255-research/isaac/blob/main/doc/adr/0012-research-org-split-dual-org-runners.md
 [ycpss91255-docker/base]: https://github.com/ycpss91255-docker/base

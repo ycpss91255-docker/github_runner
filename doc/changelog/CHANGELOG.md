@@ -8,6 +8,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`--runner-home <path>` CLI option**: every runner-managing script now
+  accepts the runner-home path as a flag, not only the `RUNNER_HOME` env var.
+  Precedence is option > env > default. Resolved and validated once at the
+  single SEC-3 chokepoint in `lib/common.sh` (a bad path from the flag is
+  refused exactly like a bad env value), so a stale exported `RUNNER_HOME` no
+  longer silently points a script at the wrong place. (#76)
+
 - **Ephemeral / just-in-time (JIT) runner mode** (ADR-0001/0002/0003, PRD #132):
   a Go scale-set listener (official `actions/scaleset`, built in-container so the
   host needs no Go) provisions one fresh single-use container per job, minting
@@ -87,6 +94,13 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- README self-containment (#83): removed the ADR-0011 / ADR-0012 (and the
+  stray ADR-0001) citations from all four READMEs -- the Security model now
+  explains the two GitHub knobs (outside-collaborator approval gate +
+  `allows_public_repositories`) purely inline, and the References section drops
+  the external `ycpss91255-research/isaac` ADR links, keeping only the GitHub
+  docs. An executable spec (`test/smoke/readme_no_adr_refs.bats`) guards the
+  no-`ADR-00xx` rule going forward.
 - README accuracy + locale sync (#70): the `status.sh` sample output now shows
   the `APPROVAL-GATE` column, the Security model documents that `add-runner.sh
   org` verifies the approval gate before enabling public-repo dispatch (and the

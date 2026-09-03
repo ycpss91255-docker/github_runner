@@ -100,7 +100,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 |---|---|
 | `script/install-deps.sh` | Install the CLI prerequisites (`gh`, `jq`, `curl`, `sudo`) on an apt/Ubuntu host and run `gh auth login`. `-y` accepts every install prompt; `--dry-run` reports what's missing. Docker + the NVIDIA Container Toolkit are assumed already installed. Idempotent |
 | `script/init.sh` | Verify host prerequisites; resolve the actions/runner version (`RUNNER_VERSION=...` override, else the latest release via `gh api`, falling back to a pinned version when `gh` is missing / unauthenticated / offline), then download + cache the tarball into `<repo_root>/runners/.bin/` (i.e. `$RUNNER_HOME/.bin/`). If given a scope arg it also registers the first runner, forwarding it to `add-runner.sh` verbatim: `org <org>`, `repo <owner> <repo>`, or a bare org name as shorthand for the `org` form |
-| `script/add-runner.sh` | Provision a runner. **Default = ephemeral / JIT** ([ADR-0001](doc/adr/0001-ephemeral-jit-runners.md)): `org <org>` / `repo <owner> <repo>` prints the scale-set listener path (one fresh, single-use container per job; no long-lived systemd service) and exits — see [`listener/`](listener/README.md). **`--persistent`** opts into the LEGACY systemd path (`config.sh`-once + `svc.sh install`), which ADR-0001 supersedes; under it, for `org` scope it verifies the outside-collaborator approval gate and flips `allows_public_repositories=true`, **refusing** if the gate is not set unless `--force` is given (see Security model). Labels come from `setup.conf` (default `gpu`) |
+| `script/add-runner.sh` | Provision a runner. **Default = ephemeral / JIT**: `org <org>` / `repo <owner> <repo>` prints the scale-set listener path (one fresh, single-use container per job; no long-lived systemd service) and exits — see [`listener/`](listener/README.md). **`--persistent`** opts into the LEGACY systemd path (`config.sh`-once + `svc.sh install`), which the ephemeral default supersedes; under it, for `org` scope it verifies the outside-collaborator approval gate and flips `allows_public_repositories=true`, **refusing** if the gate is not set unless `--force` is given (see Security model). Labels come from `setup.conf` (default `gpu`) |
 | `script/configure.sh` | Generate / update `${RUNNER_HOME}/setup.conf`. `--labels <csv>` sets the labels for newly registered runners; no args prints the current effective config |
 | `script/set-labels.sh` | Relabel an already-registered runner live via the GitHub API (no remove + re-register). Usage: `org <org> <csv>` or `repo <owner> <repo> <csv>` |
 | `script/remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
@@ -175,9 +175,9 @@ Public-repo dispatch on self-hosted runners has two GitHub knobs that
 matter and must agree:
 
 1. **Outside-collaborator approval gate** (org Settings -> Actions ->
-   General -> "Require approval for all outside collaborators"). Set per
-   ADR-0011 Public repo security. Blocks fork PRs from running arbitrary
-   code on the runner until the maintainer clicks "Approve and run".
+   General -> "Require approval for all outside collaborators"). Blocks
+   fork PRs from running arbitrary code on the runner until the maintainer
+   clicks "Approve and run".
 2. **Runner group `allows_public_repositories` flag** (Default group on
    each org). GitHub's 2024+ default is `false`, which silently keeps
    public-repo workflows queued forever even though the runner shows
@@ -396,9 +396,6 @@ fix: **[doc/runbook/TROUBLESHOOTING.md](doc/runbook/TROUBLESHOOTING.md)**.
 
 ## References
 
-- [ADR-0011] -- original CI architecture (since revised)
-- [ADR-0012] -- research org split + dual org-level runners (this repo
-  implements its tooling section)
 - GitHub docs: [Adding self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners)
 - GitHub docs: [Security hardening for self-hosted runners](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#hardening-for-self-hosted-runners)
 
@@ -407,6 +404,4 @@ fix: **[doc/runbook/TROUBLESHOOTING.md](doc/runbook/TROUBLESHOOTING.md)**.
 [Apache-2.0](./LICENSE) -- aligns with [ycpss91255-docker/base] and the
 rest of the org's repos.
 
-[ADR-0011]: https://github.com/ycpss91255-research/isaac/blob/main/doc/adr/0011-ci-architecture-with-self-hosted-gpu-runner.md
-[ADR-0012]: https://github.com/ycpss91255-research/isaac/blob/main/doc/adr/0012-research-org-split-dual-org-runners.md
 [ycpss91255-docker/base]: https://github.com/ycpss91255-docker/base
