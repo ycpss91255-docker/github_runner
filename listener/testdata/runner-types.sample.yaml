@@ -28,11 +28,18 @@
 #                               gvisor/kata later). Empty = engine default.
 #   build_tool        optional  daemonless image builder (kaniko / buildkit).
 #   hardening_profile optional  container hardening posture (device / default).
-#   concurrency       optional  worker-pool sizing. AUTO BY DEFAULT:
-#                                 mode: auto            size from host capacity
-#                                                       (e.g. GPU count, #113)
-#                                 mode: fixed, count: N pin to N (operator wins)
-#                               Omit the block entirely for auto.
+#   concurrency       optional  worker-pool sizing. REACTIVE BY DEFAULT:
+#                                 (omitted)             reactive live-admission --
+#                                                       admit each job while every
+#                                                       resource keeps >=10% free,
+#                                                       so the count is derived,
+#                                                       not configured (ADR-0005, #163)
+#                                 reserve: N            reactive, keep N% free
+#                                                       (upward-only, minimum 10)
+#                                 mode: auto            size from detected GPU
+#                                                       count (#113; reactive
+#                                                       GPU/VRAM is #164)
+#                               There is no fixed operator count.
 
 runner_types:
   # --- First concrete type: GPU (#113) -------------------------------------
@@ -75,6 +82,9 @@ runner_types:
     labels: [self-hosted, linux, x64, cpu]
     image: ghcr.io/actions/actions-runner@sha256:08c30b0a7105f64bddfc485d2487a22aa03932a791402393352fdf674bda2c29
     hardening_profile: default
+    # Reactive live-admission (ADR-0005, #163): the listener admits each job
+    # while CPU and memory each keep at least reserve% free -- the concurrent
+    # count is derived from live headroom, not pinned. Raise reserve to leave
+    # more room for co-tenant work; omit the block entirely for the 10% default.
     concurrency:
-      mode: fixed
-      count: 4
+      reserve: 10

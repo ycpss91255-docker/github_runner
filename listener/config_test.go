@@ -67,14 +67,14 @@ runner_types:
 	if rt.HardeningProfile != "device" {
 		t.Errorf("HardeningProfile = %q", rt.HardeningProfile)
 	}
-	if !rt.Concurrency.Auto() {
-		t.Errorf("Concurrency should be auto by default")
+	if !rt.Concurrency.DeviceSized() {
+		t.Errorf("mode: auto should be device-sized")
 	}
 }
 
-// Concurrency defaults to auto when the whole concurrency block is omitted (auto
-// by default per ADR-0001).
-func TestLoadConfigConcurrencyDefaultsAuto(t *testing.T) {
+// An omitted concurrency block defaults to reactive live-admission (ADR-0005):
+// not device-sized, and Reserve unset (New applies the default headroom).
+func TestLoadConfigConcurrencyDefaultsReactive(t *testing.T) {
 	path := writeConfig(t, `
 runner_types:
   - name: cpu
@@ -86,13 +86,17 @@ runner_types:
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if !types[0].Concurrency.Auto() {
-		t.Errorf("omitted concurrency should default to auto")
+	c := types[0].Concurrency
+	if c.DeviceSized() {
+		t.Errorf("omitted concurrency should be reactive, not device-sized")
+	}
+	if c.Reserve != 0 {
+		t.Errorf("omitted reserve = %d, want 0 (New applies the default)", c.Reserve)
 	}
 }
 
-// A fixed concurrency value is honoured and is not auto.
-func TestLoadConfigConcurrencyFixed(t *testing.T) {
+// An explicit reserve is honoured and stays reactive (not device-sized).
+func TestLoadConfigConcurrencyReserve(t *testing.T) {
 	path := writeConfig(t, `
 runner_types:
   - name: cpu
@@ -100,19 +104,18 @@ runner_types:
     labels: [self-hosted, cpu]
     image: ghcr.io/actions/actions-runner@sha256:def
     concurrency:
-      mode: fixed
-      count: 4
+      reserve: 20
 `)
 	types, err := LoadConfig(path)
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
 	c := types[0].Concurrency
-	if c.Auto() {
-		t.Errorf("fixed concurrency should not be auto")
+	if c.DeviceSized() {
+		t.Errorf("a reserve-only type should be reactive, not device-sized")
 	}
-	if c.Count != 4 {
-		t.Errorf("Count = %d, want 4", c.Count)
+	if c.Reserve != 20 {
+		t.Errorf("Reserve = %d, want 20", c.Reserve)
 	}
 }
 
@@ -184,14 +187,19 @@ func TestLoadConfigErrors(t *testing.T) {
 			want: "scale set",
 		},
 		{
-			name: "fixed without count",
-			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      mode: fixed\n",
-			want: "count",
+			name: "removed fixed mode is rejected",
+			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      mode: fixed\n      count: 4\n",
+			want: "mode",
 		},
 		{
 			name: "unknown concurrency mode",
 			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      mode: bogus\n",
 			want: "mode",
+		},
+		{
+			name: "reserve below the upward-only minimum",
+			body: "runner_types:\n  - name: cpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      reserve: 5\n",
+			want: "reserve",
 		},
 		{
 			name: "unknown build tool",

@@ -8,6 +8,15 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Reactive live-admission for runner concurrency** (ADR-0005, #163): the
+  listener now admits each job against a live host reading (`host-probe.sh`),
+  keeping a per-resource reserve headroom free (default 10%, the only knob and
+  upward-only), so the concurrent-runner count is derived from live capacity
+  rather than a fixed number. **Breaking:** the `concurrency: { mode: fixed,
+  count: N }` block and the `MAX_RUNNERS` operator env are removed; an empty
+  `concurrency` block is now reactive, and a GPU type opts into device-count
+  sizing with `mode: auto` (reactive GPU/VRAM is the #164 follow-up). (#163, epic #165)
+
 - **`--runner-home <path>` CLI option**: every runner-managing script now
   accepts the runner-home path as a flag, not only the `RUNNER_HOME` env var.
   Precedence is option > env > default. Resolved and validated once at the

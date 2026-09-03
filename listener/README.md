@@ -102,9 +102,9 @@ docker run --rm -e GITHUB_CONFIG_URL -e GITHUB_TOKEN -e SCALE_SET_NAME \
 | `GITHUB_TOKEN` | token with scale-set admin scope (required) |
 | `SCALE_SET_NAME` | the scale set workflows target (required) |
 | `RUNNER_IMAGE` | per-job container image (default `ghcr.io/actions/actions-runner:latest`) |
-| `MAX_RUNNERS` | worker-pool bound; the basis for locally-derived capacity (0 = default / auto-size) |
-| `AUTO_SIZE_DEVICES` | when set (and `MAX_RUNNERS` unset), auto-size the pool to the detected device count (#103) |
+| `AUTO_SIZE_DEVICES` | when set, size the pool to the detected device count (#103) instead of reactive live-admission |
 | `DEVICE_DETECT_CMD` | device-enumeration command for auto-sizing (default `nvidia-smi`, one device per output line) |
+| `HOST_PROBE_CMD` | host reader for reactive live-admission (default `host-probe.sh`; ADR-0005, #163) |
 | `PROVISION_SCRIPT` | path to `provision-job.sh` (default sibling) |
 | `REAP_SCRIPT` | path to `reap.sh`, the orphan-sweep entrypoint (default sibling) |
 
@@ -167,10 +167,14 @@ Pin the builder images by digest in production via `RUNNER_KANIKO_IMAGE` /
 - **Bounded worker pool (#101):** each acquired job provisions in its own
   goroutine gated by a semaphore sized to the pool bound, so the loop keeps
   long-polling; a clean shutdown drains in-flight jobs before teardown.
-- **Locally-derived capacity (#102):** reported headroom is the pool bound
-  minus the *local* in-flight count, not the server's `TotalAssignedJobs`.
-- **Auto-sizing (#103):** with `AUTO_SIZE_DEVICES`, the bound follows the
-  detected device count; otherwise `MAX_RUNNERS`, else a sane default.
+- **Reactive live-admission (ADR-0005, #163):** by default the listener admits
+  each job only while every resource (CPU, memory) keeps a reserve headroom free
+  (default 10%, the one operator knob, upward-only). Reported capacity is the
+  live admittable count; a matrix that would breach the line parks and re-probes.
+  The host reading is `host-probe.sh` (`HOST_PROBE_CMD`).
+- **Auto-sizing (#103):** with `AUTO_SIZE_DEVICES` (or `mode: auto`), the bound
+  follows the detected device count instead of reactive admission; otherwise a
+  sane default. The internal semaphore is only a goroutine safety ceiling.
 - **Reaping (#104/#105/#106):** each container gets a deterministic name +
   `managed-by`/`job-id` labels; the listener sweeps orphaned labelled
   containers and leaked `jit-*` temp dirs on startup and on an interval,

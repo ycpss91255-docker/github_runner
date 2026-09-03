@@ -39,8 +39,8 @@ func TestSampleConfigLoads(t *testing.T) {
 	if gpu.ScaleSet == "" || len(gpu.Devices) == 0 || gpu.Image == "" {
 		t.Errorf("gpu type under-specified: %+v", gpu)
 	}
-	if !gpu.Concurrency.Auto() {
-		t.Error("gpu type should use auto concurrency (= GPU count, #113)")
+	if !gpu.Concurrency.DeviceSized() {
+		t.Error("gpu type should use device-sized concurrency (= GPU count, #113)")
 	}
 }
 
@@ -88,7 +88,7 @@ func TestGPUTypeAutoConcurrencyFromGPUCount(t *testing.T) {
 		}
 	}
 	// Stub the GPU detector at 2 GPUs.
-	inst := gpu.Instance(stubDetector{count: 2})
+	inst := gpu.Instance(InstanceDeps{Detector: stubDetector{count: 2}})
 	l := New(nil, nil, nil, inst.Config)
 	if l.bound != 2 {
 		t.Errorf("GPU pool bound = %d, want 2 (one slot per detected GPU)", l.bound)

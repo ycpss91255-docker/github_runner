@@ -54,12 +54,15 @@ sudo stat -c '%a %U' /etc/github-runner-listener/scaleset-listener.env   # -> 60
 
 ## 3a. (Optional) Register a runner type via the per-type config (#110/#112/#113)
 
-Instead of the discrete `SCALE_SET_NAME` / `RUNNER_IMAGE` / `MAX_RUNNERS` knobs,
-drive the listener from a **runner-type config**. Each entry maps one runner
-type to one homogeneous scale set (labels, image, device passthrough, runtime,
-build tool, hardening profile, auto-sized concurrency); adding a type is a new
-entry, not a code change. The Go listener is the authoritative parser
-([ADR-0003](../doc/adr/0003-go-bash-boundary.md)).
+Instead of the discrete `SCALE_SET_NAME` / `RUNNER_IMAGE` knobs, drive the
+listener from a **runner-type config**. Each entry maps one runner type to one
+homogeneous scale set (labels, image, device passthrough, runtime, build tool,
+hardening profile, concurrency); adding a type is a new entry, not a code change.
+Concurrency is reactive live-admission by default — the count is derived from
+live host headroom, not configured, and the only knob is `reserve` percent
+([ADR-0005](../doc/adr/0005-reactive-live-admission.md)); a GPU type opts into
+device-count sizing with `mode: auto`. The Go listener is the authoritative
+parser ([ADR-0003](../doc/adr/0003-go-bash-boundary.md)).
 
 ```sh
 sudo install -m 0644 deploy/runner-types.sample.yaml \

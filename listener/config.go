@@ -48,25 +48,36 @@ type RunnerType struct {
 }
 
 // Concurrency is a runner type's worker-pool sizing policy. The zero value is
-// auto (auto by default per ADR-0001): an operator opts into a fixed bound only
-// by setting mode: fixed + a count.
+// reactive live-admission (ADR-0005, #163): the listener admits each job
+// against live per-resource headroom, keeping Reserve percent free, so the
+// concurrent-runner count emerges rather than being configured. A GPU type opts
+// into device-count sizing with an explicit mode: auto (#164 covers reactive
+// GPU/VRAM).
 type Concurrency struct {
-	// Mode is "auto" (size from detected host capacity) or "fixed" (use Count).
-	// Empty is treated as auto.
+	// Mode is "auto" (size from a detected host device count -- GPU) or empty
+	// (reactive CPU/RAM live-admission, the default).
 	Mode string `yaml:"mode"`
-	// Count is the fixed worker-pool bound when Mode is "fixed".
-	Count int `yaml:"count"`
+	// Reserve is the percent of each resource to keep free under reactive
+	// admission. Zero means the default (defaultReservePercent); it is
+	// upward-only -- an operator raises it to leave more headroom for co-tenant
+	// work, and values 1..9 are rejected.
+	Reserve int `yaml:"reserve"`
 }
 
-// Auto reports whether this type sizes its pool from host capacity (the
-// default) rather than a fixed count.
-func (c Concurrency) Auto() bool {
-	return c.Mode == "" || c.Mode == concurrencyAuto
+// DeviceSized reports whether this type sizes its pool from a detected device
+// count (mode: auto -- GPU) rather than reactive live-admission (the default).
+func (c Concurrency) DeviceSized() bool {
+	return c.Mode == concurrencyAuto
 }
 
 const (
-	concurrencyAuto  = "auto"
-	concurrencyFixed = "fixed"
+	concurrencyAuto = "auto"
+
+	// defaultReservePercent is the per-resource headroom kept free when a
+	// reactive type does not set Reserve; minReservePercent is the floor an
+	// explicit Reserve may not go below (Reserve is upward-only).
+	defaultReservePercent = 10
+	minReservePercent     = 10
 )
 
 // config is the on-disk YAML document: a single top-level runner_types list.
@@ -160,17 +171,15 @@ func validateBuildTool(tool string) error {
 }
 
 // validateConcurrency checks the per-type concurrency block: the mode must be
-// recognised, and a fixed mode needs a positive count.
+// recognised (empty = reactive, or "auto" = device-sized), and an explicit
+// reserve must be at or above the upward-only minimum. The removed "fixed" mode
+// now fails closed, so a stale config surfaces a clear migration error.
 func validateConcurrency(c Concurrency) error {
-	switch c.Mode {
-	case "", concurrencyAuto:
-		return nil
-	case concurrencyFixed:
-		if c.Count <= 0 {
-			return fmt.Errorf("concurrency mode fixed requires a positive count")
-		}
-		return nil
-	default:
-		return fmt.Errorf("unknown concurrency mode %q (want auto or fixed)", c.Mode)
+	if c.Mode != "" && c.Mode != concurrencyAuto {
+		return fmt.Errorf("unknown concurrency mode %q (want auto, or empty for reactive live-admission)", c.Mode)
 	}
+	if c.Reserve != 0 && c.Reserve < minReservePercent {
+		return fmt.Errorf("concurrency reserve is upward-only, minimum %d (got %d)", minReservePercent, c.Reserve)
+	}
+	return nil
 }
