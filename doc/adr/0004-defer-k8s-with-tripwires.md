@@ -1,6 +1,8 @@
 # 0004 — Defer Kubernetes; stay bespoke now, migrate at defined tripwires
 
-- **Status**: accepted
+> Serves: mechanism, no corresponding invariant
+
+- **Status**: Accepted
 - **Date**: 2026-07-07
 
 ## Context
@@ -68,7 +70,7 @@ Concretely for now:
 - **A jobs** → label-route to the specific device, as today.
 - **Do not adopt k8s/k3s in production yet.**
 
-## Considered options
+## Alternatives
 
 - **Full k8s now** — rejected: over-engineering for 10–20 users / low peak; heavy
   fixed tax with little benefit while A-dominant.

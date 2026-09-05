@@ -1,7 +1,12 @@
 # 0001 — Ephemeral JIT runners via Runner Scale Set Client
 
-- **Status**: accepted — supersedes the persistent systemd-service runner model; implementation is phased. Revised after the security / system / code design review.
+> Serves: Invariant 6 — Each container is responsible for exactly one thing
+
+- **Status**: Accepted
 - **Date**: 2026-06-23
+- **Note**: supersedes the persistent systemd-service runner model;
+  implementation is phased. Revised after the security / system / code design
+  review.
 
 ## Context
 
@@ -91,7 +96,7 @@ hardening profile, auto-sized concurrency }`, mapping to **one GitHub scale set
 per type** (scale sets are homogeneous). Start with the GPU type; adding a type
 is a new config entry, not a code change.
 
-## Considered options
+## Alternatives
 
 - **Stay persistent + cleanup (#77)** — rejected (reduces, never eliminates the
   residue/secret classes).

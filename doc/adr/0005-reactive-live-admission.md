@@ -1,6 +1,8 @@
 # 0005 — Reactive live-admission for runner concurrency
 
-- **Status**: accepted
+> Serves: Invariant 2 — Defaults fall towards safety
+
+- **Status**: Accepted
 - **Date**: 2026-09-03
 
 ## Context
@@ -61,7 +63,7 @@ configured.**
 Empty `concurrency` therefore means reactive (dynamic by default). A GPU type opts
 into device-count sizing with an explicit `mode: auto`.
 
-## Considered options
+## Alternatives
 
 - **Predictive precompute-N.** Compute N up front from host capacity ÷ per-job
   cost and run a fixed pool. Rejected: it needs a per-workload cost table that is
