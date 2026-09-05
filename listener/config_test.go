@@ -219,6 +219,20 @@ func TestLoadConfigErrors(t *testing.T) {
 			want: "reserv",
 		},
 		{
+			// hardening_profile is GONE from the schema. It was pure metadata:
+			// threaded all the way to RUNNER_HARDENING_PROFILE and then never
+			// read by anything, with exactly one hardening baseline in the
+			// container seam, so "device" and "default" differed in nothing. A
+			// knob that promises a posture and changes nothing is the silent
+			// failure this project forbids, so the config must now REJECT it
+			// (strict decoding) and point the operator at a real schema, rather
+			// than keep accepting a field with no behaviour behind it.
+			// Differentiated hardening would come back through an ADR.
+			name: "removed hardening_profile is rejected",
+			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    hardening_profile: device\n",
+			want: "hardening_profile",
+		},
+		{
 			name: "malformed yaml",
 			body: "runner_types: [: : :\n",
 			want: "parse",
