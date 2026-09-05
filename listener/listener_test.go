@@ -166,6 +166,7 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 	l := New(sess, minter, prov, Config{
 		Image:            "ghcr.io/acme/runner:latest",
 		Devices:          []string{"/dev/nvidia0", "/dev/nvidiactl"},
+		Runtime:          "nvidia",
 		HardeningProfile: "device",
 	})
 
@@ -199,6 +200,11 @@ func TestAssignedJobTriggersProvisioner(t *testing.T) {
 	}
 	if got.HardeningProfile != "device" {
 		t.Errorf("provisioner got wrong hardening profile: %q", got.HardeningProfile)
+	}
+	// The type's container runtime shim flows through the same way, so the bash
+	// provisioner can add --runtime to the container run.
+	if got.Runtime != "nvidia" {
+		t.Errorf("provisioner got wrong runtime: %q", got.Runtime)
 	}
 }
 

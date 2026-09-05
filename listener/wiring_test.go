@@ -42,6 +42,11 @@ func TestRunnerTypeToConfigAuto(t *testing.T) {
 	if len(inst.Config.Devices) != 1 || inst.Config.Devices[0] != "/dev/nvidia0" {
 		t.Errorf("Config.Devices = %v, want [/dev/nvidia0]", inst.Config.Devices)
 	}
+	// The type's container runtime shim crosses into the listener Config too, so
+	// the provisioner can turn it into --runtime on the container run.
+	if inst.Config.Runtime != "nvidia" {
+		t.Errorf("Config.Runtime = %q, want nvidia", inst.Config.Runtime)
+	}
 	// The type's hardening profile is carried across too (#114/#115 posture).
 	if inst.Config.HardeningProfile != "device" {
 		t.Errorf("Config.HardeningProfile = %q, want device", inst.Config.HardeningProfile)

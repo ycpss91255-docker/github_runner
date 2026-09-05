@@ -160,6 +160,48 @@ func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
 	}
 }
 
+// The runner type's `runtime:` knob names a container runtime shim (e.g. nvidia
+// for the GPU stack). It crosses the boundary as EXPLICIT environment like the
+// rest of the widened shell-out contract, where the bash provisioner turns it
+// into a `--runtime <value>` argument on the container run.
+func TestContainerProvisionerPassesRuntimeAsEnv(t *testing.T) {
+	capFile := filepath.Join(t.TempDir(), "env")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"RT=[$RUNNER_RUNTIME]\" > '"+capFile+"'\n")
+
+	p := &ContainerProvisioner{Script: script}
+	err := p.Provision(context.Background(), ProvisionRequest{
+		JobID:            "job-rt",
+		EncodedJITConfig: "ENC",
+		Image:            "img",
+		Runtime:          "nvidia",
+	})
+	if err != nil {
+		t.Fatalf("Provision returned error: %v", err)
+	}
+	got, rerr := os.ReadFile(capFile)
+	if rerr != nil {
+		t.Fatalf("read capture: %v", rerr)
+	}
+	if strings.TrimSpace(string(got)) != "RT=[nvidia]" {
+		t.Errorf("RUNNER_RUNTIME not passed through: %q", string(got))
+	}
+}
+
+// A type that declares no runtime exports an EMPTY RUNNER_RUNTIME, so the bash
+// provisioner adds no --runtime and the engine default stays in force.
+func TestContainerProvisionerEmptyRuntimeByDefault(t *testing.T) {
+	capFile := filepath.Join(t.TempDir(), "env")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"RT=[$RUNNER_RUNTIME]\" > '"+capFile+"'\n")
+	p := &ContainerProvisioner{Script: script}
+	if err := p.Provision(context.Background(), ProvisionRequest{JobID: "j", Image: "img", EncodedJITConfig: "ENC"}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	got, _ := os.ReadFile(capFile)
+	if strings.TrimSpace(string(got)) != "RT=[]" {
+		t.Errorf("expected empty RUNNER_RUNTIME, got %q", string(got))
+	}
+}
+
 // With no devices configured (a plain CPU type), RUNNER_DEVICES must be empty so
 // the provisioner passes NO --device -- least privilege by default.
 func TestContainerProvisionerEmptyDevicesByDefault(t *testing.T) {
