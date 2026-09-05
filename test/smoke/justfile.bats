@@ -124,9 +124,46 @@ setup() {
   [ "${status}" -eq 0 ]
 }
 
-@test "test recipe runs the bats smoke suite (#78)" {
-  run grep -E 'bats .*test/smoke/' "${JUSTFILE}"
+@test "test recipe runs both levels of the layered bats suite (#78)" {
+  # The suite is layered (doc/test-levels.md). `just test` runs every level, so
+  # the default check stays "the whole bash suite" -- the levels exist to make a
+  # red check legible, not to let one of them be skipped by default.
+  run bash -c "sed -n '/^test:/,/^\$/p' '${JUSTFILE}' | grep -F 'test/bats/unit/'"
   [ "${status}" -eq 0 ]
+  run bash -c "sed -n '/^test:/,/^\$/p' '${JUSTFILE}' | grep -F 'test/bats/integration/'"
+  [ "${status}" -eq 0 ]
+}
+
+@test "each level is runnable on its own, so a red check names the level" {
+  # The whole point of layering: a maintainer who sees the integration level go
+  # red must be able to re-run just that level without the other.
+  run grep -E '^test-unit( .*)?:' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -E '^test-integration( .*)?:' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "no recipe still points at the pre-layering flat directory" {
+  # A stale test/smoke/ path in a recipe would run nothing and still pass, which
+  # is the silent-failure mode invariant 1 forbids.
+  run grep -F 'test/smoke' "${JUSTFILE}"
+  [ "${status}" -ne 0 ]
+}
+
+@test "the bats suite is laid out by level, with nothing left flat" {
+  [ -d "${ROOT}/test/bats/unit" ]
+  [ -d "${ROOT}/test/bats/integration" ]
+  [ ! -d "${ROOT}/test/smoke" ]
+  # A level directory that exists must actually hold tests -- an empty one is a
+  # claim the suite cannot back (doc/test-levels.md).
+  run bash -c "ls '${ROOT}'/test/bats/unit/*.bats >/dev/null 2>&1"
+  [ "${status}" -eq 0 ]
+  run bash -c "ls '${ROOT}'/test/bats/integration/*.bats >/dev/null 2>&1"
+  [ "${status}" -eq 0 ]
+}
+
+@test "the levels are defined in a document, not just in directory names" {
+  [ -f "${ROOT}/doc/test-levels.md" ]
 }
 
 @test "the coverage floors are on the recipe path, not just a standalone script" {
