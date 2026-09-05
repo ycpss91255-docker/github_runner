@@ -170,9 +170,16 @@ test-host:
 # via env or `just GO_IMAGE=... build-listener` for a local toolchain image.
 GO_IMAGE := env_var_or_default('GO_IMAGE', 'golang:1.25.3')
 
-# Where the built binary lands on the host (gitignored build output).
+# Where the built binaries land on the host (gitignored build output).
+#
+# Two binaries, one deployment unit: the listener runs the jobs, and
+# scaleset-admin creates (and deletes) the GitHub scale set the listener binds
+# to. Installing only the listener leaves an operator exactly where the deploy
+# runbook used to leave them: told to fill in a scale set name, with nothing in
+# the repo that produces one.
 BIN_DIR := env_var_or_default('BIN_DIR', 'bin')
 LISTENER_BIN := BIN_DIR / 'scaleset-listener'
+ADMIN_BIN := BIN_DIR / 'scaleset-admin'
 
 # Install layout: a self-contained dir holding the binary and the shell seams it
 # shells out to (provision-job.sh / reap.sh, which source ../lib/*). PREFIX is
@@ -195,14 +202,24 @@ build-listener:
     docker run --rm -e CGO_ENABLED=0 -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} go build -trimpath -buildvcs=false -ldflags='-s -w' -o /repo/{{LISTENER_BIN}} ./cmd/scaleset-listener
     @echo "built: {{LISTENER_BIN}}"
 
+# Build the scale-set lifecycle command (create / delete a runner scale set),
+# with the same static containerized build as the listener. It is a separate
+# binary because it is a separate act: the listener is a supervised long-running
+# service, this is an operator command that changes something on GitHub.
+build-admin:
+    @mkdir -p {{BIN_DIR}}
+    docker run --rm -e CGO_ENABLED=0 -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} go build -trimpath -buildvcs=false -ldflags='-s -w' -o /repo/{{ADMIN_BIN}} ./cmd/scaleset-admin
+    @echo "built: {{ADMIN_BIN}}"
+
 # The listener shells out to provision-job.sh / reap.sh, which source
 # ../lib/*.sh -- so the install preserves that sibling layout:
 # <prefix>/bin/, <prefix>/listener/, <prefix>/lib/.
 #
-# Install the listener + its scripts to PREFIX.
-install-listener: build-listener
+# Install both binaries + the scripts to PREFIX.
+install-listener: build-listener build-admin
     install -d "{{DESTDIR}}{{PREFIX}}/bin"
     install -m 0755 "{{LISTENER_BIN}}" "{{DESTDIR}}{{PREFIX}}/bin/scaleset-listener"
+    install -m 0755 "{{ADMIN_BIN}}" "{{DESTDIR}}{{PREFIX}}/bin/scaleset-admin"
     install -d "{{DESTDIR}}{{PREFIX}}/listener"
     install -m 0755 listener/provision-job.sh "{{DESTDIR}}{{PREFIX}}/listener/provision-job.sh"
     install -m 0755 listener/reap.sh "{{DESTDIR}}{{PREFIX}}/listener/reap.sh"
@@ -211,6 +228,6 @@ install-listener: build-listener
     install -m 0644 lib/*.sh "{{DESTDIR}}{{PREFIX}}/lib/"
     @echo "installed to {{DESTDIR}}{{PREFIX}}"
 
-# Remove the built binary.
+# Remove the built binaries.
 clean-listener:
     rm -rf {{BIN_DIR}}

@@ -8,6 +8,34 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Documentation no longer claims `SCALE_SET_NAME` is "the workflows' runs-on
+  target"**: it is not. A workflow's `runs-on` is matched against the scale
+  set's **labels**; the scale set name is only an identifier. The two coincide
+  only when the scale set was created with its name as its single label -- which
+  is the default when a runner type declares no labels of its own, and is
+  exactly why the name looks like the routing target when it is not. The failure
+  mode is silent: the job sits in `queued` with no error anywhere, and the REST
+  job status stays `queued` even after a job has been assigned to a scale set,
+  so `queued` alone is not evidence of a routing failure. This is now stated
+  prominently in `deploy/README.md`, `listener/README.md`, the config schema
+  description and the EnvironmentFile sample, and asserted by a test rather than
+  left to trust.
+
+- **The routing labels are written explicitly, never left to an implicit
+  fallback**: the scale-set client fills a scale set's labels from its name only
+  when the field arrives empty, and relying on that left the routing key
+  recorded nowhere -- the implicitness behind the "job just sits in queued"
+  confusion. A runner type that declares no labels now has its labels set to
+  exactly the scale set name, written out, so the recorded configuration always
+  states what the routing key is.
+
+- **The listener no longer panics when its scale set does not exist**: the
+  scale-set client reports "no such scale set" as `(nil, nil)`, not as an error,
+  and the entrypoint dereferenced that -- so pointing a listener at a scale set
+  nobody had created yet produced a nil-pointer stack trace where the operator
+  needed one sentence. It now fails with an error naming the scale set and the
+  command that creates it.
+
 - **`just coverage` is reproducible offline and pins the bats it measures
   with**: the recipe used to run `apt-get update && apt-get install -y bats`
   inside the kcov container on every run, so coverage needed the Debian archive
@@ -74,6 +102,34 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   regression is caught before an operator hits it at deploy time.
 
 ### Added
+
+- **`scaleset-admin`: a command that creates and deletes a runner scale set**
+  (`just build-admin`, installed by `just install-listener`). The repo could
+  connect to a scale set but had nothing that made one, so an operator following
+  the deploy runbook reached "fill in the scale set name" with no way to obtain
+  a scale set at all -- the step that made the whole ephemeral path
+  undeployable. `scaleset-admin create` / `scaleset-admin delete` close that.
+
+  It is driven by `deploy/runner-types.yaml`, not by ad-hoc flags: the scale set
+  NAME comes from the type's `scale_set` and the routing LABELS from its
+  `labels`, and neither can be passed on the command line. That keeps the config
+  the single source of truth for routing, so the config and the live scale set
+  cannot be made to disagree by a one-off invocation.
+
+  `create` is **idempotent**: a second run over an existing scale set changes
+  nothing, reports the existing id and exits 0, so standing up another machine
+  against the same runner type needs no GitHub-side step. If the live labels
+  have drifted from the config it says so rather than quietly reusing a scale
+  set nobody's config describes. `delete` is a separate, explicit, `--yes`-gated
+  verb that nothing else in the repo invokes, and deleting an absent scale set
+  is a successful no-op. Both accept `--dry-run`, and both announce exactly what
+  they will do on GitHub before doing it. `GITHUB_CONFIG_URL` / `GITHUB_TOKEN`
+  are read from the environment and deliberately are not flags -- a token in a
+  flag is a token in the host process table.
+
+- **Both commands print the literal `runs-on:` line to paste into a workflow.**
+  Given that targeting the wrong thing is this system's most expensive mistake,
+  printing the exact answer is worth more than explaining it.
 
 - **Coverage floors are enforced, and coverage now blocks a merge**
   (`script/coverage-gate.sh`, `just coverage-gate` / `just coverage-go`):
