@@ -207,6 +207,15 @@ func TestLoadConfigErrors(t *testing.T) {
 			want: "build_tool",
 		},
 		{
+			// A typo'd knob must be rejected loudly, not silently dropped:
+			// "reserv" would otherwise decode into nothing, leaving Reserve at
+			// its zero value, so the headroom the operator asked for vanishes
+			// without a word. Configuration never fails silently.
+			name: "unknown field is rejected",
+			body: "runner_types:\n  - name: cpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      reserv: 99\n",
+			want: "reserv",
+		},
+		{
 			name: "malformed yaml",
 			body: "runner_types: [: : :\n",
 			want: "parse",
