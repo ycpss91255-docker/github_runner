@@ -92,6 +92,34 @@ teardown() {
   [ ! -e "${FAKE_RH}/.bin" ]
 }
 
+@test "uninstall.sh --yes forwards --yes to remove-runner.sh" {
+  # remove-runner.sh now has its own confirmation gate, and uninstall.sh drives
+  # it from a loop whose stdin is a here-string (never a TTY). Without an
+  # explicit --yes the child would refuse, so the aggregate path must forward
+  # the consent the operator already gave to uninstall.sh.
+  local fake_root fake_script_dir
+  fake_root=$(mktemp -d)
+  fake_script_dir="${fake_root}/script"
+  mkdir -p "${fake_script_dir}" "${fake_root}/lib"
+  cp "${SCRIPT}" "${fake_script_dir}/uninstall.sh"
+  cp "${BATS_TEST_DIRNAME}/../../lib/"*.sh "${fake_root}/lib/"
+
+  cat >"${fake_script_dir}/remove-runner.sh" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >>"${fake_root}/args"
+STUB
+  chmod +x "${fake_script_dir}/remove-runner.sh"
+
+  mkdir -p "${FAKE_RH}/myorg/_org"
+  touch "${FAKE_RH}/myorg/_org/.runner"
+
+  run "${fake_script_dir}/uninstall.sh" --yes
+  [ "${status}" -eq 0 ]
+  grep -qx -- '--yes' "${fake_root}/args"
+
+  rm -rf "${fake_root}"
+}
+
 @test "uninstall.sh --yes reports a failing remove-runner.sh and exits 1" {
   # uninstall.sh resolves remove-runner.sh via its own SCRIPT_DIR
   # (readlink -f "$0"), so to inject a stub we mirror the script/ + lib/
