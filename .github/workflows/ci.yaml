@@ -55,6 +55,14 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/src" -w /src "${GO_IMAGE}" \
             sh -c 'go build ./... && go vet ./... && go test -race ./...'
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      # Exercise the actual release build recipe, not just `go build ./...`: the
+      # recipe carries -trimpath/-ldflags/-buildvcs flags and its own container
+      # invocation that plain `go build` does not, so a recipe regression (a bad
+      # flag, a broken mount) is otherwise invisible until an operator deploys.
+      - name: build the release listener binary (build-listener recipe)
+        run: just build-listener
 
   coverage:
     # Main-push only. kcov instrumentation is 2-5x slower than plain bats
