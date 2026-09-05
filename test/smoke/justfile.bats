@@ -62,6 +62,48 @@ setup() {
   [ "${status}" -eq 0 ]
 }
 
+@test "coverage installs no packages at run time -- it must be reproducible offline" {
+  # The recipe used to `apt-get install bats` inside the kcov container on every
+  # run, so coverage needed the Debian archive to be reachable and picked up
+  # whatever bats version the archive carried that day. A check that cannot be
+  # reproduced on a restricted network is not a check.
+  run grep -F 'apt-get' "${JUSTFILE}"
+  [ "${status}" -ne 0 ]
+}
+
+@test "coverage runs the pinned, cached bats and is denied the network entirely" {
+  # script/fetch-bats.sh caches a sha256-verified bats-core release on the host;
+  # the recipe mounts it read-only into the container. --network none is what
+  # turns "needs no network" from a claim into a property of the run.
+  run grep -F 'script/fetch-bats.sh' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -F -- '--network none' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -F '/opt/bats/bin/bats' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "coverage writes the report as the invoking user, so it can be re-run" {
+  # kcov runs as root in the container, so without --user the report lands
+  # root-owned on the host and the recipe's own `rm -rf coverage` fails on the
+  # NEXT run -- i.e. `just coverage` would be reproducible exactly once.
+  run grep -F -- '--user "$(id -u):$(id -g)"' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "pull warms the bats cache, so pull remains the whole first-fetch step" {
+  # `just pull` is the documented "fetch everything you need" recipe; if it only
+  # pulled images, the first `just coverage` on a restricted network would still
+  # fail.
+  run bash -c "sed -n '/^pull:/,/^\$/p' '${JUSTFILE}' | grep -F 'script/fetch-bats.sh'"
+  [ "${status}" -eq 0 ]
+}
+
+@test "SCRIPTS enumerates script/fetch-bats.sh so shellcheck covers it" {
+  run bash -c "grep -E '^SCRIPTS :=' '${JUSTFILE}' | grep -F 'script/fetch-bats.sh'"
+  [ "${status}" -eq 0 ]
+}
+
 @test "lint recipe runs shellcheck -x and hadolint in the test-tools container (#78)" {
   run grep -E 'shellcheck -x' "${JUSTFILE}"
   [ "${status}" -eq 0 ]
