@@ -38,15 +38,16 @@ here.
   tests. This project's seams take two forms: Go interfaces (`Session`,
   `Provisioner`, `JITConfigMinter`, `Reaper`, `DeviceDetector`, `HostProbe` in
   `listener/listener.go`, and `JobLogger` in `listener/joblog.go`), and a
-  single-function bash wrapper (`_gh()` at `lib/common.sh:375`, the one and only
+  single-function bash wrapper (`_gh()` in `lib/common.sh`, the one and only
   exit for every GitHub call).
 - **Fail-closed** — when an input or a state cannot be determined, abort with an
   error rather than guessing a value and continuing. The opposite is fail-open
   (guess a value and keep running).
 - **Chokepoint** — the single place in the program where a dangerous piece of
-  semantics appears. The most important example in this project is
-  `lib/common.sh:25-61`: `RUNNER_HOME`, the root of every `rm -rf`, is resolved,
-  validated and frozen `readonly` exactly once there, whether it came from the
+  semantics appears. The most important example in this project is the SEC-3
+  block at the top of `lib/common.sh`, the one that ends in
+  `readonly RUNNER_HOME`: `RUNNER_HOME`, the root of every `rm -rf`, is
+  resolved, validated and frozen exactly once there, whether it came from the
   `--runner-home` flag, from the environment, or from the default.
 
 ---
@@ -82,39 +83,40 @@ attribute. Errors are only cheap **at the moment they happen**.
 
 | Mechanism | Location | Behaviour |
 | --- | --- | --- |
-| Fail-closed config loading | `listener/config.go:94-107` `LoadConfig` | An unreadable file, a YAML parse failure or a failed validation all return an error; a partial or default-filled config is never returned |
-| Required-field checks | `listener/config.go:111-150` `validate` | An empty list, a missing `name`/`scale_set`/`labels`/`image`, a duplicate `name`, a duplicate `scale_set` all error out directly, naming the offending entry in the message |
-| Misspelled build tool refused | `listener/config.go:164-171` `validateBuildTool` | Only `kaniko`/`buildkit`/`none`/empty are accepted; anything else returns `unknown build_tool %q` instead of silently routing to no builder at all |
-| Removed modes fail closed | `listener/config.go:177-185` `validateConcurrency` | The deleted `mode: fixed` now returns an explicit error, so an old config shows a migration message at startup instead of being treated as the default mode |
-| Reserve can only go up | Same as above, `minReservePercent = 10` (`config.go:80`) | An explicit 1..9 is refused; it is almost certainly a misreading of the semantics rather than a deliberate lowering |
-| Host probe validated item by item | `listener/hostprobe.go:68-93` | A malformed line, a non-numeric value, a missing required key (`loadavg1`/`nproc`/`mem_available_kb`/`mem_total_kb`), or a non-positive `nproc` or `mem_total_kb` (division by zero) all return an error |
-| Lexical RUNNER_HOME validation | `lib/common.sh:53-61` | A non-absolute path, `/`, `/.`, `/..`, `$HOME`, or any path containing `..` exits `FATAL`; no attempt is made to repair it |
-| Label validation | `lib/common.sh:122-124`, `:162-165` | If `LABELS` in `setup.conf` does not match the character set, `FAIL` and exit — no falling back to a default |
-| owner/repo validation | `lib/common.sh:130-131`, `:458`, `:468` | Anything invalid exits, because these values flow into `rm -rf` target paths and GitHub API paths |
-| Strict mode in entry scripts | `script/*.sh`, `listener/provision-job.sh`, `listener/host-probe.sh`, `images/build-runner-image.sh` (15 files in total) | All use `set -euo pipefail`; `lib/*.sh` are sourced libraries and deliberately do not set `-e` (it would pollute the caller) |
+| Fail-closed config loading | `LoadConfig` in `listener/config.go` | An unreadable file, a YAML parse failure or a failed validation all return an error; a partial or default-filled config is never returned |
+| Unknown config key refused | Same as above: `LoadConfig` decodes with `KnownFields(true)` | A misspelled key (`reserv` for `reserve`) fails the load naming the offending field, instead of decoding into nothing and leaving the real field at its zero value |
+| Required-field checks | `validate` in `listener/config.go` | An empty list, a missing `name`/`scale_set`/`labels`/`image`, a duplicate `name`, a duplicate `scale_set` all error out directly, naming the offending entry in the message |
+| Misspelled build tool refused | `validateBuildTool` in `listener/config.go` | Only `kaniko`/`buildkit`/`none`/empty are accepted; anything else returns `unknown build_tool %q` instead of silently routing to no builder at all |
+| Removed modes fail closed | `validateConcurrency` in `listener/config.go` | The deleted `mode: fixed` now returns an explicit error, so an old config shows a migration message at startup instead of being treated as the default mode |
+| Reserve can only go up | Same as above, against the `minReservePercent` constant in `listener/config.go` | An explicit 1..9 is refused; it is almost certainly a misreading of the semantics rather than a deliberate lowering |
+| Host probe validated item by item | `CommandHostProbe.Probe` in `listener/hostprobe.go` | A malformed line, a non-numeric value, a missing required key (`loadavg1`/`nproc`/`mem_available_kb`/`mem_total_kb`), or a non-positive `nproc` or `mem_total_kb` (division by zero) all return an error |
+| Lexical RUNNER_HOME validation | The SEC-3 block in `lib/common.sh` | A non-absolute path, `/`, `/.`, `/..`, `$HOME`, or any path containing `..` exits `FATAL`; no attempt is made to repair it |
+| Label validation | `validate_labels` and `load_config` in `lib/common.sh` | If `LABELS` in `setup.conf` does not match the character set, `FAIL` and exit — no falling back to a default |
+| owner/repo validation | `valid_owner` / `valid_repo` in `lib/common.sh`, called from both branches of `resolve_target` | Anything invalid exits, because these values flow into `rm -rf` target paths and GitHub API paths |
+| Strict mode in entry scripts | `script/*.sh`, `listener/provision-job.sh`, `listener/host-probe.sh`, `images/build-runner-image.sh` | All use `set -euo pipefail`; `lib/*.sh` are sourced libraries and deliberately do not set `-e` (it would pollute the caller) |
 
 **The one permitted exception, which must state its reason in writing:** the
 teardown path may be best-effort — a single failed removal must be logged but
 must not abort the whole sweep, otherwise one leftover blocks every remaining
 cleanup. Exactly one place takes this exception today and states it in the file
-header: `listener/reap.sh:13-14` (`set -uo pipefail`, no `-e`, with the comment
-"Best-effort: a failure of any single removal is logged, not fatal"). Anyone
-taking this exception **must write the reason in the header of the same file**;
-best-effort without a stated reason is a defect.
+header: `listener/reap.sh` (`set -uo pipefail`, no `-e`, directly under the
+comment "Best-effort: a failure of any single removal is logged, not fatal").
+Anyone taking this exception **must write the reason in the header of the same
+file**; best-effort without a stated reason is a defect.
 
-**Known gaps (defects, not trade-offs):**
+**Gaps that have been closed:** two config knobs used to be accepted and then
+do nothing, which is the quiet failure this invariant exists to forbid.
 
-- `listener/config.go:100` uses `yaml.Unmarshal` rather than a decoder with
-  `KnownFields(true)` enabled, so **a misspelled key in the config file is
-  silently ignored** (spelling `reserve` as `reserv`, for instance, applies the
-  default instead of reporting an error).
-- `hardening_profile` has a field (`listener/config.go:42-44`) and is carried
-  all the way through to the `RUNNER_HARDENING_PROFILE` environment variable at
-  `listener/provisioner.go:87`, but `validate` (`config.go:111-150`) does not
-  validate it, and nothing on the bash side reads it
-  (`listener/provision-job.sh:22` has only a comment). Any string — including a
-  misspelled one — is therefore accepted and has no effect. The `runtime` field
-  is in the same position.
+- `hardening_profile` had a field, was carried across the shell-out boundary as
+  an environment variable, and was read by nobody. It is now **gone from the
+  schema entirely** — the field, the provision request, the exported
+  environment, the shipped sample and its testdata copy — so a config that
+  still sets it is rejected by the strict decoder, naming the offending field,
+  rather than accepted and ignored.
+- `runtime` was parsed into `RunnerType.Runtime` and never used. It is now
+  **wired end to end**: it crosses the boundary as `RUNNER_RUNTIME` and becomes
+  a `--runtime <value>` argument on the container run, with no flag added when
+  it is empty, so the engine default stays in force.
 
 ---
 
@@ -134,21 +136,23 @@ is equivalent to no isolation at all.
 
 | Switch | Default | Location | How it is loosened |
 | --- | --- | --- | --- |
-| Host docker socket | **Empty; no job container gets the socket** | `lib/runner-container.sh:49` `: "${RUNNER_DOCKER_SOCKET:=}"`; the mount branch at `:179-185` | The operator explicitly sets that environment variable to a socket path; the mount still keeps `:Z` relabelling and does not turn MAC off |
-| Device passthrough | **Empty; no `--device` is passed** | `lib/runner-container.sh:56`; expanded item by item at `:186-192` | Name the device nodes explicitly in the runner type config |
-| Extra capabilities | **Empty** | `lib/runner-container.sh:41` `RUNNER_CAP_ADD:=` | Add a single capability by name |
-| Baseline hardening | `--cap-drop=ALL`, `--security-opt no-new-privileges` and `--pids-limit` (default 4096) always applied | `lib/runner-container.sh:87-98`, `:40` | There is no "turn hardening off" flag |
-| Privileged containers | **The path does not exist** | The run assembly at `lib/runner-container.sh:269-277`; `lib/runner-build.sh:48-68` | There is no `--privileged` anywhere in the repo, negatively asserted by `test/smoke/runner_container.bats:270-306` and `runner_build.bats:54-58` |
-| seccomp / MAC | The engine default profile is kept; no `seccomp=unconfined`, no `label=disable` | The explanation at `lib/runner-container.sh:84-85` and the assembly at `:269-277` | None |
-| RUNNER_HOME | Defaults to `<repo>/runners`, and is validated and frozen in that same place | `lib/common.sh:45-61` | Only `--runner-home` or the environment variable can change it, and only to another absolute path that **passes the same validation** |
-| Reading setup.conf | `LABELS=` is extracted with `sed`; the file is **never sourced** | `lib/common.sh:157-167` (SEC-6) | None; this file is writable by the runner user, and sourcing it would be executing a shell that a job can write into |
-| Non-interactive destructive operations | **Refused** | `lib/common.sh:333-336` | `--yes` must be passed explicitly |
+| Host docker socket | **Empty; no job container gets the socket** | `: "${RUNNER_DOCKER_SOCKET:=}"` in `lib/runner-container.sh`; the `socket_args` branch in `runner_container_run` | The operator explicitly sets that environment variable to a socket path; the mount still keeps `:Z` relabelling and does not turn MAC off |
+| Device passthrough | **Empty; no `--device` is passed** | `: "${RUNNER_DEVICES:=}"` in `lib/runner-container.sh`; expanded item by item by the `device_args` loop in `runner_container_run` | Name the device nodes explicitly in the runner type config |
+| Extra capabilities | **Empty** | `: "${RUNNER_CAP_ADD:=}"` in `lib/runner-container.sh` | Add a single capability by name |
+| Baseline hardening | `--cap-drop=ALL`, `--security-opt no-new-privileges` and `--pids-limit` (default 4096) always applied | `runner_container_hardening_args` in `lib/runner-container.sh`, with the `RUNNER_PIDS_LIMIT` default above it | There is no "turn hardening off" flag |
+| Privileged containers | **The path does not exist** | The `<cli> run` assembly in `runner_container_run`; the kaniko / buildkit argv in `runner_build_image` (`lib/runner-build.sh`) | There is no `--privileged` anywhere in the repo, negatively asserted by "runner_container_run never runs privileged (#114/#117)" and "runner_build_image with kaniko is NOT privileged (#118)" |
+| seccomp / MAC | The engine default profile is kept; no `seccomp=unconfined`, no `label=disable` | The explanation above `runner_container_hardening_args` and the run assembly in `runner_container_run` | None |
+| RUNNER_HOME | Defaults to `<repo>/runners`, and is validated and frozen in that same place | The SEC-3 block in `lib/common.sh` | Only `--runner-home` or the environment variable can change it, and only to another absolute path that **passes the same validation** |
+| Reading setup.conf | `LABELS=` is extracted with `sed`; the file is **never sourced** | `load_config` in `lib/common.sh` (SEC-6) | None; this file is writable by the runner user, and sourcing it would be executing a shell that a job can write into |
+| Non-interactive destructive operations | **Refused** | The non-TTY branch of `confirm_or_abort` in `lib/common.sh` | `--yes` must be passed explicitly |
 
 Every one of the above is pinned by a negative-assertion test rather than upheld
-by convention: `test/smoke/runner_container.bats:270-380` (hardening flags, no
-socket, no `--privileged`, no `seccomp=unconfined`, no `label=disable`, exact
-device count), `test/smoke/runner_build.bats:54-74,114`, and
-`test/smoke/destructive.bats:77-86`.
+by convention: the `#114`/`#115`/`#116`/`#117` cases in
+`test/smoke/runner_container.bats` (hardening flags, no socket, no
+`--privileged`, no `seccomp=unconfined`, no `label=disable`, exact device
+count), the `#118`/`#119` cases in `test/smoke/runner_build.bats`, and
+"confirm_or_abort fails non-TTY without --yes (exit 1, pinned message)" in
+`test/smoke/destructive.bats`.
 
 ---
 
@@ -169,13 +173,13 @@ discipline produces no signal.
 
 | Fact | Authoritative source | Copy and its drift check |
 | --- | --- | --- |
-| Structure and semantics of the runner type config | Go: `LoadConfig` in `listener/config.go` (ADR-0003 states that Go is the authoritative parser) | Bash **does not parse this file at all**; Go shells out only the fields a single provision needs (`listener/provisioner.go:79-89`) |
-| Operator-facing sample config | `deploy/runner-types.sample.yaml` | `listener/testdata/runner-types.sample.yaml` is a byte-identical copy, pinned by the `diff -u` in `test/smoke/runner_types_config.bats:16-21` |
-| Sample config agrees with the real schema | Same as above | `listener/sample_config_test.go:23,52,79` loads the shipped sample with the **real parser**, so a documented example cannot diverge from the schema |
+| Structure and semantics of the runner type config | Go: `LoadConfig` in `listener/config.go` (ADR-0003 states that Go is the authoritative parser) | Bash **does not parse this file at all**; Go shells out only the fields a single provision needs (`ContainerProvisioner.Provision` in `listener/provisioner.go`) |
+| Operator-facing sample config | `deploy/runner-types.sample.yaml` | `listener/testdata/runner-types.sample.yaml` is a byte-identical copy, pinned by the `diff -u` in "the operator-facing and testdata runner-type samples are byte-identical" (`test/smoke/runner_types_config.bats`) |
+| Sample config agrees with the real schema | Same as above | `listener/sample_config_test.go` loads the shipped sample with the **real parser**, so a documented example cannot diverge from the schema |
 | Runner file locations and naming | `lib/runner-layout.sh` | Consumers (`resolve_target`, `list_runners`, `runner_service_running`, `cleanup.sh`) all derive through this module rather than re-encoding it each |
-| GitHub calls | `_gh()` at `lib/common.sh:375` | Every higher-level adapter is layered on top of it; tests only need to override this one function |
+| GitHub calls | `_gh()` in `lib/common.sh` | Every higher-level adapter is layered on top of it; tests only need to override this one function |
 | Release tarball version / path / URL / integrity | `lib/runner-release.sh` | `init.sh` / `update.sh` keep only their own verify **policy** and share the same primitives |
-| The set of self-test entry recipes | `justfile` | `test/smoke/justfile.bats:27-63` pins the recipe names and the image pins |
+| The set of self-test entry recipes | `justfile` | `test/smoke/justfile.bats` pins the recipe names and the image pins |
 
 ---
 
@@ -192,19 +196,24 @@ promise sits in the invariant layer and the mechanism in the spec layer because
 tools go out of date and promises do not: replacing kcov or replacing shellcheck
 should never require editing this chapter.
 
-**Current shape (as of writing):**
+**Current shape.** No count is written down here: the tree already states it,
+and a number copied into this document is a second copy that goes stale without
+a signal (invariant 3). `ls test/smoke/*.bats | wc -l` and
+`grep -ch '^@test' test/smoke/*.bats` print the bash figures;
+`grep -c '^func Test' listener/*_test.go` prints the Go one.
 
-- Bash: 30 `.bats` files under `test/smoke/`, 396 `@test` cases in total. The
-  technique is uniformly **stub-and-capture** (place fake `docker`/`podman`/`run.sh`
-  on `PATH`, capture the actual argv and assert on it), asserting externally
+- Bash: `.bats` files under `test/smoke/`, run by `just test`. The technique is
+  uniformly **stub-and-capture** (place fake `docker`/`podman`/`run.sh` on
+  `PATH`, capture the actual argv and assert on it), asserting externally
   observable behaviour rather than implementation details.
-- Go: 9 `_test.go` files under `listener/`, 58 `func Test` in total. The core
-  loop is tested in isolation with a fake `Session`, a mock minter, a recording
+- Go: `_test.go` files beside the sources under `listener/`. The core loop is
+  tested in isolation with a fake `Session`, a mock minter, a recording
   provisioner and a stub detector.
 - End-to-end tests that need real credentials are **explicitly isolated** and
-  not mixed into the default test run: `listener/integration_test.go:1` (the
-  `//go:build integration` build tag) plus the skip on missing environment
-  variables at `:31-33`, so the default `go test ./...` never touches them.
+  not mixed into the default test run: `listener/integration_test.go` carries
+  the `//go:build integration` build tag, and its `TestLiveScaleSetSession`
+  skips unless the live environment variables are set, so the default
+  `go test ./...` never touches them.
 
 ---
 
@@ -228,8 +237,8 @@ would be bound to the maintainer, while the heterogeneity only increases.
 | --- | --- |
 | One runner type maps to one scale set maps to one listener instance, as a pure data transformation | `listener/wiring.go` `RunnerType.Instance` / `Instances`; the file header states outright that "adding a second type is a config entry, not a code change" |
 | Concurrency policy is decided by config; code does not branch on class names | `listener/wiring.go` attaches either the detector or the host probe based on `Concurrency.DeviceSized()`; both are seams |
-| The shipped sample is the proof: two classes coexist with no code change | `deploy/runner-types.sample.yaml:50-90` (`gpu` and `cpu`), pinned by `test/smoke/runner_types_config.bats:23-35` and `listener/wiring_test.go:82` `TestInstancesFromTypes` |
-| One class per scale set uniqueness is validated | `listener/config.go:138-141` |
+| The shipped sample is the proof: two classes coexist with no code change | The `gpu` and `cpu` entries in `deploy/runner-types.sample.yaml`, pinned by the two type cases in `test/smoke/runner_types_config.bats` and by `TestInstancesFromTypes` in `listener/wiring_test.go` |
+| One class per scale set uniqueness is validated | The duplicate-`scale_set` check in `validate` (`listener/config.go`) |
 
 **The boundary of this invariant (already decided by ADR-0004):** the unit of
 extension is **one independent listener per host**, each self-adjusting to its
@@ -262,11 +271,11 @@ guarantee for speed.
 
 | Mechanism | Location |
 | --- | --- |
-| One `--rm` single-use container per job | `lib/runner-container.sh:269-277` (`run --rm --init`) |
+| One `--rm` single-use container per job | The `<cli> run --rm --init` assembly in `runner_container_run` (`lib/runner-container.sh`) |
 | Single-use JIT config generated server-side, with no long-lived registration token left on the host | `listener/minter.go`; `runner_config_jit_generate` in `lib/runner-config.sh` |
-| JIT credentials passed by **file** rather than argv, mode 0600, deleted at teardown | `listener/provisioner.go`; pinned by `listener/provisioner_test.go:91` `TestContainerProvisionerJITFileIs0600AndRemovedAtTeardown` and `test/smoke/runner_container.bats:105` |
-| Orphan container sweeping | `lib/runner-reaper.sh` + `listener/reap.sh`, swept once at startup and again periodically (`listener/listener_test.go:446,463`) |
-| Forensic data captured before teardown, rather than keeping the container | ADR-0002's capture-before-teardown; `lib/runner-history.sh`, pinned from `test/smoke/listener_provision.bats:200` onward |
+| JIT credentials passed by **file** rather than argv, mode 0600, deleted at teardown | `listener/provisioner.go`; pinned by `TestContainerProvisionerJITFileIs0600AndRemovedAtTeardown` (`listener/provisioner_test.go`) and "runner_container_run keeps the JIT config OFF the host container CLI argv (#136)" (`test/smoke/runner_container.bats`) |
+| Orphan container sweeping | `lib/runner-reaper.sh` + `listener/reap.sh`, swept once at startup and again periodically (`TestReaperSweepsOnStartup` / `TestReaperSweepsPeriodically` in `listener/listener_test.go`) |
+| Forensic data captured before teardown, rather than keeping the container | ADR-0002's capture-before-teardown; `lib/runner-history.sh`, pinned by the capture-before-teardown cases in `test/smoke/listener_provision.bats` |
 
 ---
 
@@ -293,8 +302,8 @@ practice, no installation guide at all.
 
 | Mechanism | Location |
 | --- | --- |
-| README must not reference ADRs (an executable spec) | `test/smoke/readme_no_adr_refs.bats:17-20`, covering all four language READMEs |
-| Two critical GitHub switches must be explained **in the body** of every language README | Same file, `:23-31`, checking respectively that `Require approval for all outside collaborators` and `allows_public_repositories` appear in all four files |
+| README must not reference ADRs (an executable spec) | "no README cites an ADR-00xx (self-contained docs)" in `test/smoke/readme_no_adr_refs.bats`, covering all four language READMEs |
+| Two critical GitHub switches must be explained **in the body** of every language README | Same file, the two "every README explains ..." cases, checking respectively that `Require approval for all outside collaborators` and `allows_public_repositories` appear in all four files |
 | Sample config validated by the real parser | `listener/sample_config_test.go` (as in invariant 3) |
 | The self-test entry recipe list is pinned by a test | `test/smoke/justfile.bats` |
 | Four-language README structure kept aligned | `.claude/hooks/check_4lang_readme_sync.sh` (compares section-heading structure, not body text) |
@@ -317,20 +326,20 @@ separate edits, one of which is missed — and the symptom of the missed one is
 
 **Designs that already serve this invariant (`lib/runner-layout.sh`):**
 
-| Named concept | The single function/constant | Location |
-| --- | --- | --- |
-| Org directory sentinel | `RUNNER_ORG_MARKER` (`_org`) | `lib/runner-layout.sh:18` |
-| Runner directory | `runner_dir` | `:23-29` |
-| Agent name on the GitHub side | `runner_agent_name` | `:34-40` |
-| Registration marker file | `runner_marker_file` | `:44` |
-| Scope inferred back from a directory | `runner_scope_of` (reads back the same `RUNNER_ORG_MARKER`) | `:48-54` |
-| systemd unit pattern | `runner_service_unit_pattern` | `:58` |
-| Active version | `runner_active_version` | `:63-68` |
+| Named concept | The single function/constant |
+| --- | --- |
+| Org directory sentinel | `RUNNER_ORG_MARKER` (`_org`) |
+| Runner directory | `runner_dir` |
+| Agent name on the GitHub side | `runner_agent_name` |
+| Registration marker file | `runner_marker_file` |
+| Scope inferred back from a directory | `runner_scope_of` (reads back the same `RUNNER_ORG_MARKER`) |
+| systemd unit pattern | `runner_service_unit_pattern` |
+| Active version | `runner_active_version` |
 
-This module is sourced exactly once at `lib/common.sh:75`, after `RUNNER_HOME`
+This module is sourced exactly once, by `lib/common.sh`, after `RUNNER_HOME`
 has been validated and frozen; every consumer (`resolve_target`,
 `list_runners`, `runner_service_running`, `cleanup.sh`) derives from it, and
-`test/smoke/runner_layout.bats:15-61` pins each item.
+`test/smoke/runner_layout.bats` pins each item.
 
 ---
 
@@ -361,26 +370,25 @@ condition of the decision logic can be enumerated with pure data.
 **Concrete instance (the clearest example in this project):** the reactive
 admission decision logic is pure —
 
-- `admits(h HostResources, inFlight int, reserve float64) bool` at
-  `listener/hostprobe.go:122-126` and `admitCount(...) int` at `:131-137` take
-  only structs and numbers, with no I/O at all.
-- `clamp01` at `:141-150` is the same.
-- `HostProbe` (`listener/listener.go:141`) is the only io seam;
-  `CommandHostProbe` (`listener/hostprobe.go:43-101`) is the only implementation
+- `admits(h HostResources, inFlight int, reserve float64) bool` and
+  `admitCount(...) int` in `listener/hostprobe.go` take only structs and
+  numbers, with no I/O at all.
+- `clamp01` in the same file is the same.
+- `HostProbe` (`listener/listener.go`) is the only io seam;
+  `CommandHostProbe` (`listener/hostprobe.go`) is the only implementation
   that shells out, and it only "executes, parses line by line, validates,
   converts" — it makes no admission decision.
 - The result is that these decisions are enumerated by pure-data tests:
-  `listener/hostprobe_test.go:78` `TestAdmitsGatesEachResource`, `:103`
-  `TestAdmitCountStopsAtReserveAndCeiling`, `:118`
-  `TestBindingNamesScarcestResource`, and `listener/reactive_test.go:75`
-  `TestReactiveBurstNeverBreachesReserve`.
+  `TestAdmitsGatesEachResource`, `TestAdmitCountStopsAtReserveAndCeiling` and
+  `TestBindingNamesScarcestResource` in `listener/hostprobe_test.go`, and
+  `TestReactiveBurstNeverBreachesReserve` in `listener/reactive_test.go`.
 
 The same shape appears at the other seams: `Session`, `Provisioner`,
-`JITConfigMinter`, `Reaper`, `DeviceDetector` (`listener/listener.go:51-145`)
-take real implementations in production and fakes in tests;
-`var _ Session = (*scaleset.MessageSessionClient)(nil)` in
-`listener/listener.go` uses a compile-time assertion to guarantee the real
-client and the fake remain interchangeable.
+`JITConfigMinter`, `Reaper`, `DeviceDetector` (all declared in
+`listener/listener.go`) take real implementations in production and fakes in
+tests; `var _ Session = (*scaleset.MessageSessionClient)(nil)` in the same file
+uses a compile-time assertion to guarantee the real client and the fake remain
+interchangeable.
 
 ---
 
@@ -437,19 +445,21 @@ around the interface.
 
 - `RUNNER_HOME` can come from the `--runner-home` flag, from the `RUNNER_HOME`
   environment variable, or from the default. All three paths converge on **the
-  same** validation and freezing point at `lib/common.sh:25-61`, after which it
-  is `readonly`. The file header at `:15-20` states explicitly why this is not
-  done in each script's own argument parser — that is too late, `RUNNER_HOME` is
-  already frozen and the layout constants have already been derived from it. As
-  a result, "a bad path passed via the flag" and "a bad path passed via the
+  same** validation and freezing point, the SEC-3 block in `lib/common.sh`,
+  after which it is `readonly`. That file's header states explicitly why this is
+  not done in each script's own argument parser — that is too late, `RUNNER_HOME`
+  is already frozen and the layout constants have already been derived from it.
+  As a result, "a bad path passed via the flag" and "a bad path passed via the
   environment" are refused in exactly the same way.
 - Whoever supplies the runner type config, it goes through the same `LoadConfig`
   + `validate` in `listener/config.go`; bash does not parse this file at all, so
   there is no second, looser validation.
-- The confirmation policy for destructive operations is centralised at
-  `lib/common.sh:312-360` (`parse_destructive_flags` / `confirm_or_abort` /
+- The confirmation policy for destructive operations is centralised in
+  `lib/common.sh` (`parse_destructive_flags` / `confirm_or_abort` /
   `print_summary`) and shared **verbatim** by `cleanup.sh` and `uninstall.sh`
-  rather than reimplemented in each.
+  rather than reimplemented in each. `remove-runner.sh` calls the same
+  `confirm_or_abort`, and strips its own flags only because it also takes
+  positional arguments — the gate itself is not reimplemented there either.
 
 ---
 
@@ -505,26 +515,30 @@ has to be declared actively, not one that can be slid into silently.
 
 | Mechanism | Location | Behaviour |
 | --- | --- | --- |
-| Shared flag parsing | `lib/common.sh:312-323` | `-y/--yes`, `-n/--dry-run`, `-h/--help`; an unknown flag prints usage and exits 1 |
-| Confirmation gate | `lib/common.sh:331-343` | `--yes` passes straight through; **a non-TTY stdin without `--yes` always exits 1** and prints the reason; interactively, only `y/Y/yes/YES` passes, and anything else prints `Aborted.` and exits 0 |
-| Result summary | `lib/common.sh:349-360` | Success/failure counts plus a per-item failure label, expressed through the exit code |
-| Preview | `script/cleanup.sh:224-231,285-288`, `script/uninstall.sh:107-110`, `script/history.sh:136,142-147` | Prints the list of items that would be removed, then prints `Dry-run; nothing removed.` and exits 0 |
-| Re-anchoring before deletion | `script/cleanup.sh:293-303` | Normalises with `readlink -f` and then calls `assert_under_runner_home` again; refused items are counted as failures and named |
-| Lexical anchoring | `lib/common.sh:138-144` `assert_under_runner_home` | Every rm target must be prefixed with `${RUNNER_HOME}/` or it is refused (defence in depth on top of SEC-3) |
-| Stated intent for scheduled execution | `script/schedule-cleanup.sh:157` | The line written into the crontab **carries `--yes` explicitly**, so "unattended" is something seen and agreed to at configuration time rather than inferred at execution time |
+| Shared flag parsing | `parse_destructive_flags` in `lib/common.sh` | `-y/--yes`, `-n/--dry-run`, `-h/--help`; an unknown flag prints usage and exits 1 |
+| Confirmation gate | `confirm_or_abort` in `lib/common.sh` | `--yes` passes straight through; **a non-TTY stdin without `--yes` always exits 1** and prints the reason; interactively, only `y/Y/yes/YES` passes, and anything else prints `Aborted.` and exits 0 |
+| Result summary | `print_summary` in `lib/common.sh` | Success/failure counts plus a per-item failure label, expressed through the exit code |
+| Preview | The `--dry-run` branches of `script/cleanup.sh`, `script/uninstall.sh`, `script/remove-runner.sh` and `script/history.sh` | Prints the list of items that would be removed, then prints `Dry-run; nothing removed.` and exits 0 |
+| Re-anchoring before deletion | The removal loop in `script/cleanup.sh` | Normalises with `readlink -f` and then calls `assert_under_runner_home` again; refused items are counted as failures and named |
+| Lexical anchoring | `assert_under_runner_home` in `lib/common.sh` | Every rm target must be prefixed with `${RUNNER_HOME}/` or it is refused (defence in depth on top of SEC-3) |
+| Stated intent for scheduled execution | `build_cron_line` in `script/schedule-cleanup.sh` | The line written into the crontab **carries `--yes` explicitly**, so "unattended" is something seen and agreed to at configuration time rather than inferred at execution time |
 
-Pinned by `test/smoke/destructive.bats` (8 cases, including that a non-TTY
-without `--yes` must exit 1, and that `--yes` must actually execute rather than
-no-op), `test/smoke/cleanup.bats:150-157`, `test/smoke/uninstall.bats:68-76`,
-and `test/smoke/history.bats:140-147`.
+Pinned by `test/smoke/destructive.bats` (including that a non-TTY without
+`--yes` must exit 1, and that `--yes` must actually execute rather than no-op),
+and by the "without --yes in non-TTY context exits 1" cases in
+`test/smoke/cleanup.bats`, `test/smoke/uninstall.bats` and
+`test/smoke/remove_runner.bats`, plus "history.sh prune is a dry-run safe no-op
+without --yes (#127)" in `test/smoke/history.bats`.
 
-**Known gap (a defect, not a trade-off):** `script/remove-runner.sh` performs
-deregistration, service removal and `rm -rf "${TARGET_DIR}"` (`:50`), but
-**offers no `--dry-run` and no confirmation gate**; its only protection is the
-anchoring of `assert_under_runner_home` (`:49`). It is called one runner at a
-time by `script/uninstall.sh:124,126` after that script has done its own
-confirmation, so the gate exists only on the aggregate path; calling
-`remove-runner.sh` directly is ungated.
+**A gap that has been closed:** `script/remove-runner.sh` performs
+deregistration, service removal and `rm -rf "${TARGET_DIR}"`, and for a while
+its only protection was the anchoring of `assert_under_runner_home` — the
+preview and the confirmation existed only on the aggregate path through
+`script/uninstall.sh`, so calling `remove-runner.sh` directly was ungated. It
+now carries the same contract as the other destructive scripts: it prints the
+plan, takes `-n/--dry-run` and `-y/--yes`, and calls `confirm_or_abort` before
+the teardown, so a non-interactive run without `--yes` is refused.
+`uninstall.sh` forwards `--yes` to it, leaving the aggregate path unchanged.
 
 ---
 
@@ -577,17 +591,20 @@ impossible, rather than merely unlikely.
 **Concrete instances:**
 
 - Go reads the entire runner type config and passes bash only the fields a
-  single provision needs: argv is `script, jobID, jitFile, image`
-  (`listener/provisioner.go:79`), and the rest goes through the named
-  environment variables `RUNNER_DEVICES`, `RUNNER_HARDENING_PROFILE` and
-  `RUNNER_BUILD_TOOL` (`:85-89`). The bash side never opens that YAML.
+  single provision needs: in `ContainerProvisioner.Provision`
+  (`listener/provisioner.go`) argv is `script, jobID, jitFile, image`, and the
+  rest goes through the named environment variables `RUNNER_DEVICES`,
+  `RUNNER_RUNTIME` and `RUNNER_BUILD_TOOL`. The bash side never opens that
+  YAML.
 - Single-use JIT credentials are **passed by file rather than argv**, mode 0600,
   deleted at teardown — because argv is visible to every process on the same
-  host (`listener/provisioner_test.go:91`; `test/smoke/runner_container.bats:105`
-  asserts that the credential must not appear in argv).
+  host (`TestContainerProvisionerJITFileIs0600AndRemovedAtTeardown`; the case
+  "runner_container_run keeps the JIT config OFF the host container CLI argv
+  (#136)" asserts that the credential must not appear in argv).
 - The reverse direction holds too: `listener/host-probe.sh` emits only raw
   `key value` numbers, and all conversion and judgement happens on the Go side
-  (`listener/hostprobe.go:94-100`); the shell makes no decisions.
+  (the `HostResources` the probe returns in `CommandHostProbe.Probe`); the shell
+  makes no decisions.
 
 ---
 
@@ -613,20 +630,21 @@ Every item below is actually executed by the `justfile` or by
 
 | Check | Subject | Tool / command | Where enforced | Rationale |
 | --- | --- | --- | --- | --- |
-| Shell static analysis | 25 shell files (`script/`, `lib/`, `listener/*.sh`, `images/`) | `shellcheck -x` | `justfile:45` (`just lint`); the CI `shellcheck` job | Bash failures are mostly quoting, undefined variables and exit-code propagation — all statically visible classes |
-| Dockerfile linting | `images/runner-base.Dockerfile`, `images/runner-gpu.Dockerfile` | `hadolint` | `justfile:46`; the same job | The execution environment's image is part of the isolation boundary |
-| Bash behaviour tests | `test/smoke/` (30 files, 396 `@test`) | `bats` | `justfile:50` (`just test`); the CI `bats` job | Asserts externally observable behaviour (actual argv, actual file effects), not implementation |
-| Go compilation | The `listener/` module | `go build ./...` | The CI `go` job (`ci.yaml:57`) | — |
+| Shell static analysis | Every shell file in `script/`, `lib/`, `listener/` and `images/` — the `SCRIPTS` list in the `justfile` is the enumeration | `shellcheck -x` | The `lint` recipe in the `justfile`; the CI `shellcheck` job | Bash failures are mostly quoting, undefined variables and exit-code propagation — all statically visible classes |
+| Dockerfile linting | `images/runner-base.Dockerfile`, `images/runner-gpu.Dockerfile` | `hadolint` | The same `lint` recipe; the same job | The execution environment's image is part of the isolation boundary |
+| ADR structure lint | Every record under `doc/adr/` | `script/lint-adr.sh` | The `lint-adr` recipe in the `justfile` (a prerequisite of `lint` and `lint-host`); the CI `adr-lint` job | See §0.5: a filename off the `NNNN-kebab-case-title.md` pattern, a reused ADR number, a missing or duplicated required section, a `Status` outside the permitted set, a malformed `> Serves:` back-pointer, an invariant title that matches no §0.2 heading, or a `Superseded by` pointing at a record that does not exist all fail the gate |
+| Bash behaviour tests | `test/smoke/` | `bats` | The `test` recipe in the `justfile` (`just test`); the CI `bats` job | Asserts externally observable behaviour (actual argv, actual file effects), not implementation |
+| Go compilation | The `listener/` module | `go build ./...` | The CI `go` job | — |
 | Go static analysis | Same as above | `go vet ./...` | Same as above | — |
-| Go behaviour tests (with race detection) | Same as above (9 files, 58 `func Test`) | `go test -race ./...` | Same as above | The listener's listen/provision loop is concurrent, and `-race` is the only mechanism that catches a data race in CI |
-| Toolchain version consistency | The Go toolchain | Pinned to the `golang:1.25.3` container | `justfile:76`, `ci.yaml:11` | Local and CI use the same image, ruling out "it passes on my machine" |
-| Sample config drift | `deploy/runner-types.sample.yaml` <-> `listener/testdata/...` | `diff -u` | `test/smoke/runner_types_config.bats:16-21` | See invariant 3 |
-| Shipped sample conforms to the schema | `deploy/runner-types.sample.yaml` | Loaded by the real parser | `listener/sample_config_test.go:23,52,79` | The documented example and the code are validated by **the same** parser |
-| Self-test entry stability | `justfile` recipes and image pins | `grep` assertions | `test/smoke/justfile.bats:27-63` | — |
-| README self-containment | The four-language READMEs | Negative `grep` | `test/smoke/readme_no_adr_refs.bats:17-31` | See invariant 7 |
-| Hardening flags do not regress | Container argv | Negative assertions | `test/smoke/runner_container.bats:270-380`, `runner_build.bats:54-74` | See invariant 2 |
+| Go behaviour tests (with race detection) | Same as above | `go test -race ./...` | Same as above | The listener's listen/provision loop is concurrent, and `-race` is the only mechanism that catches a data race in CI |
+| Toolchain version consistency | The Go toolchain | Pinned to one `golang` image tag | The `GO_IMAGE` default in the `justfile`, the `GO_IMAGE` env in `ci.yaml` | Local and CI use the same image, ruling out "it passes on my machine" |
+| Sample config drift | `deploy/runner-types.sample.yaml` <-> `listener/testdata/...` | `diff -u` | "the operator-facing and testdata runner-type samples are byte-identical" (`test/smoke/runner_types_config.bats`) | See invariant 3 |
+| Shipped sample conforms to the schema | `deploy/runner-types.sample.yaml` | Loaded by the real parser | `listener/sample_config_test.go` | The documented example and the code are validated by **the same** parser |
+| Self-test entry stability | `justfile` recipes and image pins | `grep` assertions | `test/smoke/justfile.bats` | — |
+| README self-containment | The four-language READMEs | Negative `grep` | `test/smoke/readme_no_adr_refs.bats` | See invariant 7 |
+| Hardening flags do not regress | Container argv | Negative assertions | `test/smoke/runner_container.bats`, `test/smoke/runner_build.bats` | See invariant 2 |
 | Destructive policy does not regress | Confirmation gate behaviour | Behavioural assertions | `test/smoke/destructive.bats` | See N-5 |
-| Merge gate | The three jobs above: shellcheck / bats / go | `ci-rollup` | `ci.yaml:91-117` | Branch protection only needs to track **one** stable check name, leaving sub-jobs free to be renamed or split |
+| Merge gate | The four jobs above: shellcheck / adr-lint / bats / go | `ci-rollup` | The `ci-rollup` job in `ci.yaml` | Branch protection only needs to track **one** stable check name, leaving sub-jobs free to be renamed or split |
 
 ### Layered coverage strategy (an important division of labour)
 
@@ -659,24 +677,24 @@ signal. This project's layering is explicit:
 `just coverage` produces bash coverage with kcov and uploads it to Codecov. It
 is **not a merge gate**, and deliberately so:
 
-- The CI `coverage` job sets `continue-on-error: true` (`ci.yaml:72`) and runs
-  only on pushes to `main` (`ci.yaml:73`).
-- The `needs` of `ci-rollup` contains only `shellcheck`, `bats` and `go`, and
-  **deliberately excludes `coverage`** (`ci.yaml:99`, explained at `:96-98`).
-- The technical reason is written at `ci.yaml:66-71`: coverage runs in a
-  Debian-based kcov image, different from the alpine image used by the bats job,
-  and a small group of source-the-script tests is known to misbehave under
-  kcov's ptrace (they pass under `just test` and when run individually). Using a
-  signal with known environmental noise as a gate manufactures false red, and
-  false red trains people to ignore red.
+- The CI `coverage` job sets `continue-on-error: true` and its `if:` restricts
+  it to pushes to `main`.
+- The `needs` of `ci-rollup` contains only the gate jobs and **deliberately
+  excludes `coverage`**, as the comment above that job's `needs:` says.
+- The technical reason is written in the comment above the `coverage` job in
+  `ci.yaml`: coverage runs in a Debian-based kcov image, different from the
+  alpine image used by the bats job, and a small group of source-the-script
+  tests is known to misbehave under kcov's ptrace (they pass under `just test`
+  and when run individually). Using a signal with known environmental noise as a
+  gate manufactures false red, and false red trains people to ignore red.
 
 ### Recorded facts about the current check surface
 
-- `just check` = `just lint` + `just test`, and **covers bash only**. Go's
-  `go vet` and `go test -race` exist only in CI (`ci.yaml:57`); the only
-  Go-related recipe in the `justfile` is `build-listener`
-  (`justfile:94-97`, which only does `go build`). A local `just check` passing
-  therefore does not mean the CI `go` job will pass.
+- `just check` = `just lint` + `just test`, which covers the bash side and the
+  ADR records, but **not Go**. Go's `go vet` and `go test -race` exist only in
+  the CI `go` job; the only Go-related recipe in the `justfile` is
+  `build-listener`, which only runs `go build` in a container. A local
+  `just check` passing therefore does not mean the CI `go` job will pass.
 - Coverage currently measures bash only (kcov); Go coverage is not measured.
 - The repo contains no `.shellcheckrc`, no `.golangci.yml` and no `codecov.yml`
   — every check runs on its tool's default configuration.
@@ -787,33 +805,29 @@ spec, because writing an ADR is a low-frequency action, low-frequency actions
 are the easiest place to forget the format, and the symptom of a format failure
 (one ADR missing its `> Serves:` line) is something nobody will notice.
 
-### The migration surface for existing ADRs
+### The state of the existing ADRs
 
-The current state is **not yet consistent** with the spec above; adopting this
-section means a migration:
+The existing records have been migrated onto the spec above, and the lint now
+holds them there:
 
-- The five existing ADRs (`doc/adr/0001-ephemeral-jit-runners.md` through
-  `0005-reactive-live-admission.md`) already use four-digit numbers, so **the
-  numbering rule needs no migration**.
-- **All five lack the `> Serves:` back-pointer** and need it added one by one.
-- Section names are inconsistent: they currently use `## Considered options`,
-  while the spec fixes `## Alternatives`; all five need to be unified.
-  `## Context`, `## Decision` and `## Consequences` already conform.
-- `Status` is currently free text, and three different forms have appeared in
-  practice: `accepted — supersedes the persistent systemd-service runner model;
-  ...` (0001), `accepted (amended 2026-06-29, #154)` (0002), and `accepted`
-  (0003/0004/0005). These need normalising to the permitted set.
-- **Amendment in place is already established practice**: the
-  `## Amendment (#154)` in `doc/adr/0002-job-history-audit-trail.md` is exactly
-  the form this section describes and can serve as the template for the
-  migration.
-- **The structural lint does not currently exist.** There is no test under
-  `test/smoke/` that checks ADR file structure (the only one that mentions ADRs,
-  `readme_no_adr_refs.bats`, checks that the README **must not** reference ADRs
-  — the opposite direction). This lint has to be built.
-
-This section only delimits the migration surface; it does not perform the
-migration.
+- Every record under `doc/adr/` uses a four-digit number, and no number is
+  shared.
+- Every record carries the `> Serves:` back-pointer after the title and before
+  `## Context`; `0004` uses the "mechanism, no corresponding invariant" form,
+  which is a legitimate answer.
+- Section names are unified on `## Alternatives`; `## Context`, `## Decision`
+  and `## Consequences` were already conformant.
+- Every `Status` is within the permitted set; `0002` carries the
+  `Amended (2026-06-29, #154)` form.
+- **Amendment in place is established practice**: the `## Amendment (#154)` in
+  `doc/adr/0002-job-history-audit-trail.md` is exactly the form this section
+  describes.
+- **The structural lint exists**: `script/lint-adr.sh`, run by the `lint-adr`
+  recipe (a prerequisite of `just lint` and `just lint-host`) and by the CI
+  `adr-lint` job, with its own behaviour pinned by `test/smoke/adr_spec.bats`.
+  It enforces every rule listed above, and matches each `> Serves:` invariant
+  title against the §0.2 headings in this document, so a renamed invariant
+  cannot drift away from the ADRs unnoticed.
 
 ---
 
