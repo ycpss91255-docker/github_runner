@@ -81,6 +81,23 @@ EOF
   [[ "${output}" == *"README.md"* ]]
 }
 
+@test "the report points at where the documents diverge, not at every translation" {
+  # Diffing the heading TEXT of two translations reports every heading as
+  # different, which buries the one that matters. The report must name the
+  # place the structures part company, and it must not present translated
+  # headings as divergences.
+  write_aligned_set
+  sed -i 's/^## Install$/## 安裝/; s/^## Usage$/## 使用方式/' \
+    "${FAKE}/doc/readme/README.zh-TW.md"
+  printf '\n## Extra section\n' >>"${FAKE}/doc/readme/README.zh-TW.md"
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"Extra section"* ]]
+  # The translated headings are structurally identical, so neither may appear.
+  [[ "${output}" != *"安裝"* ]]
+  [[ "${output}" != *"使用方式"* ]]
+}
+
 @test "a section removed from only one language fails, naming that file" {
   write_aligned_set
   sed -i '/^### Details$/d' "${FAKE}/doc/readme/README.ja.md"
