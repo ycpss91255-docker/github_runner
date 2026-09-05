@@ -108,6 +108,11 @@ case "\${1:-}" in
     echo 'runs_on=runs-on: [self-hosted, linux, gpu]'
     ;;
   create)
+    # The real command reads GITHUB_TOKEN from the environment and refuses
+    # without it. Enforcing that here is what makes the ordering of the prompt
+    # relative to the GitHub half observable.
+    [ -n "\${GITHUB_TOKEN:-}" ] || { echo 'scaleset-admin: set GITHUB_CONFIG_URL and GITHUB_TOKEN' >&2; exit 1; }
+    [ -n "\${GITHUB_CONFIG_URL:-}" ] || { echo 'scaleset-admin: set GITHUB_CONFIG_URL and GITHUB_TOKEN' >&2; exit 1; }
     if [ "\${STUB_SCALE_SET_EXISTS:-0}" = 1 ]; then
       echo 'scale set "gpu-runners" (id=42) already exists for runner type "gpu"; nothing changed'
     else
@@ -134,6 +139,15 @@ teardown() { rm -rf "${WORK}"; }
 # way the interactive prompt reads it.
 _deploy() {
   printf 'tok-abc123\n' | "${SCRIPT}" --yes \
+    --config "${CONFIG}" --type gpu \
+    --org-url https://github.com/acme \
+    --prefix "${PREFIX}" --etc "${ETC}" "$@"
+}
+
+# The same run, but guaranteed to have no ambient GITHUB_TOKEN: the token must
+# come from the prompt alone.
+_deploy_env_free() {
+  printf 'tok-abc123\n' | env -u GITHUB_TOKEN "${SCRIPT}" --yes \
     --config "${CONFIG}" --type gpu \
     --org-url https://github.com/acme \
     --prefix "${PREFIX}" --etc "${ETC}" "$@"
@@ -305,4 +319,23 @@ EOF
   ! grep -qxF 'name=useradd' "${CAP}"
   ! grep -qxF 'install-listener' "${CAP}"
   [ ! -d "${ETC}" ]
+}
+
+@test "the token is available to the GitHub half, which runs before the env file is written" {
+  # The GitHub half needs the admin token, and it happens BEFORE the local half
+  # writes the environment file -- so prompting for the token only at the env
+  # file step would leave the create with nothing and fail every first-time
+  # deploy on a host that had not already exported GITHUB_TOKEN.
+  run _deploy_env_free
+  [ "${status}" -eq 0 ]
+  [[ "${output}" != *"set GITHUB_CONFIG_URL and GITHUB_TOKEN"* ]]
+  grep -qxF 'create' "${CAP}"
+  # ...and it still never reached the child's argv.
+  ! grep -qF 'tok-abc123' "${CAP}"
+}
+
+@test "one prompt serves both halves: the same token lands in the env file" {
+  run _deploy_env_free
+  [ "${status}" -eq 0 ]
+  grep -qx 'GITHUB_TOKEN=tok-abc123' "${ETC}/scaleset-listener.env"
 }
