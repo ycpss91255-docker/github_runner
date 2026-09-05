@@ -8,6 +8,18 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`script/remove-runner.sh` is no longer destructive without a preview or a
+  confirmation**: it deregisters a runner, uninstalls its systemd service, and
+  `rm -rf`s its directory, but the preview/confirm contract existed only on the
+  aggregate path (`script/uninstall.sh`) — running it directly destroyed a
+  runner with nothing standing in the way. It now carries the same contract as
+  `uninstall.sh` and `cleanup.sh`: it prints the plan (target runner, the
+  deregistration, the service uninstall, the directory to be removed), prompts
+  before the destructive step, and refuses a non-interactive run that did not
+  pass `--yes`. New flags: `-n` / `--dry-run` (print the plan, change nothing)
+  and `-y` / `--yes` (skip the prompt; required for non-TTY runs). `uninstall.sh`
+  forwards `--yes` to the child, so the aggregate teardown is unchanged.
+
 - **An unknown key in the runner-type config is now rejected, not silently
   ignored**: the authoritative parser (ADR-0003) decodes with YAML strict field
   checking, so a typo'd knob (`reserv:` for `reserve:`) or a field dropped by a

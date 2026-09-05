@@ -103,7 +103,7 @@ org）、ハードコードされていません。
 | `script/add-runner.sh` | 新しい runner を登録。使い方：`[--force] org <org>` または `repo <owner> <repo>`。labels は `setup.conf` から取得（デフォルト `gpu`、設定を参照）。`org` スコープでは外部コントリビューター承認ゲートを検証してから Default runner group の `allows_public_repositories=true` を有効化し public リポジトリの workflow をディスパッチ可能にする；ゲート未設定なら**拒否**(`--force` で上書き、下記セキュリティモデル参照） |
 | `script/configure.sh` | `${RUNNER_HOME}/setup.conf` を生成／更新。`--labels <csv>` で新規登録 runner の labels を設定、引数なしで現在有効な設定を表示 |
 | `script/set-labels.sh` | GitHub API 経由で既存 runner の labels をライブで変更（remove + 再登録は不要）。使い方：`org <org> <csv>` または `repo <owner> <repo> <csv>` |
-| `script/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除 |
+| `script/remove-runner.sh` | 登録解除 + systemd service の uninstall + ディレクトリ削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー |
 | `script/status.sh` | 登録済み runner のローカル + GitHub 側の状態と現在の labels を一覧表示。`-w`/`--watch` で継続的にリフレッシュ（`-i`/`--interval` で間隔指定、デフォルト 5 秒）し、行単位で差分をハイライト；`--no-color` で色を無効化 |
 | `script/update.sh` | actions/runner の最新 release（または `RUNNER_VERSION=...`、init と同じフォールバック）を解決し、キャッシュになければダウンロード、その後 versioned な新しい runner ファイルを各 runner ディレクトリに seed（既存ファイルはそのまま残す）。runner は次回接続時に通常の self-update で新バージョンを取り込む。config は保持 |
 | `script/uninstall.sh` | `script/init.sh` の対となるスクリプト：このチェックアウトから登録したすべての runner をテアダウン + キャッシュ tarball を削除。デフォルトでは確認プロンプト、`--yes` でスキップ、`--dry-run` でプレビュー。org runner-group フラグの変更や checkout 自体の削除は **行いません**（#11 参照） |
@@ -336,11 +336,14 @@ versioned な新しい runner ファイルを各 runner ディレクトリに se
 
 ## アンインストール
 
-**単一**の runner を削除(登録解除 + systemd service の uninstall + ディレクトリ削除):
+**単一**の runner を削除(登録解除 + systemd service の uninstall + ディレクトリ削除)。
+デフォルトはプロンプト。まずプレビューしてから確定:
 
 ```bash
-./script/remove-runner.sh org <your-org>          # org runner
-./script/remove-runner.sh repo <owner> <repo>     # repo runner
+./script/remove-runner.sh --dry-run org <your-org>   # 削除対象を表示
+./script/remove-runner.sh org <your-org>             # org runner(プロンプトあり)
+./script/remove-runner.sh repo <owner> <repo>        # repo runner(プロンプトあり)
+./script/remove-runner.sh --yes org <your-org>       # プロンプトを省略(非 TTY では必須)
 ```
 
 この checkout が登録した**すべて**の runner + キャッシュ tarball を撤去

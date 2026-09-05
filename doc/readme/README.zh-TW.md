@@ -97,7 +97,7 @@ binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 cl
 | `script/add-runner.sh` | 註冊新 runner。用法：`[--force] org <org>` 或 `repo <owner> <repo>`。labels 取自 `setup.conf`（預設 `gpu`，詳見設定）。`org` scope 會先驗證外部貢獻者 approval gate,再把 Default runner group 的 `allows_public_repositories=true` 打開讓 public repo workflow 能 dispatch；gate 未設時會**拒絕**,除非加 `--force`(詳見下方安全性說明） |
 | `script/configure.sh` | 產生／更新 `${RUNNER_HOME}/setup.conf`。`--labels <csv>` 設定新註冊 runner 的 labels；無參數則印出目前生效的設定 |
 | `script/set-labels.sh` | 透過 GitHub API 即時改既有 runner 的 labels（免 remove + 重新註冊）。用法：`org <org> <csv>` 或 `repo <owner> <repo> <csv>` |
-| `script/remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄 |
+| `script/remove-runner.sh` | 取消註冊 + uninstall systemd service + 刪目錄。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽 |
 | `script/status.sh` | 列出所有 registered runner 的本地與 GitHub 端狀態，以及目前的 labels。`-w`/`--watch` 持續刷新（`-i`/`--interval` 設定間隔，預設 5 秒），以列為單位高亮差異；`--no-color` 關閉顏色 |
 | `script/update.sh` | 解析 actions/runner 最新 release（或 `RUNNER_VERSION=...` 指定，與 init 相同的 fallback），cache 不存在則下載，再把新版的 versioned runner 檔案 seed 到各 runner 目錄（既有檔案保留原狀）；runner 會在下次連線時透過正常的 self-update 接手新版本。保留 config |
 | `script/uninstall.sh` | `script/init.sh` 的對等：把此 checkout 註冊過的 runner 全部拆掉 + 刪 tarball cache。預設 prompt 確認，`--yes` 跳過，`--dry-run` 預覽。**不**動 org runner-group flag、**不**刪 checkout 本身（詳見 #11） |
@@ -307,11 +307,14 @@ RUNNER_VERSION=<new-version> ./script/update.sh
 
 ## 解除安裝
 
-移除**單一** runner(deregister + 卸載 systemd service + 刪目錄):
+移除**單一** runner(deregister + 卸載 systemd service + 刪目錄)。預設會
+prompt,先預覽再確認:
 
 ```bash
-./script/remove-runner.sh org <your-org>          # org runner
-./script/remove-runner.sh repo <owner> <repo>     # repo runner
+./script/remove-runner.sh --dry-run org <your-org>   # 顯示會移除什麼
+./script/remove-runner.sh org <your-org>             # org runner(會 prompt)
+./script/remove-runner.sh repo <owner> <repo>        # repo runner(會 prompt)
+./script/remove-runner.sh --yes org <your-org>       # 跳過 prompt(非 TTY 必填)
 ```
 
 拆除這個 checkout 註冊過的**全部** runner + 刪 tarball cache(預設會 prompt,
