@@ -141,14 +141,18 @@ already-registered runner live (no remove + re-register), use `script/set-labels
 
 Tests run inside the `ghcr.io/ycpss91255-docker/test-tools` image (alpine +
 bats + shellcheck + hadolint, same image used by `ycpss91255-docker/base`).
-Coverage runs inside `kcov/kcov` (Debian, ships `kcov`; `bats` is
-apt-installed at run time). Local and CI runs share the same images.
+Coverage runs inside `kcov/kcov` (Debian, ships `kcov` but no `bats`), with a
+pinned, sha256-verified `bats-core` release cached on the host by
+`script/fetch-bats.sh` and mounted into the container. Nothing is installed at
+run time and the coverage container is started with `--network none`, so after
+one `just pull` the whole check reproduces with no outbound network. Local and
+CI runs share the same images.
 
 The self-test entry is a root `justfile`, matching the base repo convention
 (base migrated its self-test entry to `just`):
 
 ```bash
-just pull       # pull test-tools + kcov images (once)
+just pull       # pull test-tools + kcov images and cache bats (once)
 just lint       # shellcheck on all scripts (in docker)
 just test       # bats smoke tests (in docker)
 just check      # lint + test (no coverage)
