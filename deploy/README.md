@@ -57,7 +57,7 @@ sudo stat -c '%a %U' /etc/github-runner-listener/scaleset-listener.env   # -> 60
 Instead of the discrete `SCALE_SET_NAME` / `RUNNER_IMAGE` knobs, drive the
 listener from a **runner-type config**. Each entry maps one runner type to one
 homogeneous scale set (labels, image, device passthrough, runtime, build tool,
-hardening profile, concurrency); adding a type is a new entry, not a code change.
+concurrency); adding a type is a new entry, not a code change.
 Concurrency is reactive live-admission by default — the count is derived from
 live host headroom, not configured, and the only knob is `reserve` percent
 ([ADR-0005](../doc/adr/0005-reactive-live-admission.md)); a GPU type opts into

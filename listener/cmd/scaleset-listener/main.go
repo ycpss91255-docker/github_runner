@@ -93,12 +93,11 @@ func main() {
 		reserve      int
 		// Per-type provisioning fields carried across the widened shell-out
 		// (#117/#119): devices for precise --device passthrough, the container
-		// runtime shim, the hardening posture, and the daemonless build tool.
-		// Empty in the discrete-env path.
-		devices          []string
-		runtime          string
-		hardeningProfile string
-		buildTool        string
+		// runtime shim, and the daemonless build tool. Empty in the discrete-env
+		// path.
+		devices   []string
+		runtime   string
+		buildTool string
 	)
 	if cfgPath := os.Getenv("RUNNER_TYPES_CONFIG"); cfgPath != "" {
 		inst, err := selectInstance(cfgPath, os.Getenv("RUNNER_TYPE"), deps)
@@ -109,7 +108,6 @@ func main() {
 		image = inst.Config.Image
 		devices = inst.Config.Devices
 		runtime = inst.Config.Runtime
-		hardeningProfile = inst.Config.HardeningProfile
 		buildTool = inst.Config.BuildTool
 		reserve = inst.Config.Reserve
 		// Carry exactly the seam this type resolved to: a device-sized (GPU) type
@@ -163,16 +161,15 @@ func main() {
 	// exit, duration) plus periodic capacity/in-flight snapshots, emitted via slog
 	// to stderr, which journald captures when this runs as a systemd unit.
 	l := listener.New(session, minter, prov, listener.Config{
-		Image:            image,
-		DeviceDetector:   detector,
-		HostProbe:        hostProbe,
-		Reserve:          reserve,
-		Reaper:           reaper,
-		Devices:          devices,
-		Runtime:          runtime,
-		HardeningProfile: hardeningProfile,
-		BuildTool:        buildTool,
-		JobLogger:        listener.NewJournalJobLogger(),
+		Image:          image,
+		DeviceDetector: detector,
+		HostProbe:      hostProbe,
+		Reserve:        reserve,
+		Reaper:         reaper,
+		Devices:        devices,
+		Runtime:        runtime,
+		BuildTool:      buildTool,
+		JobLogger:      listener.NewJournalJobLogger(),
 	})
 
 	log.Printf("listener up: scale set %q (id=%d), image=%s", scaleSetName, scaleSet.ID, image)

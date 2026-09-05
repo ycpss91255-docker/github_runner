@@ -88,9 +88,6 @@ type ProvisionRequest struct {
 	// (e.g. "nvidia" for the GPU stack). Non-empty becomes exactly one
 	// --runtime <value> on the container run; empty leaves the engine default.
 	Runtime string
-	// HardeningProfile is the container hardening posture this runner type
-	// selected (e.g. "device", "default"). Empty = the provisioner default.
-	HardeningProfile string
 	// BuildTool is the daemonless image builder this runner type offers jobs
 	// ("kaniko"/"buildkit"), or empty for none -- routes build jobs to the
 	// daemonless build seam (#119).
@@ -182,9 +179,6 @@ type Config struct {
 	// carried into every ProvisionRequest so the bash provisioner adds exactly
 	// one --runtime <value>. Empty = the engine default, no flag.
 	Runtime string
-	// HardeningProfile is this type's container hardening posture (#114/#115),
-	// carried into every ProvisionRequest. Empty = the provisioner default.
-	HardeningProfile string
 	// BuildTool is this type's daemonless image builder ("kaniko"/"buildkit"),
 	// carried into every ProvisionRequest to route build jobs to the daemonless
 	// seam (#119). Empty = none.
@@ -414,7 +408,6 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 			Image:            l.cfg.Image,
 			Devices:          l.cfg.Devices,
 			Runtime:          l.cfg.Runtime,
-			HardeningProfile: l.cfg.HardeningProfile,
 			BuildTool:        l.cfg.BuildTool,
 		})
 	}

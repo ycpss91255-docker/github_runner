@@ -5,20 +5,19 @@ import (
 )
 
 // A runner type maps to a listener Config bound to its scale set, image and
-// hardening/runtime/device settings, so the type alone drives a listener
+// runtime/device settings, so the type alone drives a listener
 // instance (#112). mode: auto leaves MaxRunners 0 (the device detector sizes the
 // bound) and attaches the detector, not the reactive probe.
 func TestRunnerTypeToConfigAuto(t *testing.T) {
 	det := stubDetector{count: 3}
 	rt := RunnerType{
-		Name:             "gpu",
-		ScaleSet:         "gpu-runners",
-		Labels:           []string{"self-hosted", "gpu"},
-		Image:            "img-gpu@sha256:1",
-		Devices:          []string{"/dev/nvidia0"},
-		Runtime:          "nvidia",
-		HardeningProfile: "device",
-		Concurrency:      Concurrency{Mode: "auto"},
+		Name:        "gpu",
+		ScaleSet:    "gpu-runners",
+		Labels:      []string{"self-hosted", "gpu"},
+		Image:       "img-gpu@sha256:1",
+		Devices:     []string{"/dev/nvidia0"},
+		Runtime:     "nvidia",
+		Concurrency: Concurrency{Mode: "auto"},
 	}
 	inst := rt.Instance(InstanceDeps{Detector: det, HostProbe: stubProbe{}})
 
@@ -46,10 +45,6 @@ func TestRunnerTypeToConfigAuto(t *testing.T) {
 	// the provisioner can turn it into --runtime on the container run.
 	if inst.Config.Runtime != "nvidia" {
 		t.Errorf("Config.Runtime = %q, want nvidia", inst.Config.Runtime)
-	}
-	// The type's hardening profile is carried across too (#114/#115 posture).
-	if inst.Config.HardeningProfile != "device" {
-		t.Errorf("Config.HardeningProfile = %q, want device", inst.Config.HardeningProfile)
 	}
 	// The resolved bound should come from the detector (GPU count -> 3).
 	l := New(nil, nil, nil, inst.Config)

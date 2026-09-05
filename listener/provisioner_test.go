@@ -125,14 +125,13 @@ func TestContainerProvisionerJITFileIs0600AndRemovedAtTeardown(t *testing.T) {
 	}
 }
 
-// The widened shell-out contract (#117): the per-type precise device list and
-// hardening profile cross the boundary as EXPLICIT environment, not argv (so
-// they are not in the process table), where the bash provisioner reads them
-// (RUNNER_DEVICES -> --device, RUNNER_HARDENING_PROFILE -> posture). A stub
-// script dumps the relevant env to a file for the assertion.
-func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
+// The widened shell-out contract (#117): the per-type precise device list
+// crosses the boundary as EXPLICIT environment, not argv (so it is not in the
+// process table), where the bash provisioner reads it (RUNNER_DEVICES ->
+// --device). A stub script dumps the relevant env to a file for the assertion.
+func TestContainerProvisionerPassesDevicesAsEnv(t *testing.T) {
 	capFile := filepath.Join(t.TempDir(), "env")
-	script := writeScript(t, "#!/usr/bin/env bash\n{ echo \"DEV=$RUNNER_DEVICES\"; echo \"HP=$RUNNER_HARDENING_PROFILE\"; } > '"+capFile+"'\n")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"DEV=$RUNNER_DEVICES\" > '"+capFile+"'\n")
 
 	p := &ContainerProvisioner{Script: script}
 	err := p.Provision(context.Background(), ProvisionRequest{
@@ -140,7 +139,6 @@ func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
 		EncodedJITConfig: "ENC",
 		Image:            "img",
 		Devices:          []string{"/dev/nvidia0", "/dev/nvidiactl"},
-		HardeningProfile: "device",
 	})
 	if err != nil {
 		t.Fatalf("Provision returned error: %v", err)
@@ -154,9 +152,6 @@ func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
 	// --device; the order is preserved.
 	if !strings.Contains(out, "DEV=/dev/nvidia0") || !strings.Contains(out, "/dev/nvidiactl") {
 		t.Errorf("RUNNER_DEVICES not passed through: %q", out)
-	}
-	if !strings.Contains(out, "HP=device") {
-		t.Errorf("RUNNER_HARDENING_PROFILE not passed through: %q", out)
 	}
 }
 

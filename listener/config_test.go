@@ -19,8 +19,8 @@ func writeConfig(t *testing.T, body string) string {
 }
 
 // A valid config with every documented field loads into a typed []RunnerType,
-// preserving labels, image, devices, runtime, build tool, hardening profile and
-// the scale set, and defaulting concurrency to auto when unset.
+// preserving labels, image, devices, runtime, build tool and the scale set, and
+// defaulting concurrency to auto when unset.
 func TestLoadConfigValid(t *testing.T) {
 	path := writeConfig(t, `
 runner_types:
@@ -31,7 +31,6 @@ runner_types:
     devices: [/dev/nvidia0, /dev/nvidiactl]
     runtime: nvidia
     build_tool: kaniko
-    hardening_profile: device
     concurrency:
       mode: auto
 `)
@@ -63,9 +62,6 @@ runner_types:
 	}
 	if rt.BuildTool != "kaniko" {
 		t.Errorf("BuildTool = %q", rt.BuildTool)
-	}
-	if rt.HardeningProfile != "device" {
-		t.Errorf("HardeningProfile = %q", rt.HardeningProfile)
 	}
 	if !rt.Concurrency.DeviceSized() {
 		t.Errorf("mode: auto should be device-sized")
