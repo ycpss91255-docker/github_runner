@@ -200,6 +200,28 @@ main() {
   listener_confirm "Proceed? [y/N] "
   echo
 
+  # --- the token, ONCE, before anything needs it ---------------------------
+  # Both halves want it: the GitHub side authenticates the create with it, and
+  # the local side writes it into the EnvironmentFile. The GitHub side runs
+  # first, so prompting at the env-file step would leave the create with nothing
+  # and fail every first-time deploy on a host that had not already exported
+  # GITHUB_TOKEN. One prompt, asked up front, serves both.
+  #
+  # It is only asked for when it is actually needed: a --skip-github re-run
+  # whose environment file is already in place needs no token at all.
+  local need_token=0
+  (( SKIP_GITHUB )) || need_token=1
+  listener_env_file_ready "${LISTENER_ENV_FILE}" || need_token=1
+  if (( need_token )) && [[ -z ${LISTENER_TOKEN:-} ]]; then
+    if [[ -n ${GITHUB_TOKEN:-} ]]; then
+      # Already in the environment (an unattended run); do not ask again.
+      LISTENER_TOKEN="${GITHUB_TOKEN}"
+    else
+      listener_prompt_secret "GitHub admin token (scale-set admin scope, input hidden): "
+    fi
+    [[ -n ${LISTENER_TOKEN:-} ]] || { echo "FAIL: no token provided" >&2; exit 1; }
+  fi
+
   # --- record the labels ---------------------------------------------------
   # Whatever the interaction settled on goes into the config, so the routing key
   # is written down and not just in this terminal's scrollback.
@@ -220,7 +242,7 @@ main() {
     [[ -n ${TYPE_NAME} ]] && admin_args+=(--type "${TYPE_NAME}")
     [[ -n ${GROUP_OPT} ]] && admin_args+=(--group "${GROUP_OPT}")
     # The token reaches the child through the ENVIRONMENT, never its argv.
-    GITHUB_CONFIG_URL="${ORG_URL}" GITHUB_TOKEN="${LISTENER_TOKEN:-${GITHUB_TOKEN:-}}" \
+    GITHUB_CONFIG_URL="${ORG_URL}" GITHUB_TOKEN="${LISTENER_TOKEN:-}" \
       _scaleset_admin "${admin_args[@]}"
   fi
   echo
@@ -236,7 +258,6 @@ main() {
   if listener_env_file_ready "${LISTENER_ENV_FILE}"; then
     echo "  environment file: ${LISTENER_ENV_FILE} already in place (0600), skipped"
   else
-    [[ -n ${LISTENER_TOKEN:-} ]] || listener_prompt_secret "GitHub admin token (input hidden): "
     listener_write_env_file "${LISTENER_ENV_FILE}" "${ORG_URL}" \
       "${TYPES_CONFIG}" "${TYPE_NAME}"
   fi
