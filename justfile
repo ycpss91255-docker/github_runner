@@ -58,9 +58,22 @@ lint: lint-adr
     {{_docker_run}} shellcheck -x {{SCRIPTS}}
     {{_docker_run}} hadolint {{DOCKERFILES}}
 
-# Bats smoke tests inside test-tools container.
-test:
-    {{_docker_run}} bats test/smoke/
+# The whole layered bats suite, inside the test-tools container.
+#
+# The suite is split by level (doc/test-levels.md): `unit` exercises one
+# function or one file in isolation, `integration` exercises several scripts or
+# libraries working together. Both levels are named explicitly rather than
+# handed to `bats --recursive`, so adding a level is a deliberate edit here -- a
+# level nobody wired up would otherwise sit unrun and look green.
+test: test-unit test-integration
+
+# One function or one file in isolation.
+test-unit:
+    {{_docker_run}} bats test/bats/unit/
+
+# Several scripts / libraries working together.
+test-integration:
+    {{_docker_run}} bats test/bats/integration/
 
 # lint + test (no coverage).
 check: lint test
@@ -75,7 +88,8 @@ coverage:
     rm -rf coverage
     bats_dir="$(bash script/fetch-bats.sh)" \
       && {{_kcov_run}} -v "$bats_dir:/opt/bats:ro" {{COVERAGE_IMAGE}} \
-           kcov --include-path=. /source/coverage /opt/bats/bin/bats test/smoke/
+           kcov --include-path=. /source/coverage /opt/bats/bin/bats \
+             test/bats/unit/ test/bats/integration/
     @echo "coverage report: ./coverage/index.html"
 
 # Measure bash coverage, then enforce its floor (PRD.md §0.4). This is the
@@ -116,9 +130,9 @@ lint-adr:
 lint-host: lint-adr
     shellcheck -x {{SCRIPTS}}
 
-# Bats on host (requires bats installed locally).
+# The layered bats suite on host (requires bats installed locally).
 test-host:
-    bats test/smoke/
+    bats test/bats/unit/ test/bats/integration/
 
 # --- scale-set listener build / install (ADR-0001 Phase 4 deployment, #108) ---
 # The host needs NO Go toolchain: the binary is built INSIDE a golang container

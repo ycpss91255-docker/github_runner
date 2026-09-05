@@ -66,7 +66,7 @@ provisioner, asserting:
 - available-but-unassigned jobs do **not** provision,
 - the real client satisfies `Session`.
 
-Host-side, [`test/smoke/listener_provision.bats`](../test/smoke/listener_provision.bats)
+Host-side, [`test/bats/integration/listener_provision.bats`](../test/bats/integration/listener_provision.bats)
 covers the entrypoint script with a stubbed container CLI.
 
 ## Live end-to-end gap (the one untested path)

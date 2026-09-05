@@ -50,8 +50,14 @@ jobs:
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
-      - name: bats smoke
-        run: just test
+      # The bash suite is layered (doc/test-levels.md). The levels run as two
+      # steps of one job rather than as two jobs: the log then names the level
+      # that broke, without a second image pull and without a second entry in
+      # the ci-rollup needs list that branch protection tracks.
+      - name: bats unit
+        run: just test-unit
+      - name: bats integration
+        run: just test-integration
 
   go:
     # Containerized Go build + vet + test for the listener module (#129),

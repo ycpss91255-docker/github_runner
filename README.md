@@ -154,7 +154,9 @@ The self-test entry is a root `justfile`, matching the base repo convention
 ```bash
 just pull       # pull test-tools + kcov images and cache bats (once)
 just lint       # shellcheck on all scripts (in docker)
-just test       # bats smoke tests (in docker)
+just test       # the whole bats suite: unit + integration (in docker)
+just test-unit  # one function / one file in isolation
+just test-integration  # several scripts or libraries together
 just check      # lint + test (no coverage)
 just coverage   # bats with kcov coverage -> ./coverage/
 just coverage-gate  # coverage + enforce the bash line-coverage floor
