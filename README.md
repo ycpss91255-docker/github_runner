@@ -157,6 +157,8 @@ just lint       # shellcheck on all scripts (in docker)
 just test       # bats smoke tests (in docker)
 just check      # lint + test (no coverage)
 just coverage   # bats with kcov coverage -> ./coverage/
+just coverage-gate  # coverage + enforce the bash line-coverage floor
+just coverage-go    # listener coverage + enforce the Go floor
 just            # list recipes
 ```
 
@@ -168,9 +170,12 @@ just lint-host
 just test-host
 ```
 
-CI mirrors `just lint` + `test` on every push / PR and `coverage` on
-push-to-main only (kcov is 2-5x slower than plain bats, so coverage is
-reserved for release-quality signal). Codecov upload uses the
+CI mirrors `just lint` + `test` + `coverage-gate` on every push / PR, and the
+Go job runs `coverage-go`. Coverage is a merge gate, not just a metric: both
+floors are pinned in `script/coverage-gate.sh` and a report below one fails the
+build. `listener/cmd/` is excluded from the Go floor -- it is wiring, covered by
+the integration and system layers instead (see `doc/PRD.md`). kcov is 2-5x
+slower than plain bats, which is what a gate costs. Codecov upload uses the
 `CODECOV_TOKEN` repo secret.
 
 ## Security model

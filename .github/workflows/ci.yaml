@@ -77,29 +77,34 @@ jobs:
       # flag, a broken mount) is otherwise invisible until an operator deploys.
       - name: build the release listener binary (build-listener recipe)
         run: just build-listener
+      # The Go coverage floor (PRD.md §0.4). Lives in this job because it needs
+      # the same pinned toolchain image, and this job already gates merges. The
+      # recipe excludes listener/cmd/ from the measurement: that entrypoint is
+      # wiring, covered at the integration and system level instead.
+      - name: go coverage floor (listener core)
+        run: just coverage-go
 
   coverage:
-    # Main-push only. kcov instrumentation is 2-5x slower than plain bats
-    # (per base/self-test.yaml comment), so PRs run lint + test only and
-    # main push picks up the coverage signal for Codecov.
+    # Runs on every push and PR, and blocks the merge. It used to be advisory --
+    # continue-on-error, main-push only, outside the ci-rollup needs list -- on
+    # the grounds that the measurement was not reproducible: it apt-installed
+    # bats inside the kcov container on every run, so it needed the network and
+    # measured with whatever bats version the archive carried that day. That is
+    # fixed: the recipe now runs a pinned, sha256-verified bats in a container
+    # started with --network none, and the same command reproduces the number
+    # on a maintainer's machine. A reproducible number can hold a line, so it
+    # does -- see the floors in script/coverage-gate.sh.
     #
-    # continue-on-error: coverage is a METRIC, never a gate. It runs in the
-    # Debian kcov image (the justfile's COVERAGE_IMAGE), which diverges from
-    # the alpine test-tools image the `bats` job uses: a known subset of
-    # source-the-script tests deterministically misbehaves under kcov's
-    # ptrace in the full suite (they pass under `just test` and in
-    # isolation). Per base/self-test.yaml, a coverage hiccup must never turn
-    # the workflow — and therefore the CI badge — red, so the whole job is
-    # allowed to fail without failing the run.
-    continue-on-error: true
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # The cost is honest: kcov instrumentation is 2-5x slower than plain bats,
+    # and PRs now pay it. That is what a gate costs.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: set up just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
-      - name: run kcov coverage
-        run: just coverage
+      # One recipe measures and enforces, so CI cannot drift from the local run.
+      - name: run kcov coverage and enforce the bash floor
+        run: just coverage-gate
       - name: upload to Codecov
         # fail_ci_if_error: false mirrors base/self-test.yaml — a Codecov
         # upload glitch (or a missing token on forks) must not fail the job.
@@ -112,13 +117,14 @@ jobs:
 
   ci-rollup:
     # Single aggregator that branch protection requires, mirroring base's
-    # self-test.yaml ci-rollup. shellcheck + adr-lint + bats + go join this
-    # `needs:` list so branch protection tracks one stable check name regardless
-    # of how the sub-jobs are renamed or split later. `coverage` is intentionally
-    # excluded: it is a main-push-only metric, not a PR gate, so a coverage
-    # hiccup must never block a merge. SKIPPED folds into pass so future
-    # conditionally-gated sub-jobs don't wedge doc-only PRs.
-    needs: [shellcheck, adr-lint, bats, go]
+    # self-test.yaml ci-rollup. shellcheck + adr-lint + bats + go + coverage join
+    # this `needs:` list so branch protection tracks one stable check name
+    # regardless of how the sub-jobs are renamed or split later. `coverage` used
+    # to be excluded on purpose, as a main-push-only metric; it now carries the
+    # bash coverage floor, so leaving it out would mean the floor could not fail
+    # a PR, which is the same as not having one. SKIPPED folds into pass so
+    # future conditionally-gated sub-jobs don't wedge doc-only PRs.
+    needs: [shellcheck, adr-lint, bats, go, coverage]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -128,14 +134,17 @@ jobs:
           ADR_LINT_RESULT: ${{ needs['adr-lint'].result }}
           BATS_RESULT: ${{ needs.bats.result }}
           GO_RESULT: ${{ needs.go.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
         run: |
           set -euo pipefail
           echo "shellcheck: ${SHELLCHECK_RESULT}"
           echo "adr-lint:   ${ADR_LINT_RESULT}"
           echo "bats:       ${BATS_RESULT}"
           echo "go:         ${GO_RESULT}"
+          echo "coverage:   ${COVERAGE_RESULT}"
           fail=0
-          for r in "${SHELLCHECK_RESULT}" "${ADR_LINT_RESULT}" "${BATS_RESULT}" "${GO_RESULT}"; do
+          for r in "${SHELLCHECK_RESULT}" "${ADR_LINT_RESULT}" "${BATS_RESULT}" \
+                   "${GO_RESULT}" "${COVERAGE_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"

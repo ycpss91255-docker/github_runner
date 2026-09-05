@@ -129,6 +129,39 @@ setup() {
   [ "${status}" -eq 0 ]
 }
 
+@test "the coverage floors are on the recipe path, not just a standalone script" {
+  # Same rule as the ADR lint above: a check nobody runs is not a gate. There
+  # must be a recipe that measures AND enforces, for both languages, and
+  # SCRIPTS must list the gate so shellcheck covers it.
+  run grep -E '^coverage-gate: coverage' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -E '^coverage-go( .*)?:' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run bash -c "grep -E '^SCRIPTS :=' '${JUSTFILE}' | grep -F 'script/coverage-gate.sh'"
+  [ "${status}" -eq 0 ]
+}
+
+@test "go coverage excludes the cmd/ entrypoint from the line-coverage floor" {
+  # cmd/scaleset-listener only reads environment variables and wires the pieces
+  # together; it is covered at the integration and system level, per PRD.md
+  # §0.4's layered coverage strategy. Measuring it as line coverage would just
+  # invite assertion-free tests, so it is excluded deliberately -- and the
+  # exclusion has to be visible here, not discovered from a low number.
+  run bash -c "grep -A6 -E '^coverage-go( .*)?:' '${JUSTFILE}' | grep -F '/cmd/'"
+  [ "${status}" -eq 0 ]
+}
+
+@test "coverage is a merge gate: it blocks a PR instead of only reporting" {
+  # Coverage used to be advisory -- `continue-on-error: true`, restricted to
+  # pushes to main, and deliberately kept out of the ci-rollup `needs:` list.
+  # A floor that cannot fail a PR is not a floor.
+  local ci="${ROOT}/.github/workflows/ci.yaml"
+  run grep -F 'continue-on-error: true' "${ci}"
+  [ "${status}" -ne 0 ]
+  run grep -E '^\s+needs: \[.*coverage.*\]' "${ci}"
+  [ "${status}" -eq 0 ]
+}
+
 @test "build-listener passes -buildvcs=false so the container build is not broken by dubious git ownership" {
   run grep -E 'build-listener' "${JUSTFILE}"
   [ "${status}" -eq 0 ]

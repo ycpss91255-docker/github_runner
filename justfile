@@ -21,7 +21,7 @@ TEST_TOOLS_IMAGE := env_var_or_default('TEST_TOOLS_IMAGE', 'ghcr.io/ycpss91255-d
 # recipe below. Override with COVERAGE_IMAGE=... if you want to pin a tag.
 COVERAGE_IMAGE := env_var_or_default('COVERAGE_IMAGE', 'kcov/kcov:latest')
 
-SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh script/fetch-bats.sh'
+SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh script/fetch-bats.sh script/coverage-gate.sh'
 
 # Self-built runner-image Dockerfiles (#120/#121), hadolint-checked. The
 # test-tools image ships hadolint, so this needs no extra dependency.
@@ -77,6 +77,29 @@ coverage:
       && {{_kcov_run}} -v "$bats_dir:/opt/bats:ro" {{COVERAGE_IMAGE}} \
            kcov --include-path=. /source/coverage /opt/bats/bin/bats test/smoke/
     @echo "coverage report: ./coverage/index.html"
+
+# Measure bash coverage, then enforce its floor (PRD.md §0.4). This is the
+# recipe the CI `coverage` job runs: measuring and enforcing in one place means
+# CI cannot drift from what a maintainer runs locally.
+coverage-gate: coverage
+    bash script/coverage-gate.sh bash coverage
+
+# Go coverage for the listener core, then its floor (PRD.md §0.4).
+#
+# The package list deliberately EXCLUDES listener/cmd/ -- that entrypoint reads
+# environment variables and wires the pieces together, and is covered at the
+# integration and system level instead. Measuring a wiring layer as line
+# coverage only invites tests that assert it was called; see the layered
+# coverage strategy in PRD.md §0.4.
+#
+# Everything except the func report stays inside the container (profile in
+# /tmp, module and build caches in the image), so the run leaves no root-owned
+# files on the bind mount; the report is captured through stdout.
+coverage-go:
+    docker run --rm -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} \
+      sh -c 'go test -coverprofile=/tmp/cover.out $(go list ./... | grep -v "/cmd/") >&2 && go tool cover -func=/tmp/cover.out' \
+      > listener/coverage.func
+    bash script/coverage-gate.sh go listener/coverage.func
 
 # ADR structure lint (doc/adr/), per PRD.md §0.5: the `> Serves:` back-pointer,
 # the four required sections, the permitted Status values, the filename /

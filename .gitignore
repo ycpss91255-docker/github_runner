@@ -32,6 +32,10 @@ _work/
 # Coverage report produced by `just coverage`.
 /coverage/
 
+# Go coverage report produced by `just coverage-go` -- `go tool cover -func`
+# output, read by script/coverage-gate.sh. A measurement, never tracked.
+/listener/coverage.func
+
 # Listener build output produced by `just build-listener` (#108). The binary
 # is built inside a golang container and installed to the host; it is a build
 # artifact, never tracked.
