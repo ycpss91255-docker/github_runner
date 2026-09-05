@@ -1,7 +1,13 @@
 # 0002 — Job history / audit trail for ephemeral runners
 
-- **Status**: accepted (amended 2026-06-29, #154)
+> Serves: Invariant 1 (Never fail silently) — ephemeral teardown destroys
+> the execution context, so without an out-of-band capture a failed job would
+> vanish leaving nothing to read. The ledger records every job, success and
+> failure, before the container is removed.
+
+- **Status**: Accepted
 - **Date**: 2026-06-23
+- **Amended**: 2026-06-29 (#154)
 
 ## Context
 
@@ -84,7 +90,7 @@ Net: the durable store now holds **only trusted metadata** (ledger + per-job
 self-hosted execution context (host / image+digest / runner type / device /
 outcome / trigger) is fully retained in the ledger.
 
-## Considered options
+## Alternatives
 
 - **Rely on GitHub Actions logs only** — rejected: lacks the self-hosted
   execution context and is retention-limited; no host-level forensics.

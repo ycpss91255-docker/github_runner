@@ -69,6 +69,19 @@ setup() {
   [ "${status}" -eq 0 ]
 }
 
+@test "the ADR structure lint is on the lint path, not just a standalone script" {
+  # A check nobody runs is not a gate: `lint` (and its host twin) must depend on
+  # `lint-adr`, and the CI rollup must require the adr-lint job.
+  run grep -E '^lint-adr( .*)?:' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -E '^lint: .*lint-adr' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -E '^lint-host: .*lint-adr' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -E '^\s+needs: \[.*adr-lint.*\]' "${ROOT}/.github/workflows/ci.yaml"
+  [ "${status}" -eq 0 ]
+}
+
 @test "test recipe runs the bats smoke suite (#78)" {
   run grep -E 'bats .*test/smoke/' "${JUSTFILE}"
   [ "${status}" -eq 0 ]

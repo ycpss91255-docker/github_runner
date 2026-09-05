@@ -1,6 +1,12 @@
 # 0005 — Reactive live-admission for runner concurrency
 
-- **Status**: accepted
+> Serves: Invariant 2 (Defaults fall toward safety) — the default is
+> reactive admission against a live host reading that keeps a 10% reserve
+> free, and the single operator knob is upward-only (a smaller reserve is
+> rejected). Neither the default nor any permitted override can configure the
+> host into overload.
+
+- **Status**: Accepted
 - **Date**: 2026-09-03
 
 ## Context
@@ -61,7 +67,7 @@ configured.**
 Empty `concurrency` therefore means reactive (dynamic by default). A GPU type opts
 into device-count sizing with an explicit `mode: auto`.
 
-## Considered options
+## Alternatives
 
 - **Predictive precompute-N.** Compute N up front from host capacity ÷ per-job
   cost and run a fixed pool. Rejected: it needs a per-workload cost table that is

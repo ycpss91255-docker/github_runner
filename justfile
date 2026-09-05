@@ -18,7 +18,7 @@ TEST_TOOLS_IMAGE := env_var_or_default('TEST_TOOLS_IMAGE', 'ghcr.io/ycpss91255-d
 # Override with COVERAGE_IMAGE=... if you want to pin a tag.
 COVERAGE_IMAGE := env_var_or_default('COVERAGE_IMAGE', 'kcov/kcov:latest')
 
-SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh'
+SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh'
 
 # Self-built runner-image Dockerfiles (#120/#121), hadolint-checked. The
 # test-tools image ships hadolint, so this needs no extra dependency.
@@ -40,8 +40,16 @@ pull:
     docker pull {{TEST_TOOLS_IMAGE}}
     docker pull {{COVERAGE_IMAGE}}
 
-# ShellCheck + hadolint inside test-tools container.
-lint:
+# ADR structure lint (doc/adr/): required sections, the Status vocabulary, and
+# the `> Serves:` invariant back-pointer. Pure bash + grep, so unlike shellcheck
+# / hadolint / bats it needs no test-tools container -- it runs on the host and
+# is therefore also the cheapest gate to fail fast on.
+lint-adr:
+    bash script/lint-adr.sh
+
+# ShellCheck + hadolint inside test-tools container, after the ADR structure
+# lint (a dependency, so `just lint` alone covers every lint the gate runs).
+lint: lint-adr
     {{_docker_run}} shellcheck -x {{SCRIPTS}}
     {{_docker_run}} hadolint {{DOCKERFILES}}
 
@@ -58,8 +66,9 @@ coverage:
     {{_kcov_run}} bash -c 'apt-get update -qq && apt-get install -qq -y bats >/dev/null && kcov --include-path=. /source/coverage /usr/bin/bats test/smoke/'
     @echo "coverage report: ./coverage/index.html"
 
-# ShellCheck on host (requires shellcheck installed locally).
-lint-host:
+# ShellCheck on host (requires shellcheck installed locally), plus the ADR
+# structure lint, so the host path covers the same lints as the container one.
+lint-host: lint-adr
     shellcheck -x {{SCRIPTS}}
 
 # Bats on host (requires bats installed locally).

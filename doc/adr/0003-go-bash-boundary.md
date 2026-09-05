@@ -1,6 +1,12 @@
 # 0003 — Go/bash boundary: minimal Go surface, one clean shell-out
 
-- **Status**: accepted
+> Serves: Invariant 3 (One source of truth, no parallel copies) — the
+> boundary rule exists so nothing is implemented twice, once per language: Go
+> does not reimplement the container / host / cleanup logic bash already owns,
+> bash does not talk to the scale-set API, and the runner-type config has
+> exactly one parser of record.
+
+- **Status**: Accepted
 - **Date**: 2026-06-24
 
 ## Context
@@ -36,7 +42,7 @@ and make the Go↔bash boundary a single clean shell-out.**
 Stated as a standing principle: **new logic defaults to bash; it only goes into
 Go if it cannot be done without the scale-set client.**
 
-## Considered options
+## Alternatives
 
 - **All-Go** — move provisioning, reaping, history, config into Go too.
   Rejected: abandons the tested bash seams, reimplements `RUNNER_HOME`/SEC-3 /

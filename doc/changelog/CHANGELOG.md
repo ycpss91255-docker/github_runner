@@ -24,6 +24,20 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **ADR structure lint** (`script/lint-adr.sh`, `just lint-adr`): every record
+  in `doc/adr/` is now machine-checked against the adopted ADR spec instead of
+  relying on review discipline. Per file it enforces the 4-digit filename
+  pattern (`README.md` exempt), the required `## Context` / `## Decision` /
+  `## Consequences` sections exactly once at column 0, a `Status` that is one of
+  `Accepted` / `Rejected` / `Superseded by ADR-NNNN`, and a `> Serves:`
+  back-pointer naming the product invariant the ADR serves (or stating that it
+  is a mechanism with no corresponding invariant); a missing `## Alternatives`
+  warns rather than fails. It runs on the `just lint` path and as the `adr-lint`
+  CI job inside the `ci-rollup` gate, so a drifting ADR blocks the merge. The
+  five existing ADRs are brought into conformance in the same change (back-
+  pointers added, `## Considered options` renamed to `## Alternatives`, the
+  three free-text `Status` spellings normalised); numbering is unchanged.
+
 - **Reactive live-admission for runner concurrency** (ADR-0005, #163): the
   listener now admits each job against a live host reading (`host-probe.sh`),
   keeping a per-resource reserve headroom free (default 10%, the only knob and

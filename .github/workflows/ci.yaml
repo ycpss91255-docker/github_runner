@@ -28,6 +28,20 @@ jobs:
       - name: shellcheck
         run: just lint
 
+  adr-lint:
+    # ADR structure lint (doc/adr/). The adopted ADR spec is explicit that
+    # self-discipline does not count, so this is a merge gate rather than a
+    # review convention. It is pure bash + grep -- no test-tools image is
+    # pulled -- so it is the cheapest job here, and it joins the ci-rollup
+    # `needs:` list below so a drifting ADR blocks the merge.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      - name: adr structure lint
+        run: just lint-adr
+
   bats:
     runs-on: ubuntu-latest
     steps:
@@ -98,28 +112,30 @@ jobs:
 
   ci-rollup:
     # Single aggregator that branch protection requires, mirroring base's
-    # self-test.yaml ci-rollup. shellcheck + bats + go join this `needs:`
-    # list so branch protection tracks one stable check name regardless of
-    # how the sub-jobs are renamed or split later. `coverage` is intentionally
+    # self-test.yaml ci-rollup. shellcheck + adr-lint + bats + go join this
+    # `needs:` list so branch protection tracks one stable check name regardless
+    # of how the sub-jobs are renamed or split later. `coverage` is intentionally
     # excluded: it is a main-push-only metric, not a PR gate, so a coverage
     # hiccup must never block a merge. SKIPPED folds into pass so future
     # conditionally-gated sub-jobs don't wedge doc-only PRs.
-    needs: [shellcheck, bats, go]
+    needs: [shellcheck, adr-lint, bats, go]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify upstream jobs
         env:
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
+          ADR_LINT_RESULT: ${{ needs['adr-lint'].result }}
           BATS_RESULT: ${{ needs.bats.result }}
           GO_RESULT: ${{ needs.go.result }}
         run: |
           set -euo pipefail
           echo "shellcheck: ${SHELLCHECK_RESULT}"
+          echo "adr-lint:   ${ADR_LINT_RESULT}"
           echo "bats:       ${BATS_RESULT}"
           echo "go:         ${GO_RESULT}"
           fail=0
-          for r in "${SHELLCHECK_RESULT}" "${BATS_RESULT}" "${GO_RESULT}"; do
+          for r in "${SHELLCHECK_RESULT}" "${ADR_LINT_RESULT}" "${BATS_RESULT}" "${GO_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done
           exit "${fail}"
