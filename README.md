@@ -103,7 +103,7 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 | `script/add-runner.sh` | Provision a runner. **Default = ephemeral / JIT**: `org <org>` / `repo <owner> <repo>` prints the scale-set listener path (one fresh, single-use container per job; no long-lived systemd service) and exits — see [`listener/`](listener/README.md). **`--persistent`** opts into the LEGACY systemd path (`config.sh`-once + `svc.sh install`), which the ephemeral default supersedes; under it, for `org` scope it verifies the outside-collaborator approval gate and flips `allows_public_repositories=true`, **refusing** if the gate is not set unless `--force` is given (see Security model). Labels come from `setup.conf` (default `gpu`) |
 | `script/configure.sh` | Generate / update `${RUNNER_HOME}/setup.conf`. `--labels <csv>` sets the labels for newly registered runners; no args prints the current effective config |
 | `script/set-labels.sh` | Relabel an already-registered runner live via the GitHub API (no remove + re-register). Usage: `org <org> <csv>` or `repo <owner> <repo> <csv>` |
-| `script/remove-runner.sh` | Deregister + uninstall systemd service + remove directory |
+| `script/remove-runner.sh` | Deregister + uninstall systemd service + remove directory. Prompts by default; `--yes` skips, `--dry-run` previews |
 | `script/status.sh` | List all registered runners with local + GitHub-side state and their current labels. `-w`/`--watch` refreshes continuously (configurable `-i`/`--interval`, default 5s) with row-level diff highlighting; `--no-color` disables color |
 | `script/update.sh` | Resolve the runner version (`RUNNER_VERSION=...` override or latest release, same fallback as init), download into the cache if absent, then seed the new versioned runner files into each runner dir (existing files are left in place); the runner picks up the new version via its normal self-update on next connect; preserves config |
 | `script/uninstall.sh` | Counterpart to `script/init.sh`: tear down every runner registered through this checkout + remove the cached tarball. Prompts by default; `--yes` skips, `--dry-run` previews. Does NOT change org runner-group flags or remove the checkout itself (see #11) |
@@ -349,11 +349,13 @@ and credentials are preserved.
 ## Uninstall
 
 Remove a **single** runner (deregister + uninstall its systemd service +
-delete its dir):
+delete its dir). Prompts by default; preview first, then confirm:
 
 ```bash
-./script/remove-runner.sh org <your-org>          # an org runner
-./script/remove-runner.sh repo <owner> <repo>     # a repo runner
+./script/remove-runner.sh --dry-run org <your-org>   # show what would be removed
+./script/remove-runner.sh org <your-org>             # an org runner (prompts)
+./script/remove-runner.sh repo <owner> <repo>        # a repo runner (prompts)
+./script/remove-runner.sh --yes org <your-org>       # skip the prompt (required for non-TTY)
 ```
 
 Tear down **everything** this checkout registered, plus the cached tarball

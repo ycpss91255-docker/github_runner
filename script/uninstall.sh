@@ -120,10 +120,14 @@ main() {
       local label
       label="[${idx}/${target_count}] $(format_target "${scope}" "${a1}" "${a2}")"
       local rc=0
+      # --yes: remove-runner.sh now has its own confirmation gate, and this
+      # loop's stdin is a here-string (never a TTY), so the consent the
+      # operator already gave above is forwarded rather than re-asked -- and
+      # refused.
       if [[ ${scope} == "org" ]]; then
-        "${SCRIPT_DIR}/remove-runner.sh" org "${a1}" || rc=$?
+        "${SCRIPT_DIR}/remove-runner.sh" --yes org "${a1}" || rc=$?
       else
-        "${SCRIPT_DIR}/remove-runner.sh" repo "${a1}" "${a2}" || rc=$?
+        "${SCRIPT_DIR}/remove-runner.sh" --yes repo "${a1}" "${a2}" || rc=$?
       fi
       if (( rc == 0 )); then
         echo "${label}  removed"
