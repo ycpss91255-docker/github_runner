@@ -430,3 +430,52 @@ runner_types:
 func TestClientSatisfiesScaleSetAdmin(t *testing.T) {
 	var _ ScaleSetAdmin = (*scaleset.Client)(nil)
 }
+
+// DescribeType is the machine-readable report the deploy command reads instead
+// of parsing the runner-type YAML itself. ADR-0003 makes the Go loader the
+// authoritative parser; bash asks rather than re-implementing a second one.
+//
+// The shape is deliberately key=value lines: a shell can consume it with a
+// single read loop, and adding a field cannot break an existing consumer.
+func TestDescribeType(t *testing.T) {
+	got := map[string]string{}
+	for _, line := range DescribeType(gpuType()) {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			t.Fatalf("line %q is not key=value", line)
+		}
+		got[k] = v
+	}
+	want := map[string]string{
+		"name":       "gpu",
+		"scale_set":  "gpu-runners",
+		"labels":     "self-hosted,linux,gpu",
+		"image":      "ghcr.io/acme/gpu-runner@sha256:abc",
+		"runs_on":    "runs-on: [self-hosted, linux, gpu]",
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+}
+
+// A type that declares no labels reports the routing labels it will actually
+// get -- the scale set name -- not an empty field. A deploy command that
+// printed nothing here would leave the operator guessing at the runs-on line,
+// which is the whole failure this surface exists to prevent.
+func TestDescribeTypeReportsTheEffectiveRoutingLabels(t *testing.T) {
+	rt := gpuType()
+	rt.Labels = nil
+	got := map[string]string{}
+	for _, line := range DescribeType(rt) {
+		k, v, _ := strings.Cut(line, "=")
+		got[k] = v
+	}
+	if got["labels"] != "gpu-runners" {
+		t.Errorf("labels = %q, want gpu-runners", got["labels"])
+	}
+	if got["runs_on"] != "runs-on: gpu-runners" {
+		t.Errorf("runs_on = %q, want %q", got["runs_on"], "runs-on: gpu-runners")
+	}
+}
