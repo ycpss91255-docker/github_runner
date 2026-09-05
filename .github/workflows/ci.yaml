@@ -20,9 +20,17 @@ jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
+      # `just lint` depends on the repo structure lints, one of which judges the
+      # branch against its merge base with main, so this job needs the history
+      # and the remote-tracking ref too. It fails closed on a base it cannot
+      # resolve, so this is not optional.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
       - name: set up just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      - name: fetch the base branch
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
       - name: pull test-tools
         run: docker pull "${TEST_TOOLS_IMAGE}"
       - name: shellcheck
@@ -41,6 +49,50 @@ jobs:
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: adr structure lint
         run: just lint-adr
+
+  changelog-lint:
+    # A change an operator can observe must carry a CHANGELOG entry. The rule
+    # lived only in a local hook, so a push that never ran the hook was never
+    # checked -- which is the same as not having the rule, because its failure
+    # produced no signal. Needs the full history and a resolvable origin/main to
+    # compute the merge base against, hence fetch-depth: 0 and the fetch below.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      # A PR checkout carries no remote-tracking main, and the lint fails closed
+      # on a base it cannot resolve rather than passing on nothing.
+      - name: fetch the base branch
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+      - name: changelog entry lint
+        run: just lint-changelog
+
+  readme-sync-lint:
+    # The four-language README structure. Hook-only until now, and a hook sees a
+    # partial update only on the machine running it -- one that arrives across
+    # two commits was invisible to it entirely.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      - name: four-language README structure lint
+        run: just lint-readme-sync
+
+  doc-citation-lint:
+    # No `file:line` citations and no hardcoded counts in the documentation.
+    # Both are copies of what the tree already states, and a copy nothing checks
+    # is exactly the drift invariant 3 exists to prevent.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: set up just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      - name: documentation citation lint
+        run: just lint-doc-citations
 
   bats:
     runs-on: ubuntu-latest
@@ -123,14 +175,16 @@ jobs:
 
   ci-rollup:
     # Single aggregator that branch protection requires, mirroring base's
-    # self-test.yaml ci-rollup. shellcheck + adr-lint + bats + go + coverage join
-    # this `needs:` list so branch protection tracks one stable check name
-    # regardless of how the sub-jobs are renamed or split later. `coverage` used
-    # to be excluded on purpose, as a main-push-only metric; it now carries the
-    # bash coverage floor, so leaving it out would mean the floor could not fail
-    # a PR, which is the same as not having one. SKIPPED folds into pass so
-    # future conditionally-gated sub-jobs don't wedge doc-only PRs.
-    needs: [shellcheck, adr-lint, bats, go, coverage]
+    # self-test.yaml ci-rollup. Every sub-job joins this `needs:` list so branch
+    # protection tracks one stable check name regardless of how the sub-jobs are
+    # renamed or split later. `coverage` used to be excluded on purpose, as a
+    # main-push-only metric; it now carries the bash coverage floor, so leaving
+    # it out would mean the floor could not fail a PR, which is the same as not
+    # having one. The same reasoning admits the three structure lints: each was
+    # enforced only by a local hook, and a rule that cannot fail a PR is only
+    # half enforced. SKIPPED folds into pass so future conditionally-gated
+    # sub-jobs don't wedge doc-only PRs.
+    needs: [shellcheck, adr-lint, changelog-lint, readme-sync-lint, doc-citation-lint, bats, go, coverage]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -138,18 +192,26 @@ jobs:
         env:
           SHELLCHECK_RESULT: ${{ needs.shellcheck.result }}
           ADR_LINT_RESULT: ${{ needs['adr-lint'].result }}
+          CHANGELOG_LINT_RESULT: ${{ needs['changelog-lint'].result }}
+          README_SYNC_LINT_RESULT: ${{ needs['readme-sync-lint'].result }}
+          DOC_CITATION_LINT_RESULT: ${{ needs['doc-citation-lint'].result }}
           BATS_RESULT: ${{ needs.bats.result }}
           GO_RESULT: ${{ needs.go.result }}
           COVERAGE_RESULT: ${{ needs.coverage.result }}
         run: |
           set -euo pipefail
-          echo "shellcheck: ${SHELLCHECK_RESULT}"
-          echo "adr-lint:   ${ADR_LINT_RESULT}"
-          echo "bats:       ${BATS_RESULT}"
-          echo "go:         ${GO_RESULT}"
-          echo "coverage:   ${COVERAGE_RESULT}"
+          echo "shellcheck:         ${SHELLCHECK_RESULT}"
+          echo "adr-lint:           ${ADR_LINT_RESULT}"
+          echo "changelog-lint:     ${CHANGELOG_LINT_RESULT}"
+          echo "readme-sync-lint:   ${README_SYNC_LINT_RESULT}"
+          echo "doc-citation-lint:  ${DOC_CITATION_LINT_RESULT}"
+          echo "bats:               ${BATS_RESULT}"
+          echo "go:                 ${GO_RESULT}"
+          echo "coverage:           ${COVERAGE_RESULT}"
           fail=0
-          for r in "${SHELLCHECK_RESULT}" "${ADR_LINT_RESULT}" "${BATS_RESULT}" \
+          for r in "${SHELLCHECK_RESULT}" "${ADR_LINT_RESULT}" \
+                   "${CHANGELOG_LINT_RESULT}" "${README_SYNC_LINT_RESULT}" \
+                   "${DOC_CITATION_LINT_RESULT}" "${BATS_RESULT}" \
                    "${GO_RESULT}" "${COVERAGE_RESULT}"; do
             [[ "${r}" == "success" || "${r}" == "skipped" ]] || fail=1
           done

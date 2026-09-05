@@ -124,6 +124,40 @@ setup() {
   [ "${status}" -eq 0 ]
 }
 
+@test "the three promoted lints are gates, not local hooks" {
+  # Each of these was enforced only by a local hook, so a push that never ran
+  # the hook was never checked. They join the lint path and the ci-rollup
+  # needs list the same way the ADR lint does -- otherwise they are still only
+  # half enforced, which is the state this replaces.
+  local ci="${ROOT}/.github/workflows/ci.yaml"
+  local recipe job
+  while read -r recipe job; do
+    run grep -E "^${recipe}( .*)?:" "${JUSTFILE}"
+    [ "${status}" -eq 0 ]
+    run grep -E "^lint: .*${recipe}" "${JUSTFILE}"
+    [ "${status}" -eq 0 ]
+    run grep -E "^lint-host: .*${recipe}" "${JUSTFILE}"
+    [ "${status}" -eq 0 ]
+    run grep -E "^\s+needs: \[.*${job}.*\]" "${ci}"
+    [ "${status}" -eq 0 ]
+    run grep -E "^  ${job}:" "${ci}"
+    [ "${status}" -eq 0 ]
+  done <<'EOF'
+lint-changelog changelog-lint
+lint-readme-sync readme-sync-lint
+lint-doc-citations doc-citation-lint
+EOF
+}
+
+@test "SCRIPTS enumerates every lint script so shellcheck covers them" {
+  local s
+  for s in script/lint-changelog.sh script/lint-readme-sync.sh \
+           script/lint-doc-citations.sh; do
+    run bash -c "grep -E '^SCRIPTS :=' '${JUSTFILE}' | grep -F '${s}'"
+    [ "${status}" -eq 0 ]
+  done
+}
+
 @test "test recipe runs both levels of the layered bats suite (#78)" {
   # The suite is layered (doc/test-levels.md). `just test` runs every level, so
   # the default check stays "the whole bash suite" -- the levels exist to make a

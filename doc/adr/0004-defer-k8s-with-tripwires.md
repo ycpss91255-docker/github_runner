@@ -47,7 +47,7 @@ re-litigate it every few months.
 
 - **k8s cost ≈ a fixed operational tax** (cluster upgrades, YAML/RBAC,
   networking/storage, GPU device-plugin, and "cluster down = everyone's CI
-  stops" on-call), roughly the same whether you run 5 jobs or 500.
+  stops" on-call), roughly the same whether you run 5 jobs or 500. <!-- doc-lint-allow -->
 - **k8s benefit scales with fleet size, heterogeneity, and dynamism.**
 - **Today** (A-dominant, ~10–20 users, low peak): A placement is fixed by
   hardware, so the headline k8s benefit (dynamic bin-packing) barely applies →
