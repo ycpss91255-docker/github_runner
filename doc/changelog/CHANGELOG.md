@@ -183,6 +183,19 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- `doc/PRD.md` now cites code by **name instead of by line number**, and records
+  no derived counts. Every `file:line` reference was replaced with the function,
+  constant, `justfile` recipe, CI job or test name it points at, so an edit
+  elsewhere in a file can no longer silently invalidate a citation; the
+  hardcoded test-suite figures (numbers of `.bats` files, `@test` cases,
+  `_test.go` files and `func Test`) were dropped in favour of the commands that
+  print them. Same reasoning as invariant 3: a number or a line copied into a
+  document is a second copy with no drift check. The factual claims were
+  re-verified against the tree at the same time — the runner-type config loader
+  now rejects an unknown key (so that is recorded as an upheld example, not a
+  gap), `script/remove-runner.sh` now has its preview and confirmation gate,
+  `hardening_profile` is gone and `runtime` is wired end to end, and the ADR
+  structure lint is listed among the checks the gate actually runs.
 - README self-containment (#83): removed the ADR-0011 / ADR-0012 (and the
   stray ADR-0001) citations from all four READMEs -- the Security model now
   explains the two GitHub knobs (outside-collaborator approval gate +
