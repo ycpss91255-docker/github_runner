@@ -150,7 +150,9 @@ self-test のエントリは root `justfile` です。base リポジトリの慣
 ```bash
 just pull       # test-tools + kcov イメージを pull し bats をキャッシュ（初回）
 just lint       # shellcheck（docker 内）
-just test       # bats smoke tests（docker 内）
+just test       # bats スイート全体: unit + integration（docker 内）
+just test-unit  # 単一の関数 / 単一のファイル
+just test-integration  # 複数の script や library をまとめて
 just check      # lint + test（coverage を含まない）
 just coverage   # bats + kcov カバレッジ → ./coverage/
 just coverage-gate  # カバレッジ + bash line coverage の下限を検査

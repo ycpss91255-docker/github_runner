@@ -9,7 +9,7 @@ import (
 // sampleConfigPath is the shipped example runner-type config (#110), kept under
 // testdata so it is reachable inside the Go-module test sandbox. It is a
 // byte-identical copy of deploy/runner-types.sample.yaml (the operator-facing
-// example); a bats drift guard (test/smoke/runner_types_config.bats) keeps the
+// example); a bats drift guard (test/bats/integration/runner_types_config.bats) keeps the
 // two in sync. Loading it through the real loader keeps the documented example
 // honest -- a schema change that broke the sample would fail here.
 func sampleConfigPath(t *testing.T) string {

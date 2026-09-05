@@ -159,7 +159,7 @@ cross-job residue and secret carryover by construction.
   stub-and-capture** (stub `docker`/`podman`/`run.sh` on PATH, capture argv),
   asserting hardening flags, device passthrough, no socket mount, naming/labels,
   reaper sweeps, history records (incl. secret redaction) and retention caps.
-- **Prior art**: `test/smoke/runner_service.bats`, `runner_config_jit.bats`,
+- **Prior art**: `test/bats/unit/runner_service.bats`, `runner_config_jit.bats`,
   `runner_container.bats` (stub-and-capture); the listener `*_test.go`
   fake-session tests. Do **not** use the `run bash -c "source X; func"` pattern.
 - The Go module is built/vetted/tested **in a container** in CI and gates merges.

@@ -142,7 +142,9 @@ self-test 入口是 root `justfile`，对齐 base repo 惯例（base 已把 self
 ```bash
 just pull       # 拉 test-tools + kcov image 并缓存 bats（首次）
 just lint       # shellcheck（在 docker 内）
-just test       # bats smoke tests（在 docker 内）
+just test       # 整套 bats：unit + integration（在 docker 内）
+just test-unit  # 单一函数／单一文件
+just test-integration  # 多个 script 或 library 一起
 just check      # lint + test（不含 coverage）
 just coverage   # bats + kcov 覆盖率 → ./coverage/
 just coverage-gate  # 覆盖率 + 检查 bash line coverage 下限

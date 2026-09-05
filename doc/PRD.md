@@ -148,11 +148,11 @@ is equivalent to no isolation at all.
 
 Every one of the above is pinned by a negative-assertion test rather than upheld
 by convention: the `#114`/`#115`/`#116`/`#117` cases in
-`test/smoke/runner_container.bats` (hardening flags, no socket, no
+`test/bats/integration/runner_container.bats` (hardening flags, no socket, no
 `--privileged`, no `seccomp=unconfined`, no `label=disable`, exact device
-count), the `#118`/`#119` cases in `test/smoke/runner_build.bats`, and
+count), the `#118`/`#119` cases in `test/bats/unit/runner_build.bats`, and
 "confirm_or_abort fails non-TTY without --yes (exit 1, pinned message)" in
-`test/smoke/destructive.bats`.
+`test/bats/unit/destructive.bats`.
 
 ---
 
@@ -174,12 +174,12 @@ discipline produces no signal.
 | Fact | Authoritative source | Copy and its drift check |
 | --- | --- | --- |
 | Structure and semantics of the runner type config | Go: `LoadConfig` in `listener/config.go` (ADR-0003 states that Go is the authoritative parser) | Bash **does not parse this file at all**; Go shells out only the fields a single provision needs (`ContainerProvisioner.Provision` in `listener/provisioner.go`) |
-| Operator-facing sample config | `deploy/runner-types.sample.yaml` | `listener/testdata/runner-types.sample.yaml` is a byte-identical copy, pinned by the `diff -u` in "the operator-facing and testdata runner-type samples are byte-identical" (`test/smoke/runner_types_config.bats`) |
+| Operator-facing sample config | `deploy/runner-types.sample.yaml` | `listener/testdata/runner-types.sample.yaml` is a byte-identical copy, pinned by the `diff -u` in "the operator-facing and testdata runner-type samples are byte-identical" (`test/bats/integration/runner_types_config.bats`) |
 | Sample config agrees with the real schema | Same as above | `listener/sample_config_test.go` loads the shipped sample with the **real parser**, so a documented example cannot diverge from the schema |
 | Runner file locations and naming | `lib/runner-layout.sh` | Consumers (`resolve_target`, `list_runners`, `runner_service_running`, `cleanup.sh`) all derive through this module rather than re-encoding it each |
 | GitHub calls | `_gh()` in `lib/common.sh` | Every higher-level adapter is layered on top of it; tests only need to override this one function |
 | Release tarball version / path / URL / integrity | `lib/runner-release.sh` | `init.sh` / `update.sh` keep only their own verify **policy** and share the same primitives |
-| The set of self-test entry recipes | `justfile` | `test/smoke/justfile.bats` pins the recipe names and the image pins |
+| The set of self-test entry recipes | `justfile` | `test/bats/unit/justfile.bats` pins the recipe names and the image pins |
 
 ---
 
@@ -198,14 +198,17 @@ should never require editing this chapter.
 
 **Current shape.** No count is written down here: the tree already states it,
 and a number copied into this document is a second copy that goes stale without
-a signal (invariant 3). `ls test/smoke/*.bats | wc -l` and
-`grep -ch '^@test' test/smoke/*.bats` print the bash figures;
+a signal (invariant 3). `ls test/bats/*/*.bats | wc -l` and
+`grep -ch '^@test' test/bats/*/*.bats` print the bash figures;
 `grep -c '^func Test' listener/*_test.go` prints the Go one.
 
-- Bash: `.bats` files under `test/smoke/`, run by `just test`. The technique is
-  uniformly **stub-and-capture** (place fake `docker`/`podman`/`run.sh` on
-  `PATH`, capture the actual argv and assert on it), asserting externally
-  observable behaviour rather than implementation details.
+- Bash: `.bats` files under `test/bats/`, **layered by level** — one directory
+  per level, defined in `doc/test-levels.md` — and run by `just test`, with
+  `just test-unit` / `just test-integration` running one level each. The
+  technique is uniformly **stub-and-capture** (place fake
+  `docker`/`podman`/`run.sh` on `PATH`, capture the actual argv and assert on
+  it), asserting externally observable behaviour rather than implementation
+  details.
 - Go: `_test.go` files beside the sources under `listener/`. The core loop is
   tested in isolation with a fake `Session`, a mock minter, a recording
   provisioner and a stub detector.
@@ -237,7 +240,7 @@ would be bound to the maintainer, while the heterogeneity only increases.
 | --- | --- |
 | One runner type maps to one scale set maps to one listener instance, as a pure data transformation | `listener/wiring.go` `RunnerType.Instance` / `Instances`; the file header states outright that "adding a second type is a config entry, not a code change" |
 | Concurrency policy is decided by config; code does not branch on class names | `listener/wiring.go` attaches either the detector or the host probe based on `Concurrency.DeviceSized()`; both are seams |
-| The shipped sample is the proof: two classes coexist with no code change | The `gpu` and `cpu` entries in `deploy/runner-types.sample.yaml`, pinned by the two type cases in `test/smoke/runner_types_config.bats` and by `TestInstancesFromTypes` in `listener/wiring_test.go` |
+| The shipped sample is the proof: two classes coexist with no code change | The `gpu` and `cpu` entries in `deploy/runner-types.sample.yaml`, pinned by the two type cases in `test/bats/integration/runner_types_config.bats` and by `TestInstancesFromTypes` in `listener/wiring_test.go` |
 | One class per scale set uniqueness is validated | The duplicate-`scale_set` check in `validate` (`listener/config.go`) |
 
 **The boundary of this invariant (already decided by ADR-0004):** the unit of
@@ -273,9 +276,9 @@ guarantee for speed.
 | --- | --- |
 | One `--rm` single-use container per job | The `<cli> run --rm --init` assembly in `runner_container_run` (`lib/runner-container.sh`) |
 | Single-use JIT config generated server-side, with no long-lived registration token left on the host | `listener/minter.go`; `runner_config_jit_generate` in `lib/runner-config.sh` |
-| JIT credentials passed by **file** rather than argv, mode 0600, deleted at teardown | `listener/provisioner.go`; pinned by `TestContainerProvisionerJITFileIs0600AndRemovedAtTeardown` (`listener/provisioner_test.go`) and "runner_container_run keeps the JIT config OFF the host container CLI argv (#136)" (`test/smoke/runner_container.bats`) |
+| JIT credentials passed by **file** rather than argv, mode 0600, deleted at teardown | `listener/provisioner.go`; pinned by `TestContainerProvisionerJITFileIs0600AndRemovedAtTeardown` (`listener/provisioner_test.go`) and "runner_container_run keeps the JIT config OFF the host container CLI argv (#136)" (`test/bats/integration/runner_container.bats`) |
 | Orphan container sweeping | `lib/runner-reaper.sh` + `listener/reap.sh`, swept once at startup and again periodically (`TestReaperSweepsOnStartup` / `TestReaperSweepsPeriodically` in `listener/listener_test.go`) |
-| Forensic data captured before teardown, rather than keeping the container | ADR-0002's capture-before-teardown; `lib/runner-history.sh`, pinned by the capture-before-teardown cases in `test/smoke/listener_provision.bats` |
+| Forensic data captured before teardown, rather than keeping the container | ADR-0002's capture-before-teardown; `lib/runner-history.sh`, pinned by the capture-before-teardown cases in `test/bats/integration/listener_provision.bats` |
 
 ---
 
@@ -302,10 +305,10 @@ practice, no installation guide at all.
 
 | Mechanism | Location |
 | --- | --- |
-| README must not reference ADRs (an executable spec) | "no README cites an ADR-00xx (self-contained docs)" in `test/smoke/readme_no_adr_refs.bats`, covering all four language READMEs |
+| README must not reference ADRs (an executable spec) | "no README cites an ADR-00xx (self-contained docs)" in `test/bats/unit/readme_no_adr_refs.bats`, covering all four language READMEs |
 | Two critical GitHub switches must be explained **in the body** of every language README | Same file, the two "every README explains ..." cases, checking respectively that `Require approval for all outside collaborators` and `allows_public_repositories` appear in all four files |
 | Sample config validated by the real parser | `listener/sample_config_test.go` (as in invariant 3) |
-| The self-test entry recipe list is pinned by a test | `test/smoke/justfile.bats` |
+| The self-test entry recipe list is pinned by a test | `test/bats/unit/justfile.bats` |
 | Four-language README structure kept aligned | `.claude/hooks/check_4lang_readme_sync.sh` (compares section-heading structure, not body text) |
 | CHANGELOG drift reminder | `.claude/hooks/check_changelog_drift.sh` |
 
@@ -339,7 +342,7 @@ separate edits, one of which is missed — and the symptom of the missed one is
 This module is sourced exactly once, by `lib/common.sh`, after `RUNNER_HOME`
 has been validated and frozen; every consumer (`resolve_target`,
 `list_runners`, `runner_service_running`, `cleanup.sh`) derives from it, and
-`test/smoke/runner_layout.bats` pins each item.
+`test/bats/unit/runner_layout.bats` pins each item.
 
 ---
 
@@ -523,12 +526,12 @@ has to be declared actively, not one that can be slid into silently.
 | Lexical anchoring | `assert_under_runner_home` in `lib/common.sh` | Every rm target must be prefixed with `${RUNNER_HOME}/` or it is refused (defence in depth on top of SEC-3) |
 | Stated intent for scheduled execution | `build_cron_line` in `script/schedule-cleanup.sh` | The line written into the crontab **carries `--yes` explicitly**, so "unattended" is something seen and agreed to at configuration time rather than inferred at execution time |
 
-Pinned by `test/smoke/destructive.bats` (including that a non-TTY without
+Pinned by `test/bats/unit/destructive.bats` (including that a non-TTY without
 `--yes` must exit 1, and that `--yes` must actually execute rather than no-op),
 and by the "without --yes in non-TTY context exits 1" cases in
-`test/smoke/cleanup.bats`, `test/smoke/uninstall.bats` and
-`test/smoke/remove_runner.bats`, plus "history.sh prune is a dry-run safe no-op
-without --yes (#127)" in `test/smoke/history.bats`.
+`test/bats/integration/cleanup.bats`, `test/bats/integration/uninstall.bats` and
+`test/bats/integration/remove_runner.bats`, plus "history.sh prune is a dry-run safe no-op
+without --yes (#127)" in `test/bats/unit/history.bats`.
 
 **A gap that has been closed:** `script/remove-runner.sh` performs
 deregistration, service removal and `rm -rf "${TARGET_DIR}"`, and for a while
@@ -633,17 +636,17 @@ Every item below is actually executed by the `justfile` or by
 | Shell static analysis | Every shell file in `script/`, `lib/`, `listener/` and `images/` — the `SCRIPTS` list in the `justfile` is the enumeration | `shellcheck -x` | The `lint` recipe in the `justfile`; the CI `shellcheck` job | Bash failures are mostly quoting, undefined variables and exit-code propagation — all statically visible classes |
 | Dockerfile linting | `images/runner-base.Dockerfile`, `images/runner-gpu.Dockerfile` | `hadolint` | The same `lint` recipe; the same job | The execution environment's image is part of the isolation boundary |
 | ADR structure lint | Every record under `doc/adr/` | `script/lint-adr.sh` | The `lint-adr` recipe in the `justfile` (a prerequisite of `lint` and `lint-host`); the CI `adr-lint` job | See §0.5: a filename off the `NNNN-kebab-case-title.md` pattern, a reused ADR number, a missing or duplicated required section, a `Status` outside the permitted set, a malformed `> Serves:` back-pointer, an invariant title that matches no §0.2 heading, or a `Superseded by` pointing at a record that does not exist all fail the gate |
-| Bash behaviour tests | `test/smoke/` | `bats` | The `test` recipe in the `justfile` (`just test`); the CI `bats` job | Asserts externally observable behaviour (actual argv, actual file effects), not implementation |
+| Bash behaviour tests | `test/bats/`, one directory per level (`doc/test-levels.md`) | `bats` | The `test` recipe in the `justfile` (`just test`), which runs every level; the CI `bats` job, one step per level | Asserts externally observable behaviour (actual argv, actual file effects), not implementation. Layering is what makes a red check say **which** level broke |
 | Go compilation | The `listener/` module | `go build ./...` | The CI `go` job | — |
 | Go static analysis | Same as above | `go vet ./...` | Same as above | — |
 | Go behaviour tests (with race detection) | Same as above | `go test -race ./...` | Same as above | The listener's listen/provision loop is concurrent, and `-race` is the only mechanism that catches a data race in CI |
 | Toolchain version consistency | The Go toolchain | Pinned to one `golang` image tag | The `GO_IMAGE` default in the `justfile`, the `GO_IMAGE` env in `ci.yaml` | Local and CI use the same image, ruling out "it passes on my machine" |
-| Sample config drift | `deploy/runner-types.sample.yaml` <-> `listener/testdata/...` | `diff -u` | "the operator-facing and testdata runner-type samples are byte-identical" (`test/smoke/runner_types_config.bats`) | See invariant 3 |
+| Sample config drift | `deploy/runner-types.sample.yaml` <-> `listener/testdata/...` | `diff -u` | "the operator-facing and testdata runner-type samples are byte-identical" (`test/bats/integration/runner_types_config.bats`) | See invariant 3 |
 | Shipped sample conforms to the schema | `deploy/runner-types.sample.yaml` | Loaded by the real parser | `listener/sample_config_test.go` | The documented example and the code are validated by **the same** parser |
-| Self-test entry stability | `justfile` recipes and image pins | `grep` assertions | `test/smoke/justfile.bats` | — |
-| README self-containment | The four-language READMEs | Negative `grep` | `test/smoke/readme_no_adr_refs.bats` | See invariant 7 |
-| Hardening flags do not regress | Container argv | Negative assertions | `test/smoke/runner_container.bats`, `test/smoke/runner_build.bats` | See invariant 2 |
-| Destructive policy does not regress | Confirmation gate behaviour | Behavioural assertions | `test/smoke/destructive.bats` | See N-5 |
+| Self-test entry stability | `justfile` recipes and image pins | `grep` assertions | `test/bats/unit/justfile.bats` | — |
+| README self-containment | The four-language READMEs | Negative `grep` | `test/bats/unit/readme_no_adr_refs.bats` | See invariant 7 |
+| Hardening flags do not regress | Container argv | Negative assertions | `test/bats/integration/runner_container.bats`, `test/bats/unit/runner_build.bats` | See invariant 2 |
+| Destructive policy does not regress | Confirmation gate behaviour | Behavioural assertions | `test/bats/unit/destructive.bats` | See N-5 |
 | Bash line-coverage floor | The kcov cobertura report `just coverage` writes | `script/coverage-gate.sh bash` | The `coverage-gate` recipe in the `justfile`; the CI `coverage` job | See "Coverage floors" below |
 | Go coverage floor | The `listener` package, with `listener/cmd/` excluded | `script/coverage-gate.sh go`, over `go tool cover -func` | The `coverage-go` recipe in the `justfile`; the CI `go` job | See "Coverage floors" below and the layered strategy above |
 | Merge gate | The five jobs above: shellcheck / adr-lint / bats / go / coverage | `ci-rollup` | The `ci-rollup` job in `ci.yaml` | Branch protection only needs to track **one** stable check name, leaving sub-jobs free to be renamed or split |
@@ -700,7 +703,7 @@ Two properties make these gates rather than decoration:
 
 - **They fail closed.** A missing or unparseable report exits non-zero instead of
   passing on nothing, so switching the measurement off cannot look like success
-  (invariant 1). `test/smoke/coverage_gate.bats` asserts each rule from both
+  (invariant 1). `test/bats/unit/coverage_gate.bats` asserts each rule from both
   sides — below the floor fails, at the floor passes — over fixture reports.
 - **The measurement is reproducible.** `just coverage` runs a pinned,
   sha256-verified bats (`script/fetch-bats.sh`) inside a container started with
@@ -848,7 +851,7 @@ holds them there:
   describes.
 - **The structural lint exists**: `script/lint-adr.sh`, run by the `lint-adr`
   recipe (a prerequisite of `just lint` and `just lint-host`) and by the CI
-  `adr-lint` job, with its own behaviour pinned by `test/smoke/adr_spec.bats`.
+  `adr-lint` job, with its own behaviour pinned by `test/bats/unit/adr_spec.bats`.
   It enforces every rule listed above, and matches each `> Serves:` invariant
   title against the §0.2 headings in this document, so a renamed invariant
   cannot drift away from the ADRs unnoticed.
@@ -934,8 +937,9 @@ in exactly one place**; everywhere else points at it, at most.
 | **`doc/adr/`** | Why did we make **this one** decision? What did we consider? What did it cost? | At the moment an architectural decision with consequences and alternatives is made. When a decision is revised, add `## Amendment` in place; when it is overturned, write a new number and mark the old file `Superseded by` |
 | **`doc/prd/`** | What problem does **this group of features** solve? What are the user stories and scope boundaries? | Written before starting a group of features; updated when scope changes. It references ADRs for the "why" and does not restate decision reasoning |
 | **`CONTEXT.md`** | What does each term in this domain mean **precisely**? | When a domain concept is introduced or changed. Naming in code, tests and documentation must match this file verbatim |
-| **`README.md` and `doc/readme/README.{zh-TW,zh-CN,ja}.md`** | What is this? How do I install and use it? | When an operator-visible interface changes (flags, commands, prerequisites). **Must not reference ADRs** — whatever needs explaining must be explained fully in the body (invariant 7, enforced by `test/smoke/readme_no_adr_refs.bats`). The four-language structure must stay aligned |
+| **`README.md` and `doc/readme/README.{zh-TW,zh-CN,ja}.md`** | What is this? How do I install and use it? | When an operator-visible interface changes (flags, commands, prerequisites). **Must not reference ADRs** — whatever needs explaining must be explained fully in the body (invariant 7, enforced by `test/bats/unit/readme_no_adr_refs.bats`). The four-language structure must stay aligned |
 | **`doc/changelog/CHANGELOG.md`** | What changed that users can see? | On every user-visible change. The format follows Keep a Changelog and versioning follows SemVer; breaking changes must be marked |
+| **`doc/test-levels.md`** | Which test level does this case belong to, and what does each level cost? | When a level is added, removed, or its boundary moves. It is the mechanism layer beneath invariant 4 and names the levels deliberately **not** created yet |
 | **`doc/runbook/`** | What do I do when something goes wrong? How should the host be hardened? | When a new failure mode or a new hardening step appears |
 | **`SECURITY.md`** | What is the threat model? How do I report a vulnerability? | When the threat model or the reporting process changes |
 | **Comments in code** | **Why** is this piece of code written this way? | Together with the code. Comments explain non-obvious reasons; they do not restate what the code does |

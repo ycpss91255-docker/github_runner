@@ -153,6 +153,20 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The bash test suite is layered by level.** Every `.bats` file used to sit
+  flat in `test/smoke/`, but the contents had long since outgrown the name:
+  some cases source one library and call one function, others assemble a whole
+  container argv out of several libraries, or drive an operator-facing script
+  end to end. A red check on that directory said only "something in bash
+  broke". The suite now lives under `test/bats/`, split into `unit` (one
+  function or one file in isolation) and `integration` (several scripts or
+  libraries working together), with the levels defined in `doc/test-levels.md`.
+  `just test` still runs the whole suite and is unchanged as the default check;
+  `just test-unit` and `just test-integration` run one level each, and the CI
+  bats job runs them as two steps so the log names the level that broke. No
+  test's behaviour or assertions changed — this is a move plus path plumbing.
+  `system` and `acceptance` are deliberately **not** created yet; the document
+  records what each waits for.
 - `add-runner.sh` now defaults to the ephemeral / scale-set path; the legacy
   persistent `config.sh`-once + `svc.sh` systemd runner is kept behind an
   explicit `--persistent` opt-in. (#84)
@@ -235,7 +249,7 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   explains the two GitHub knobs (outside-collaborator approval gate +
   `allows_public_repositories`) purely inline, and the References section drops
   the external `ycpss91255-research/isaac` ADR links, keeping only the GitHub
-  docs. An executable spec (`test/smoke/readme_no_adr_refs.bats`) guards the
+  docs. An executable spec (`test/bats/unit/readme_no_adr_refs.bats`) guards the
   no-`ADR-00xx` rule going forward.
 - README accuracy + locale sync (#70): the `status.sh` sample output now shows
   the `APPROVAL-GATE` column, the Security model documents that `add-runner.sh
