@@ -130,14 +130,17 @@ Runner 註冊時會讀取選用的設定檔 `${RUNNER_HOME}/setup.conf`（`KEY=v
 
 測試在 `ghcr.io/ycpss91255-docker/test-tools` image 內執行（alpine +
 bats + shellcheck + hadolint，跟 `ycpss91255-docker/base` 用同一個 image），
-覆蓋率在 `kcov/kcov` 內跑（Debian，內含 `kcov`；`bats` runtime apt 裝）。
-本機跟 CI 共用相同 image。
+覆蓋率在 `kcov/kcov` 內跑（Debian，內含 `kcov`，但沒有 `bats`）；`bats-core`
+由 `script/fetch-bats.sh` 以固定版本 + sha256 驗證後快取在 host，再掛進
+container。執行期不安裝任何套件，且 coverage container 以 `--network none`
+啟動，所以跑過一次 `just pull` 之後，整條檢查完全不需要對外網路。本機跟 CI
+共用相同 image。
 
 self-test 入口是 root `justfile`，對齊 base repo 慣例（base 已把 self-test
 入口改用 `just`）：
 
 ```bash
-just pull       # 拉 test-tools + kcov image（首次）
+just pull       # 拉 test-tools + kcov image 並快取 bats（首次）
 just lint       # shellcheck（在 docker 內）
 just test       # bats smoke tests（在 docker 內）
 just check      # lint + test（不含 coverage）

@@ -8,6 +8,22 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`just coverage` is reproducible offline and pins the bats it measures
+  with**: the recipe used to run `apt-get update && apt-get install -y bats`
+  inside the kcov container on every run, so coverage needed the Debian archive
+  to be reachable (it failed outright on a restricted network with `E: Unable
+  to locate package bats`) and measured whatever bats version the archive
+  carried that day. `script/fetch-bats.sh` is now the single source of truth
+  for the bats-core release used -- version, cache location, download URL and
+  sha256, the same shape `lib/runner-release.sh` has for the actions/runner
+  tarball -- and caches a verified copy on the host, which the recipe mounts
+  read-only into the container. Nothing is installed at run time, the container
+  is started with `--network none`, and `just pull` warms the cache alongside
+  the images, so after one fetch the whole check runs with no outbound network.
+  The report location and the Codecov upload are unchanged. The report is also
+  now written as the invoking user rather than root, so a second `just
+  coverage` no longer fails on its own leftover output.
+
 - **`script/remove-runner.sh` is no longer destructive without a preview or a
   confirmation**: it deregisters a runner, uninstalls its systemd service, and
   `rm -rf`s its directory, but the preview/confirm contract existed only on the

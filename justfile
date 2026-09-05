@@ -12,13 +12,16 @@
 # (the old Makefile `?=`), e.g. for local rebuild flows.
 TEST_TOOLS_IMAGE := env_var_or_default('TEST_TOOLS_IMAGE', 'ghcr.io/ycpss91255-docker/test-tools:latest')
 
-# Coverage uses kcov's own image (Debian-based, ships kcov). bats is
-# apt-installed at runtime inside the container -- a one-time ~15s tax per
-# run; acceptable given coverage is a slow / release-time signal anyway.
-# Override with COVERAGE_IMAGE=... if you want to pin a tag.
+# Coverage uses kcov's own image (Debian-based, ships kcov but no bats).
+# bats used to be apt-installed at runtime inside the container, which made
+# every coverage run depend on the Debian archive being reachable and on
+# whatever bats version it carried that day. It is now a pinned,
+# sha256-verified bats-core release cached on the host by
+# `script/fetch-bats.sh` and mounted into the container -- see the `coverage`
+# recipe below. Override with COVERAGE_IMAGE=... if you want to pin a tag.
 COVERAGE_IMAGE := env_var_or_default('COVERAGE_IMAGE', 'kcov/kcov:latest')
 
-SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh'
+SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh script/fetch-bats.sh'
 
 # Self-built runner-image Dockerfiles (#120/#121), hadolint-checked. The
 # test-tools image ships hadolint, so this needs no extra dependency.
@@ -27,18 +30,28 @@ DOCKERFILES := 'images/runner-base.Dockerfile images/runner-gpu.Dockerfile'
 # ShellCheck / hadolint / bats all run inside the test-tools container.
 _docker_run := 'docker run --rm -v "$PWD:/source" -w /source ' + TEST_TOOLS_IMAGE
 
-# Coverage container needs seccomp=unconfined for kcov's ptrace, and
-# writable /source so coverage/ output lands on the host.
-_kcov_run := 'docker run --rm --security-opt seccomp=unconfined -v "$PWD:/source" -w /source ' + COVERAGE_IMAGE
+# Coverage container needs seccomp=unconfined for kcov's ptrace, and writable
+# /source so coverage/ output lands on the host. `--network none` is the point
+# of the pinned bats cache: nothing inside the container may reach out, so the
+# run is the same on a laptop, on a restricted network and in CI. The cached
+# bats-core release is mounted read-only at /opt/bats -- OUTSIDE /source, so
+# kcov's `--include-path=.` never mistakes bats' own sources for ours.
+# `--user` writes the report as the invoking user instead of root; without it
+# the report is root-owned and the recipe's own `rm -rf coverage` fails on the
+# NEXT run, so a second `just coverage` could not be reproduced locally at all.
+_kcov_run := 'docker run --rm --network none --user "$(id -u):$(id -g)" --security-opt seccomp=unconfined -v "$PWD:/source" -w /source'
 
 # Show available recipes.
 default:
     @just --list
 
-# Pull both test-tools and coverage images.
+# Pull both test-tools and coverage images, and cache the pinned bats-core
+# release. This is the whole "fetch everything" step: after it, `lint`, `test`
+# and `coverage` all run with no outbound network.
 pull:
     docker pull {{TEST_TOOLS_IMAGE}}
     docker pull {{COVERAGE_IMAGE}}
+    bash script/fetch-bats.sh
 
 # ShellCheck + hadolint in the test-tools container, after `lint-adr` (below).
 lint: lint-adr
@@ -53,9 +66,16 @@ test:
 check: lint test
 
 # Bats with kcov coverage -> ./coverage/ (slow; CI / release).
+#
+# script/fetch-bats.sh prints the cache dir for the pinned bats-core release,
+# downloading and sha256-verifying it only when it is not cached yet. So the
+# first run needs the network for that one tarball and every run after it needs
+# none at all -- the container itself is started with --network none.
 coverage:
     rm -rf coverage
-    {{_kcov_run}} bash -c 'apt-get update -qq && apt-get install -qq -y bats >/dev/null && kcov --include-path=. /source/coverage /usr/bin/bats test/smoke/'
+    bats_dir="$(bash script/fetch-bats.sh)" \
+      && {{_kcov_run}} -v "$bats_dir:/opt/bats:ro" {{COVERAGE_IMAGE}} \
+           kcov --include-path=. /source/coverage /opt/bats/bin/bats test/smoke/
     @echo "coverage report: ./coverage/index.html"
 
 # ADR structure lint (doc/adr/), per PRD.md §0.5: the `> Serves:` back-pointer,

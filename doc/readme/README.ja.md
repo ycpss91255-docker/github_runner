@@ -137,14 +137,18 @@ runner の登録時に、オプションの設定ファイル `${RUNNER_HOME}/se
 テストは `ghcr.io/ycpss91255-docker/test-tools` イメージ内で実行します
 （alpine + bats + shellcheck + hadolint、`ycpss91255-docker/base` と
 同じイメージ）。カバレッジは `kcov/kcov` イメージ内で実行します
-（Debian、`kcov` 同梱；`bats` は実行時に apt インストール）。ローカルと
+（Debian、`kcov` 同梱だが `bats` はなし）。`bats-core` は
+`script/fetch-bats.sh` がバージョンを固定し sha256 検証したうえで host に
+キャッシュし、コンテナへマウントします。実行時のパッケージ導入は一切なく、
+カバレッジ用コンテナは `--network none` で起動するため、一度 `just pull` を
+実行すれば以降このチェックは外部ネットワークなしで再現できます。ローカルと
 CI で同じイメージを共有します。
 
 self-test のエントリは root `justfile` です。base リポジトリの慣例に合わせ
 ています（base も self-test エントリを `just` へ移行済み）。
 
 ```bash
-just pull       # test-tools + kcov イメージを pull（初回）
+just pull       # test-tools + kcov イメージを pull し bats をキャッシュ（初回）
 just lint       # shellcheck（docker 内）
 just test       # bats smoke tests（docker 内）
 just check      # lint + test（coverage を含まない）
