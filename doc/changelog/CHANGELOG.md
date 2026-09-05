@@ -8,6 +8,18 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`script/deploy-listener.sh` asks for the token before it needs it, not
+  after**: it was prompted for at the environment-file step, which is in the
+  LOCAL half and therefore runs *after* the GitHub half has already tried to
+  create the scale set. On a host that had not already exported `GITHUB_TOKEN` --
+  the first-time deploy this command exists for -- the create was handed an
+  empty token and failed. It is now asked for once, up front, and serves both
+  halves; it is not asked for at all when neither half needs it (a
+  `--skip-github` re-run whose environment file is already in place). The test
+  stub for the create now insists on the same credentials the real command
+  requires, so the ordering is observable instead of assumed -- it was invisible
+  before precisely because the stub accepted any environment.
+
 - **Documentation no longer claims `SCALE_SET_NAME` is "the workflows' runs-on
   target"**: it is not. A workflow's `runs-on` is matched against the scale
   set's **labels**; the scale set name is only an identifier. The two coincide
