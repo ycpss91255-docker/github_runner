@@ -72,29 +72,60 @@ EOF
 # file "aligned", and the gate silently useless in exactly the run that is
 # supposed to be the strictest.
 signature() {
-  awk '
+  signature_detail "$1" | cut -f1
+}
+
+# The same structure, with the source line and text kept alongside each token,
+# so a divergence can be reported as "this heading" rather than "token 12".
+# Tab-separated: <token> <line number> <text>.
+signature_detail() {
+  awk -F '\n' '
     /^[[:space:]]*(```|~~~)/ {
-      if (in_fence) { in_fence = 0 } else { in_fence = 1; print "fence" }
+      if (in_fence) { in_fence = 0 }
+      else { in_fence = 1; printf "fence\t%d\t%s\n", NR, $0 }
       next
     }
     in_fence { next }
     /^#/ {
       match($0, /^#+/)
-      if (RLENGTH <= 6 && substr($0, RLENGTH + 1, 1) ~ /[ \t]/) print "h" RLENGTH
+      if (RLENGTH <= 6 && substr($0, RLENGTH + 1, 1) ~ /[ \t]/)
+        printf "h%d\t%d\t%s\n", RLENGTH, NR, $0
     }
   ' "$1"
 }
 
-# Report the first structural difference in terms a reader can act on: the
-# heading each side has at that point, not an opaque token index.
+# Report WHERE the two documents stop having the same shape.
+#
+# The obvious implementation -- diff the two files' headings -- is useless here:
+# the headings are translated, so every line differs and the one that matters is
+# buried. A report nobody can read is a gate people learn to ignore. So the
+# comparison runs on the structure tokens, and only the first position where
+# they part company is printed, with the element each document actually has
+# there.
 report_divergence() {
   local root=$1 reference=$2 other=$3
   echo "FAIL: ${other} is structurally out of sync with ${reference}" >&2
-  echo "      headings (outside code fences), reference first:" >&2
-  diff -u \
-    <(grep -nE '^#{1,6}[[:space:]]' "${root}/${reference}" || true) \
-    <(grep -nE '^#{1,6}[[:space:]]' "${root}/${other}" || true) \
-    | sed 's/^/        /' >&2 || true
+  awk -F '\t' -v REF="${reference}" -v OTHER="${other}" '
+    NR == FNR { a_tok[FNR] = $1; a_line[FNR] = $2; a_text[FNR] = $3; a_n = FNR; next }
+    { b_tok[FNR] = $1; b_line[FNR] = $2; b_text[FNR] = $3; b_n = FNR }
+    END {
+      n = (a_n > b_n) ? a_n : b_n
+      for (i = 1; i <= n; i++) {
+        if (a_tok[i] == b_tok[i]) continue
+        printf "      first divergence at structural element %d:\n", i
+        if (i <= a_n)
+          printf "        %s  %s (line %d): %s\n", REF, a_tok[i], a_line[i], a_text[i]
+        else
+          printf "        %s  %s\n", REF, "(document ends here)"
+        if (i <= b_n)
+          printf "        %s  %s (line %d): %s\n", OTHER, b_tok[i], b_line[i], b_text[i]
+        else
+          printf "        %s  %s\n", OTHER, "(document ends here)"
+        exit
+      }
+    }
+  ' <(signature_detail "${root}/${reference}") \
+    <(signature_detail "${root}/${other}") >&2
 }
 
 main() {
