@@ -241,3 +241,31 @@ EOF
   run grep -F -- '-buildvcs=false' "${JUSTFILE}"
   [ "${status}" -eq 0 ]
 }
+
+# --- scale-set lifecycle command (scaleset-admin) --------------------------
+# The repo could connect to a scale set but had nothing that created one, so an
+# operator following the deploy runbook reached "fill in the scale set name"
+# with no way to obtain a scale set. scaleset-admin is that missing command, and
+# it is only usable if it is built and installed alongside the listener.
+
+@test "the scaleset-admin binary is built by its own recipe" {
+  run grep -E '^build-admin( .*)?:' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -F './cmd/scaleset-admin' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "install-listener installs scaleset-admin too -- one deployment unit" {
+  # The deploy needs both: the listener to run jobs, the admin command to create
+  # the scale set it binds to. Installing only one leaves the operator back at
+  # "no way to obtain a scale set".
+  run grep -E '^install-listener: .*build-admin' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -F 'bin/scaleset-admin"' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "clean-listener still removes the whole build output dir" {
+  run grep -E '^clean-listener( .*)?:' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+}

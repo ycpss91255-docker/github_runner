@@ -24,8 +24,17 @@ type RunnerType struct {
 	// ScaleSet is the GitHub scale set this type binds to. Scale sets are
 	// homogeneous, so the mapping is strictly one type -> one scale set (#112);
 	// it must be unique across the config.
+	//
+	// It is an IDENTIFIER, not a routing target: a workflow's runs-on is matched
+	// against the scale set's LABELS, not against its name. The two coincide
+	// only when the scale set was created with its name as its single label.
 	ScaleSet string `yaml:"scale_set"`
 	// Labels are the runs-on labels workflows target this type with.
+	//
+	// THIS IS THE ROUTING KEY. They are fixed on the scale set when it is
+	// created (see RoutingLabels / EnsureScaleSet) and used verbatim -- the
+	// scale set name is never added to them. A type that wants name and routing
+	// key to coincide sets these to exactly the ScaleSet value.
 	Labels []string `yaml:"labels"`
 	// Image is the container image jobs of this type run in. Operators are
 	// expected to pin it by digest (the schema does not enforce digest form, but

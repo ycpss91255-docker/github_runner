@@ -15,11 +15,34 @@
 #     /etc/github-runner-listener/runner-types.yaml
 #   sudo "${EDITOR:-vi}" /etc/github-runner-listener/runner-types.yaml
 #
+# WHAT WORKFLOWS TARGET -- read this before editing anything below.
+#
+#   A workflow's `runs-on` is matched against the scale set's LABELS.
+#   The scale set NAME is only an identifier.
+#
+# `labels` is THE ROUTING KEY -- what runs-on matches. `scale_set` merely names
+# the scale set the listener connects to. The two coincide only when the scale
+# set was created with its name as its single label, which is what happens when
+# a type declares no labels of its own -- and is exactly why the name LOOKS like
+# the routing target when it is not. Getting this wrong produces no error at
+# all: the job sits in `queued`. (The REST job status also stays `queued` after
+# a job has been assigned to a scale set, so `queued` alone proves nothing.)
+#
+# The labels are fixed when the scale set is CREATED (`scaleset-admin create`),
+# from this file. Whatever they end up being is written explicitly into both the
+# scale set and this file, so this file always states the routing key -- and
+# `scaleset-admin` prints the literal `runs-on:` line to paste into a workflow.
+#
 # Schema (per entry):
 #   name              required  operator-facing id; unique across the file.
 #   scale_set         required  the GitHub scale set this type binds to; unique
-#                               (one type -> one scale set).
-#   labels            required  runs-on labels workflows target this type with.
+#                               (one type -> one scale set). An IDENTIFIER --
+#                               NOT what runs-on matches.
+#   labels            required  THE ROUTING KEY: the runs-on labels workflows
+#                               target this type with. Used verbatim; the scale
+#                               set name is never added to them. To make name
+#                               and routing key coincide, set this to exactly
+#                               the scale_set value.
 #   image             required  per-job container image; pin by DIGEST (sha256)
 #                               to avoid :latest drift.
 #   devices           optional  host device nodes passed through (--device,

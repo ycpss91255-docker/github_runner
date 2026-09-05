@@ -6,13 +6,49 @@ The host needs **no Go toolchain**: the binary is built inside a golang
 container (#108) and only the static binary plus its sibling shell scripts are
 installed.
 
-## 1. Build & install the binary (#108)
+## 0. Read this first: what a workflow actually targets
+
+**Workflows target a runner type by its `labels`. The scale set name is only an
+identifier.** A workflow's `runs-on` is matched against the scale set's
+**labels**, which are fixed when the scale set is created.
+
+The name and the labels coincide only when the scale set was created with its
+name as its single label. That is the default here when a runner type declares
+no labels of its own, and it is exactly why the name *looks* like the routing
+target when it is not.
+
+Getting this wrong is the most expensive mistake available in this system,
+because it produces no error at all: the job simply sits in `queued`. Note also
+that the REST job status **stays `queued` even after a job has been assigned to
+a scale set**, so `queued` on its own is not evidence of a routing failure.
+
+Two ways to decide the labels, both explicit:
+
+| Runner type declares | Scale set is created with | A workflow writes |
+| --- | --- | --- |
+| no `labels` | labels = exactly the scale set name | `runs-on: <scale-set-name>` |
+| `labels: [a, b]` | labels = `a`, `b` verbatim (the name is never added) | `runs-on: [a, b]` |
+
+Either way the labels are **written into the scale set explicitly** and recorded
+in `runner-types.yaml`, so the configuration always states what the routing key
+is. `scaleset-admin` prints the exact `runs-on:` line to paste; use what it
+prints.
+
+> **What has been confirmed.** A scale set created this way received and ran a
+> real job end to end, which confirmed matching against the scale set's labels.
+> It did not exercise a job requesting a *subset* of a multi-label scale set.
+> Standard Actions semantics is that every label a job requests must be present
+> on the runner, but that subset case is unverified here -- so have the workflow
+> request exactly what `scaleset-admin` printed.
+
+## 1. Build & install the binaries (#108)
 
 ```sh
-# Build the static binary inside a pinned golang container:
+# Build the static binaries inside a pinned golang container:
 just build-listener                 # -> bin/scaleset-listener
+just build-admin                    # -> bin/scaleset-admin
 
-# Install binary + provision-job.sh + reap.sh + lib/ under PREFIX:
+# Install both binaries + provision-job.sh + reap.sh + lib/ under PREFIX:
 sudo just PREFIX=/opt/github-runner-listener install-listener
 ```
 
@@ -21,6 +57,7 @@ This lays down a self-contained tree the listener shells out against:
 ```
 /opt/github-runner-listener/
 ├── bin/scaleset-listener           # the static binary systemd runs
+├── bin/scaleset-admin              # create / delete a runner scale set
 ├── listener/provision-job.sh       # per-job container entrypoint
 ├── listener/reap.sh                # orphan-sweep entrypoint
 └── lib/*.sh                         # the bash seams those scripts source
@@ -48,6 +85,7 @@ sudo install -m 0600 deploy/scaleset-listener.env.sample \
   /etc/github-runner-listener/scaleset-listener.env
 sudo "${EDITOR:-vi}" /etc/github-runner-listener/scaleset-listener.env
 # Fill in GITHUB_CONFIG_URL, GITHUB_TOKEN, SCALE_SET_NAME.
+# SCALE_SET_NAME names a scale set; it is NOT what workflows target (section 0).
 # Verify it is 0600 and root-owned:
 sudo stat -c '%a %U' /etc/github-runner-listener/scaleset-listener.env   # -> 600 root
 ```
@@ -135,6 +173,68 @@ docker buildx imagetools inspect ghcr.io/actions/actions-runner:latest
 # copy the top-level "Digest: sha256:..." into the cpu type's image:, then commit.
 # (Pin the version you validated, not whatever :latest moved to.)
 ```
+
+## 3c. Create the runner type's scale set on GitHub (`scaleset-admin`)
+
+The listener **connects to** a scale set; it never creates one. Until this step
+has run there is nothing for `SCALE_SET_NAME` / the type's `scale_set` to name,
+and the listener exits telling you so.
+
+`scaleset-admin` is driven by the same runner-type config the listener reads --
+the name comes from the type's `scale_set` and the routing labels from its
+`labels`, and neither can be passed as a flag. That is deliberate: it makes
+`runner-types.yaml` the single source of truth for routing, so the config and
+the live scale set cannot be made to disagree by a one-off command line.
+
+```sh
+export GITHUB_CONFIG_URL=https://github.com/<org>
+read -rs GITHUB_TOKEN && export GITHUB_TOKEN   # scale-set admin scope
+                                               # (prompted: never in argv or history)
+
+# Preview first -- prints exactly what would be created on GitHub:
+scaleset-admin create --config /etc/github-runner-listener/runner-types.yaml \
+  --type gpu --dry-run
+
+# Then create it. Running it again is a no-op that says so.
+scaleset-admin create --config /etc/github-runner-listener/runner-types.yaml \
+  --type gpu
+```
+
+It prints the literal line to paste into a workflow, which is the answer to the
+question section 0 is about:
+
+```
+Workflows target this runner type by its LABELS (the name is only an identifier).
+Paste into your workflow job:
+
+    runs-on: [self-hosted, linux, gpu]
+```
+
+**Idempotent.** A second run over an existing scale set changes nothing,
+reports the existing id, and exits 0 -- so standing up a second machine against
+the same runner type needs no GitHub-side step at all. If the live scale set's
+labels have drifted from the config, it says so loudly rather than reusing a
+scale set nobody's config describes.
+
+Options: `--group <name>` picks the runner group to create in (default
+`Default`); `--type` may be omitted when the config holds exactly one type.
+`GITHUB_CONFIG_URL` and `GITHUB_TOKEN` are read from the environment and are
+deliberately not flags -- a token in a flag is a token in the host process
+table.
+
+**Deleting is a separate, explicit act.** Nothing else in this repo deletes a
+scale set; no install, teardown or uninstall path touches it. Removing it makes
+every workflow targeting those labels stop being served, so it is its own verb
+and it insists on `--yes`:
+
+```sh
+scaleset-admin delete --config /etc/github-runner-listener/runner-types.yaml \
+  --type gpu --dry-run     # preview
+scaleset-admin delete --config /etc/github-runner-listener/runner-types.yaml \
+  --type gpu --yes
+```
+
+Deleting one that is not there succeeds as a no-op, so a teardown can be re-run.
 
 ## 4. Install, enable & start the unit
 

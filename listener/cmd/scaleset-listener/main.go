@@ -14,7 +14,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -35,26 +34,15 @@ func envOr(key, fallback string) string {
 
 // selectInstance loads the runner-type config (the Go loader is the
 // authoritative parser, ADR-0003) and returns the Instance for the requested
-// type. When typeName is empty it must resolve unambiguously -- exactly one type
-// in the file -- otherwise the operator must name which type this listener
-// serves (one listener process serves one homogeneous scale set, ADR-0001).
+// type. The "which type does this act on" rule itself lives in
+// listener.SelectType, shared with the scaleset-admin lifecycle command, so the
+// two commands can never disagree about which type a given config selects.
 func selectInstance(path, typeName string, deps listener.InstanceDeps) (listener.Instance, error) {
-	types, err := listener.LoadConfig(path)
+	rt, err := listener.SelectType(path, typeName)
 	if err != nil {
 		return listener.Instance{}, err
 	}
-	if typeName == "" {
-		if len(types) != 1 {
-			return listener.Instance{}, fmt.Errorf("RUNNER_TYPE must name one of %d configured runner types", len(types))
-		}
-		return types[0].Instance(deps), nil
-	}
-	for _, rt := range types {
-		if rt.Name == typeName {
-			return rt.Instance(deps), nil
-		}
-	}
-	return listener.Instance{}, fmt.Errorf("no runner type named %q in %s", typeName, path)
+	return rt.Instance(deps), nil
 }
 
 func main() {
@@ -87,6 +75,14 @@ func main() {
 	// entry, not a code change. Without it, the listener falls back to the
 	// discrete SCALE_SET_NAME / RUNNER_IMAGE env knobs (reactive by default;
 	// AUTO_SIZE_DEVICES opts into device sizing).
+	//
+	// SCALE_SET_NAME NAMES A SCALE SET; IT IS NOT WHAT WORKFLOWS TARGET. The
+	// scale set is resolved by this name, but a workflow's runs-on is matched
+	// against the scale set's LABELS, which are fixed when the scale set is
+	// created (scaleset-admin create). They coincide only when the scale set was
+	// created with its name as its single label -- which is what happens when a
+	// runner type configures no labels of its own, and what makes the name look
+	// like the routing target when it is not.
 	var (
 		scaleSetName string
 		image        string
@@ -117,7 +113,8 @@ func main() {
 		hostProbe = inst.Config.HostProbe
 		log.Printf("runner type %q -> scale set %q (labels=%v)", inst.Name, inst.ScaleSet, inst.Labels)
 	} else {
-		scaleSetName = os.Getenv("SCALE_SET_NAME") // the workflows' runs-on target
+		// The scale set's IDENTIFIER, not the runs-on target (see above).
+		scaleSetName = os.Getenv("SCALE_SET_NAME")
 		image = envOr("RUNNER_IMAGE", "ghcr.io/actions/actions-runner:latest")
 		// Reactive by default; AUTO_SIZE_DEVICES opts into device sizing instead.
 		if os.Getenv("AUTO_SIZE_DEVICES") != "" {
@@ -143,9 +140,14 @@ func main() {
 	// Resolve the named scale set, then open the long-poll message session the
 	// listener drives. The session is the official client's; we only supply the
 	// per-job provisioning.
-	scaleSet, err := client.GetRunnerScaleSet(ctx, 0, scaleSetName)
+	//
+	// ResolveScaleSet, not the raw client call: the client reports "no such
+	// scale set" as (nil, nil), so dereferencing the result here used to panic
+	// with a nil pointer when the scale set had not been created yet -- a stack
+	// trace where the operator needed one sentence naming the create command.
+	scaleSet, err := listener.ResolveScaleSet(ctx, client, scaleSetName)
 	if err != nil {
-		log.Fatalf("get scale set %q: %v", scaleSetName, err)
+		log.Fatal(err)
 	}
 	session, err := client.MessageSessionClient(ctx, scaleSet.ID, owner)
 	if err != nil {

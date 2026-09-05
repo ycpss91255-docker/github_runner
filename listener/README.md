@@ -23,6 +23,27 @@ to [`provision-job.sh`](provision-job.sh), which bridges to the Phase 3 seam
 — so that seam stays the single source of truth for the
 `--rm` single-use container.
 
+## What workflows target: the labels, not the name
+
+**A workflow's `runs-on` is matched against the scale set's LABELS. The scale
+set name is only an identifier.** They coincide only when the scale set was
+created with its name as its single label -- which is the default when a runner
+type declares no labels, and is exactly why the name *looks* like the routing
+target when it is not.
+
+This is the most expensive thing to get wrong here, because it fails silently:
+the job sits in `queued` with no error anywhere. The REST job status also stays
+`queued` after a job has been assigned to a scale set, so `queued` alone does
+not prove a routing failure.
+
+The labels are decided when the scale set is **created** — see
+[`cmd/scaleset-admin`](cmd/scaleset-admin) and
+[`deploy/README.md`](../deploy/README.md). Either the runner type's `labels` are
+used verbatim, or, when it declares none, the labels are set to exactly the
+scale set name. Both are written explicitly rather than left to the client's
+fill-from-name fallback, so the recorded config always states the routing key;
+`scaleset-admin` prints the literal `runs-on:` line to paste.
+
 ## Layout
 
 - [`listener.go`](listener.go) — the demand→provision loop. `Session` is an
@@ -43,6 +64,17 @@ to [`provision-job.sh`](provision-job.sh), which bridges to the Phase 3 seam
   survives.
 - [`cmd/scaleset-listener`](cmd/scaleset-listener) — the production entrypoint
   that wires the real client into the listener (the **live** path).
+- [`scalesetadmin.go`](scalesetadmin.go) — the scale-set **lifecycle** logic:
+  create (idempotent) and delete, plus `RoutingLabels` / `RunsOn` and the
+  shared `SelectType`. `ScaleSetAdmin` is the injectable seam (the subset of
+  `*scaleset.Client` these drive), with the same compile-time assertion the
+  `Session` seam carries, so create/delete are unit-tested with no credentials
+  and no live GitHub.
+- [`cmd/scaleset-admin`](cmd/scaleset-admin) — the operator command over that
+  logic: `scaleset-admin create|delete`, driven by the runner-type config
+  rather than by flags. Credentials come from the environment
+  (`GITHUB_CONFIG_URL` / `GITHUB_TOKEN`), never from a flag — a token in a flag
+  is a token in the host process table.
 
 ## Build & test (in a container — `go` is not on the host)
 
@@ -100,7 +132,7 @@ docker run --rm -e GITHUB_CONFIG_URL -e GITHUB_TOKEN -e SCALE_SET_NAME \
 | --- | --- |
 | `GITHUB_CONFIG_URL` | `https://github.com/<org>` (required) |
 | `GITHUB_TOKEN` | token with scale-set admin scope (required) |
-| `SCALE_SET_NAME` | the scale set workflows target (required) |
+| `SCALE_SET_NAME` | the scale set to connect to, **by name** (required). An identifier, not the runs-on target -- see above |
 | `RUNNER_IMAGE` | per-job container image (default `ghcr.io/actions/actions-runner:latest`) |
 | `AUTO_SIZE_DEVICES` | when set, size the pool to the detected device count (#103) instead of reactive live-admission |
 | `DEVICE_DETECT_CMD` | device-enumeration command for auto-sizing (default `nvidia-smi`, one device per output line) |
