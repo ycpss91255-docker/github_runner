@@ -15,6 +15,11 @@
 # adapters, so nothing here touches real systemd, real users, or a real install
 # prefix.
 
+# The admin-tool cases assert an exact 127 with `run -127`, which is a flag only
+# from bats 1.5.0 on. The suite pins 1.13.0 (script/fetch-bats.sh), so this only
+# states the requirement out loud -- and stops bats warning that it is implicit.
+bats_require_minimum_version 1.5.0
+
 setup() {
   ROOT="${BATS_TEST_DIRNAME}/../../.."
   LIB="${ROOT}/lib/listener-deploy.sh"
@@ -511,7 +516,7 @@ teardown() { rm -rf "${WORK}"; }
   # The defect this pins: with no scaleset-admin anywhere, the operator used to
   # be told "could not read <config path>" -- which sends them to debug a
   # perfectly good file. Invariant 1: a failure names its real cause.
-  run bash -c "
+  run -127 bash -c "
     source '${LIB}'
     SCALESET_ADMIN_BIN='${WORK}/not-installed'
     listener_show_type /etc/runner-types.yaml gpu
@@ -636,7 +641,7 @@ teardown() { rm -rf "${WORK}"; }
 
 @test "listener_resolve_admin_bin fails naming the tool when the build produced nothing" {
   mkdir -p "${WORK}/repo"
-  run bash -c "
+  run -127 bash -c "
     source '${LIB}'
     unset SCALESET_ADMIN_BIN
     _just() { return 1; }
@@ -669,7 +674,7 @@ teardown() { rm -rf "${WORK}"; }
   # An operator who named a binary gets told that binary is missing, rather
   # than having a different one silently built and used behind their back.
   mkdir -p "${WORK}/repo"
-  run bash -c "
+  run -127 bash -c "
     source '${LIB}'
     SCALESET_ADMIN_BIN='${WORK}/gone'
     _just() { echo 'BUILT'; }
