@@ -91,9 +91,13 @@ DESTDIR := env_var_or_default('DESTDIR', '')
 # not required.
 #
 # Build the listener as a static binary inside a golang container.
+# -buildvcs=false: the container runs as root over the host-owned bind mount, so
+# git refuses the repo as "dubious ownership" and VCS stamping errors out (exit
+# 128) -- the binary needs no embedded VCS info, so skip the stamp to keep the
+# build robust regardless of the host checkout's ownership.
 build-listener:
     @mkdir -p {{BIN_DIR}}
-    docker run --rm -e CGO_ENABLED=0 -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} go build -trimpath -ldflags='-s -w' -o /repo/{{LISTENER_BIN}} ./cmd/scaleset-listener
+    docker run --rm -e CGO_ENABLED=0 -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} go build -trimpath -buildvcs=false -ldflags='-s -w' -o /repo/{{LISTENER_BIN}} ./cmd/scaleset-listener
     @echo "built: {{LISTENER_BIN}}"
 
 # The listener shells out to provision-job.sh / reap.sh, which source

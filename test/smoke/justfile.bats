@@ -73,3 +73,10 @@ setup() {
   run grep -E 'bats .*test/smoke/' "${JUSTFILE}"
   [ "${status}" -eq 0 ]
 }
+
+@test "build-listener passes -buildvcs=false so the container build is not broken by dubious git ownership" {
+  run grep -E 'build-listener' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+  run grep -F -- '-buildvcs=false' "${JUSTFILE}"
+  [ "${status}" -eq 0 ]
+}

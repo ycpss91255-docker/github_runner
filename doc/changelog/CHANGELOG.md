@@ -6,6 +6,14 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`just build-listener` no longer fails on a host-owned checkout**: the recipe
+  now passes `-buildvcs=false`, so the root-in-container build over the bind
+  mount is not broken by git's "dubious ownership" VCS-stamp error. CI now also
+  runs the release build recipe (not just `go build ./...`), so a recipe
+  regression is caught before an operator hits it at deploy time.
+
 ### Added
 
 - **Reactive live-admission for runner concurrency** (ADR-0005, #163): the
