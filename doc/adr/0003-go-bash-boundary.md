@@ -1,10 +1,6 @@
 # 0003 — Go/bash boundary: minimal Go surface, one clean shell-out
 
-> Serves: Invariant 3 (One source of truth, no parallel copies) — the
-> boundary rule exists so nothing is implemented twice, once per language: Go
-> does not reimplement the container / host / cleanup logic bash already owns,
-> bash does not talk to the scale-set API, and the runner-type config has
-> exactly one parser of record.
+> Serves: Invariant 3 — One source of truth; no copies maintained in parallel
 
 - **Status**: Accepted
 - **Date**: 2026-06-24

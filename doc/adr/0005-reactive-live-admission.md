@@ -1,10 +1,6 @@
 # 0005 — Reactive live-admission for runner concurrency
 
-> Serves: Invariant 2 (Defaults fall toward safety) — the default is
-> reactive admission against a live host reading that keeps a 10% reserve
-> free, and the single operator knob is upward-only (a smaller reserve is
-> rejected). Neither the default nor any permitted override can configure the
-> host into overload.
+> Serves: Invariant 2 — Defaults fall towards safety
 
 - **Status**: Accepted
 - **Date**: 2026-09-03

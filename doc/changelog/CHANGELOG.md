@@ -24,19 +24,22 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **ADR structure lint** (`script/lint-adr.sh`, `just lint-adr`): every record
-  in `doc/adr/` is now machine-checked against the adopted ADR spec instead of
-  relying on review discipline. Per file it enforces the 4-digit filename
-  pattern (`README.md` exempt), the required `## Context` / `## Decision` /
-  `## Consequences` sections exactly once at column 0, a `Status` that is one of
-  `Accepted` / `Rejected` / `Superseded by ADR-NNNN`, and a `> Serves:`
-  back-pointer naming the product invariant the ADR serves (or stating that it
-  is a mechanism with no corresponding invariant); a missing `## Alternatives`
-  warns rather than fails. It runs on the `just lint` path and as the `adr-lint`
-  CI job inside the `ci-rollup` gate, so a drifting ADR blocks the merge. The
-  five existing ADRs are brought into conformance in the same change (back-
-  pointers added, `## Considered options` renamed to `## Alternatives`, the
-  three free-text `Status` spellings normalised); numbering is unchanged.
+- **ADR structure lint** (`script/lint-adr.sh`, `just lint-adr`): the structural
+  lint `doc/PRD.md` §0.5 requires. Every record in `doc/adr/` is machine-checked
+  instead of relying on review discipline: the `NNNN-kebab-case-title.md`
+  filename pattern (`README.md` exempt) and numbering uniqueness, the four
+  required sections (`## Context`, `## Decision`, `## Alternatives`,
+  `## Consequences`) exactly once at column 0, a `Status` inside the permitted
+  set (`Proposed` / `Accepted` / `Amended (YYYY-MM-DD, #NNN)` /
+  `Superseded by ADR-NNNN` / `Rejected`) whose `Superseded by` target exists,
+  and the one-line `> Serves: Invariant N — <invariant title>` back-pointer
+  (or `> Serves: mechanism, no corresponding invariant`) whose invariant title
+  is matched against the §0.2 headings in `doc/PRD.md`, so a renamed invariant
+  cannot drift out of the ADRs unnoticed. It runs on the `just lint` path and as
+  the `adr-lint` CI job inside the `ci-rollup` gate, so a drifting ADR blocks the
+  merge. The five existing ADRs are migrated in the same change (back-pointers
+  added, `## Considered options` renamed to `## Alternatives`, the three
+  free-text `Status` spellings normalised); numbering is unchanged.
 - **`doc/PRD.md` — the principles layer (PRD §0)**: a single document stating
   what must hold for every feature in this repo, and how to decide when goals
   pull against each other. It records the 8 product invariants (never fail

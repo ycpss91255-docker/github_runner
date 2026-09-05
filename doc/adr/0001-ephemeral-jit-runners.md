@@ -1,9 +1,6 @@
 # 0001 — Ephemeral JIT runners via Runner Scale Set Client
 
-> Serves: Invariant 6 (Each container is responsible for one thing) —
-> one job per fresh, single-use container is that invariant applied to the
-> runner. A container that serves exactly one job is responsible for exactly
-> one thing, which is what leaves no state or secret residue for the next job.
+> Serves: Invariant 6 — Each container is responsible for exactly one thing
 
 - **Status**: Accepted
 - **Date**: 2026-06-23

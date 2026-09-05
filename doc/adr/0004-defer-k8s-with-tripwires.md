@@ -1,9 +1,6 @@
 # 0004 — Defer Kubernetes; stay bespoke now, migrate at defined tripwires
 
-> Serves: no invariant — this is a mechanism, not a product behaviour. It
-> records scope and timing (stay bespoke now; migrate when a named tripwire
-> fires), which constrains when the architecture may change rather than how
-> the system must behave.
+> Serves: mechanism, no corresponding invariant
 
 - **Status**: Accepted
 - **Date**: 2026-07-07

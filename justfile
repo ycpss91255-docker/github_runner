@@ -40,15 +40,7 @@ pull:
     docker pull {{TEST_TOOLS_IMAGE}}
     docker pull {{COVERAGE_IMAGE}}
 
-# ADR structure lint (doc/adr/): required sections, the Status vocabulary, and
-# the `> Serves:` invariant back-pointer. Pure bash + grep, so unlike shellcheck
-# / hadolint / bats it needs no test-tools container -- it runs on the host and
-# is therefore also the cheapest gate to fail fast on.
-lint-adr:
-    bash script/lint-adr.sh
-
-# ShellCheck + hadolint inside test-tools container, after the ADR structure
-# lint (a dependency, so `just lint` alone covers every lint the gate runs).
+# ShellCheck + hadolint in the test-tools container, after `lint-adr` (below).
 lint: lint-adr
     {{_docker_run}} shellcheck -x {{SCRIPTS}}
     {{_docker_run}} hadolint {{DOCKERFILES}}
@@ -65,6 +57,16 @@ coverage:
     rm -rf coverage
     {{_kcov_run}} bash -c 'apt-get update -qq && apt-get install -qq -y bats >/dev/null && kcov --include-path=. /source/coverage /usr/bin/bats test/smoke/'
     @echo "coverage report: ./coverage/index.html"
+
+# ADR structure lint (doc/adr/), per PRD.md §0.5: the `> Serves:` back-pointer,
+# the four required sections, the permitted Status values, the filename /
+# numbering rules, and that a `Superseded by` target exists. Pure bash + grep,
+# so unlike shellcheck / hadolint / bats it needs no test-tools container: it
+# runs on the host and is the cheapest job in the gate. Defined here rather than
+# next to `lint` so the `justfile:NN` citations in PRD.md §0.4 keep pointing at
+# the shellcheck / hadolint / bats lines they name.
+lint-adr:
+    bash script/lint-adr.sh
 
 # ShellCheck on host (requires shellcheck installed locally), plus the ADR
 # structure lint, so the host path covers the same lints as the container one.

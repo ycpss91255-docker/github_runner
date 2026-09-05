@@ -1,13 +1,9 @@
 # 0002 — Job history / audit trail for ephemeral runners
 
-> Serves: Invariant 1 (Never fail silently) — ephemeral teardown destroys
-> the execution context, so without an out-of-band capture a failed job would
-> vanish leaving nothing to read. The ledger records every job, success and
-> failure, before the container is removed.
+> Serves: Invariant 1 — Never fail silently
 
-- **Status**: Accepted
+- **Status**: Amended (2026-06-29, #154)
 - **Date**: 2026-06-23
-- **Amended**: 2026-06-29 (#154)
 
 ## Context
 
