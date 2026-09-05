@@ -37,6 +37,18 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   five existing ADRs are brought into conformance in the same change (back-
   pointers added, `## Considered options` renamed to `## Alternatives`, the
   three free-text `Status` spellings normalised); numbering is unchanged.
+- **`doc/PRD.md` — the principles layer (PRD §0)**: a single document stating
+  what must hold for every feature in this repo, and how to decide when goals
+  pull against each other. It records the 8 product invariants (never fail
+  silently; defaults fall towards safety; one source of truth; a strict test
+  bar; extension is configuration; one container per job; documentation
+  self-contained and derived from code; one producing function per named
+  concept), the 7 design principles N-1..N-7, each with an explicit
+  `Serves: Invariant N` back-pointer, the replaceable implementation specs that
+  sit beneath the test bar, the ADR format spec (numbering, required sections,
+  permitted `Status` values, amend vs supersede), and the priority order used to
+  settle conflicts. Every rule is written out in full, so no other document is
+  needed to follow it.
 
 - **Reactive live-admission for runner concurrency** (ADR-0005, #163): the
   listener now admits each job against a live host reading (`host-probe.sh`),
