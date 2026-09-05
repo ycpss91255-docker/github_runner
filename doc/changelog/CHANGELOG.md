@@ -8,7 +8,31 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **`script/deploy-listener.sh` asks for the token before it needs it, not
+- **`script/deploy-listener.sh` is one command from a clean checkout**: it reads
+  the runner-type config through `scaleset-admin show`, so it needs that binary
+  before every other step -- earlier than the local half that builds and
+  installs it. It never built one and never looked in the checkout's own build
+  output, so a freshly cloned repository could not run the command at all until
+  someone had run `just build-admin` and put `bin/` on `PATH` by hand: exactly
+  the multi-step runbook the command exists to replace. It now settles which
+  binary to use first -- an explicit `SCALESET_ADMIN_BIN`, else this checkout's
+  build output, else `PATH`, else `just build-admin` (the same recipe the local
+  half already runs for the listener). The build output outranks `PATH` on
+  purpose: the local half installs the listener built from *this* source tree,
+  so the tool that reads the config has to be the one that matches it. `--dry-run`
+  keeps its promise -- it may build that one binary, and says so when it does,
+  but installs nothing, changes nothing on GitHub and asks for no token.
+
+- **A missing admin tool is reported as a missing admin tool, not as an
+  unreadable config**: with nothing to run, the command used to print `FAIL:
+  could not read <config path>`, which points at a perfectly good file and
+  sends the operator to debug the wrong thing. "The tool could not be run" and
+  "the tool ran and rejected the config" are different faults with different
+  fixes, and the config-reading helper could not tell them apart: it piped the
+  command straight into `sed`, so the caller got *sed's* exit status and every
+  failure arrived looking the same. The tool's status now survives, a missing
+  tool names itself and says how to build one, and a config the tool rejected is
+  reported with the tool's own diagnostic and the binary that rejected it.
   after**: it was prompted for at the environment-file step, which is in the
   LOCAL half and therefore runs *after* the GitHub half has already tried to
   create the scale set. On a host that had not already exported `GITHUB_TOKEN` --
