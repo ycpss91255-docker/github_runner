@@ -64,6 +64,17 @@ so re-running after a partial run or a config change is the normal way to use
 it. On the second and later machines the scale set already exists, so nothing
 outward needs to happen -- pass `--skip-github` and it does the local half only.
 
+**A clean checkout needs no preparation.** The command reads the runner-type
+config through `scaleset-admin` (section 3c) -- before every other step, and so
+before the local half that installs it -- and it settles which binary that is by
+itself: this checkout's `bin/`, else `PATH`, else `just build-admin`. Section 1
+is therefore something the command does for you, not something to do first. A
+first `--dry-run` may have to build that one binary to read the config at all,
+and says so; it still installs nothing, changes nothing on GitHub and asks for
+no token. Set `SCALESET_ADMIN_BIN` to name a particular binary instead, and
+`LISTENER_BIN_DIR` (relative to the repository root, like the justfile's
+`BIN_DIR`) to build somewhere other than `bin/`.
+
 The admin token is **prompted for and never a flag**: `/proc/<pid>/cmdline` is
 world-readable, so a token in an argument is a token any local user on the box
 can read, and it would sit in shell history besides.

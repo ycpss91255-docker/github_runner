@@ -85,10 +85,20 @@ for a in "$@"; do
       : > "${STUB_PREFIX}/bin/scaleset-admin"
       chmod +x "${STUB_PREFIX}/bin/scaleset-listener" "${STUB_PREFIX}/bin/scaleset-admin"
       ;;
+    build-admin)
+      # What the real recipe leaves behind: a scaleset-admin in the build
+      # output directory. It is the same scripted stub the tests use elsewhere,
+      # so a run that had to build one behaves like a run that found one.
+      mkdir -p "${STUB_BIN_DIR}"
+      cp "${STUB_ADMIN_SRC}" "${STUB_BIN_DIR}/scaleset-admin"
+      chmod +x "${STUB_BIN_DIR}/scaleset-admin"
+      ;;
   esac
 done
 exit 0'
   export STUB_PREFIX="${PREFIX}"
+  # Where a build would land, kept out of the checkout's own bin/.
+  export STUB_BIN_DIR="${WORK}/build"
   export STUB_STATE="${WORK}/state"
   mkdir -p "${STUB_STATE}"
   # Keep the unit out of the host's real systemd directory.
@@ -96,6 +106,9 @@ exit 0'
 
   # scaleset-admin: answers `show` from the fixture and records a `create`.
   export SCALESET_ADMIN_BIN="${STUB}/scaleset-admin-cmd"
+  # The same file, under a name the `just` stub can copy from when a test drops
+  # SCALESET_ADMIN_BIN to play a clean checkout.
+  export STUB_ADMIN_SRC="${SCALESET_ADMIN_BIN}"
   cat > "${SCALESET_ADMIN_BIN}" <<STUBEOF
 #!/usr/bin/env bash
 printf '%s\n' "name=scaleset-admin" "\$@" >> "${CAP}"
@@ -139,6 +152,18 @@ teardown() { rm -rf "${WORK}"; }
 # way the interactive prompt reads it.
 _deploy() {
   printf 'tok-abc123\n' | "${SCRIPT}" --yes \
+    --config "${CONFIG}" --type gpu \
+    --org-url https://github.com/acme \
+    --prefix "${PREFIX}" --etc "${ETC}" "$@"
+}
+
+# The same run on a CLEAN CHECKOUT: no SCALESET_ADMIN_BIN pointing at a
+# prebuilt stub and nothing named scaleset-admin on PATH, which is the state a
+# freshly cloned repository is actually in. The command has to end up with an
+# admin tool by itself.
+_deploy_clean_checkout() {
+  printf 'tok-abc123\n' | env -u SCALESET_ADMIN_BIN -u GITHUB_TOKEN \
+    LISTENER_BIN_DIR="${STUB_BIN_DIR}" "${SCRIPT}" --yes \
     --config "${CONFIG}" --type gpu \
     --org-url https://github.com/acme \
     --prefix "${PREFIX}" --etc "${ETC}" "$@"
@@ -262,6 +287,42 @@ EOF
   [ "${status}" -eq 0 ]
   ! grep -qxF 'name=useradd' "${CAP}"
   [[ "${output}" == *"already exists"* ]]
+}
+
+# --- one command means one command -----------------------------------------
+# The command reads the runner-type config THROUGH scaleset-admin, so the tool
+# is needed before every other step -- earlier than the local half that builds
+# and installs it. On a clean checkout there is nothing built and nothing on
+# PATH, and the command used to be unable to run at all.
+
+@test "a run from a clean checkout builds the admin tool it needs, then deploys" {
+  run _deploy_clean_checkout
+  [ "${status}" -eq 0 ]
+  # It asked for the build itself...
+  grep -qxF 'build-admin' "${CAP}"
+  [ -x "${STUB_BIN_DIR}/scaleset-admin" ]
+  # ...and the rest of the run then happened as usual.
+  grep -qxF 'create' "${CAP}"
+  grep -qxF 'install-listener' "${CAP}"
+  [[ "${output}" == *"Deployed."* ]]
+}
+
+@test "a dry run from a clean checkout writes only the build output: no token, no install, no GitHub" {
+  # --dry-run keeps its promise even when it has to produce the tool first:
+  # the build output directory is the ONE thing it may write, it never asks for
+  # a token, and it reaches neither /etc nor GitHub.
+  run bash -c "env -u SCALESET_ADMIN_BIN -u GITHUB_TOKEN \
+    LISTENER_BIN_DIR='${STUB_BIN_DIR}' '${SCRIPT}' --dry-run \
+    --config '${CONFIG}' --type gpu --org-url https://github.com/acme \
+    --prefix '${PREFIX}' --etc '${ETC}'" </dev/null
+  [ "${status}" -eq 0 ]
+  grep -qxF 'build-admin' "${CAP}"
+  [ -x "${STUB_BIN_DIR}/scaleset-admin" ]
+  ! grep -qxF 'create' "${CAP}"
+  ! grep -qxF 'install-listener' "${CAP}"
+  ! grep -qxF 'name=useradd' "${CAP}"
+  [ ! -d "${ETC}" ]
+  [ ! -d "${PREFIX}" ]
 }
 
 # --- the GitHub half is announced and skippable ----------------------------

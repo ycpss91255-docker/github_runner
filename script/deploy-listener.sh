@@ -57,6 +57,11 @@ Stand a scale-set listener up on this machine in one command: the GitHub side
 (build, install, service user, environment file, systemd unit, enable, start,
 verify). Idempotent -- re-running skips whatever is already in place.
 
+The runner-type config is read through the scale-set admin tool, which is taken
+from this checkout's build output, else from PATH, and BUILT (just build-admin)
+when there is neither -- so a clean checkout needs no preparation. Set
+SCALESET_ADMIN_BIN to name a particular binary instead.
+
 Options:
   --org-url <url>     https://github.com/<org> (required unless --skip-github
                       and an environment file already exists)
@@ -75,7 +80,9 @@ Options:
   --user <name>       service user the unit runs as (default: ci-runner)
   --skip-github       do the local half only -- for the second and later
                       machines, where the scale set already exists
-  -n, --dry-run       print the plan; change nothing, here or on GitHub
+  -n, --dry-run       print the plan; install nothing and change nothing on
+                      GitHub. It may still build the admin tool it has to read
+                      the config with, and it says so when it does
   -y, --yes           skip the confirmation. REQUIRED for non-interactive runs
                       (stdin is not a TTY); the token is then read from stdin.
   -h, --help          show this help
@@ -132,12 +139,29 @@ main() {
   listener_deploy_paths
   resolve_config
 
+  # The admin tool, before anything else needs it: everything below reads the
+  # runner-type config THROUGH it, so a run without one cannot even produce a
+  # plan. That is why it is found -- or built -- here, rather than assumed to
+  # be on PATH. (resolve_config runs first only because it is a local file
+  # check that costs nothing; building a Go binary and only then announcing
+  # that the named config does not exist would be a strange way to spend a
+  # minute.)
+  local admin_rc=0
+  listener_resolve_admin_bin "${REPO_ROOT}" || admin_rc=$?
+  (( admin_rc == 0 )) || exit 1
+
   # Ask the Go loader what the config says (ADR-0003: it is the only parser).
   # A failure here is a bad config, and it must stop the run rather than be
   # papered over with empty strings.
   local scale_set labels runs_on image
-  if ! scale_set=$(listener_config_scaleset "${TYPES_CONFIG}" "${TYPE_NAME}"); then
-    echo "FAIL: could not read ${TYPES_CONFIG}" >&2
+  local read_rc=0
+  scale_set=$(listener_config_scaleset "${TYPES_CONFIG}" "${TYPE_NAME}") || read_rc=$?
+  if (( read_rc != 0 )); then
+    # A tool that could not be RUN has already named itself; adding "could not
+    # read <config>" on top of that would point at a file that is perfectly
+    # fine, which is exactly the wrong-fault message this replaces.
+    (( read_rc == LISTENER_ADMIN_NOT_FOUND )) \
+      || echo "FAIL: could not read ${TYPES_CONFIG} (${SCALESET_ADMIN_BIN} rejected it)" >&2
     exit 1
   fi
   if [[ -z ${scale_set} ]]; then
@@ -176,6 +200,7 @@ main() {
   echo "  Local side:"
   echo "    runner type:      ${TYPE_NAME:-(the only one configured)}"
   echo "    config:           ${TYPES_CONFIG}"
+  echo "    admin tool:       ${SCALESET_ADMIN_BIN} (the config was read through it)"
   echo "    image:            ${image}"
   echo "    install prefix:   ${LISTENER_PREFIX}"
   echo "    service user:     ${SERVICE_USER}"
@@ -188,6 +213,11 @@ main() {
 
   if (( DRY_RUN )); then
     echo "Dry run; nothing was changed, here or on GitHub."
+    # Said out loud rather than glossed over: a first dry run may have had to
+    # build the admin tool to read the config at all, and a claim that nothing
+    # changed has to be true of the build output too.
+    (( ${LISTENER_ADMIN_BUILT:-0} )) \
+      && echo "  (the scale-set admin tool was built into ${SCALESET_ADMIN_BIN}; that is all this run wrote.)"
     exit 0
   fi
 

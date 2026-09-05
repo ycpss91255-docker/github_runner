@@ -15,6 +15,11 @@
 # adapters, so nothing here touches real systemd, real users, or a real install
 # prefix.
 
+# The admin-tool cases assert an exact 127 with `run -127`, which is a flag only
+# from bats 1.5.0 on. The suite pins 1.13.0 (script/fetch-bats.sh), so this only
+# states the requirement out loud -- and stops bats warning that it is implicit.
+bats_require_minimum_version 1.5.0
+
 setup() {
   ROOT="${BATS_TEST_DIRNAME}/../../.."
   LIB="${ROOT}/lib/listener-deploy.sh"
@@ -498,4 +503,184 @@ teardown() { rm -rf "${WORK}"; }
   "
   [ "${status}" -eq 0 ]
   [ "${output}" = "self-hosted,gpu" ]
+}
+
+# --- the admin tool: finding it, and naming it when it is not there ---------
+# The deploy command reads the runner-type config THROUGH scaleset-admin, so
+# the tool is needed before any other step -- earlier than the local half that
+# builds and installs it. Two things have to hold: the command can find (or
+# build) the tool from a clean checkout, and a missing tool is reported as a
+# missing tool rather than as an unreadable config.
+
+@test "listener_show_type names the MISSING TOOL, not the config, when it cannot run" {
+  # The defect this pins: with no scaleset-admin anywhere, the operator used to
+  # be told "could not read <config path>" -- which sends them to debug a
+  # perfectly good file. Invariant 1: a failure names its real cause.
+  run -127 bash -c "
+    source '${LIB}'
+    SCALESET_ADMIN_BIN='${WORK}/not-installed'
+    listener_show_type /etc/runner-types.yaml gpu
+  "
+  [ "${status}" -eq 127 ]
+  [[ "${output}" == *"scaleset-admin"* ]]
+  [[ "${output}" == *"just build-admin"* ]]
+  # ...and it does not blame the config file.
+  [[ "${output}" != *"/etc/runner-types.yaml"* ]]
+}
+
+@test "listener_show_field separates 'could not run the tool' from 'the tool rejected the config'" {
+  # Two different faults with two different fixes. The tool RAN here and said
+  # the config is bad: its own status must survive the sed pipeline, and the
+  # missing-tool advice must not be printed.
+  run bash -c "
+    source '${LIB}'
+    _scaleset_admin() {
+      echo 'scaleset-admin: read runner-type config /c.yaml: no such file' >&2
+      return 1
+    }
+    listener_config_scaleset /c.yaml gpu
+  "
+  [ "${status}" -eq 1 ]
+  [[ "${output}" != *"build-admin"* ]]
+  [[ "${output}" == *"read runner-type config"* ]]
+}
+
+@test "listener_show_field keeps reporting a field when the tool answers" {
+  # The success path still returns the field, and status 0 -- the pipeline
+  # rework must not change what a good run produces.
+  run bash -c "
+    source '${LIB}'
+    _scaleset_admin() { echo 'scale_set=gpu-runners'; echo 'labels=a,b'; }
+    listener_config_scaleset /c.yaml gpu
+  "
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "gpu-runners" ]
+}
+
+@test "listener_resolve_admin_bin prefers this checkout's own build output" {
+  # The local half installs the listener built from THIS tree, so the tool that
+  # reads the config must be the matching one -- a stale scaleset-admin left on
+  # PATH by another checkout would answer for a schema this tree may not have.
+  mkdir -p "${WORK}/repo/bin" "${WORK}/onpath"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${WORK}/repo/bin/scaleset-admin"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${WORK}/onpath/scaleset-admin"
+  chmod +x "${WORK}/repo/bin/scaleset-admin" "${WORK}/onpath/scaleset-admin"
+  run bash -c "
+    source '${LIB}'
+    unset SCALESET_ADMIN_BIN
+    PATH='${WORK}/onpath':\"\${PATH}\"
+    _just() { echo 'BUILT'; }
+    listener_resolve_admin_bin '${WORK}/repo'
+    echo \"RESOLVED=\${SCALESET_ADMIN_BIN}\"
+  "
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"RESOLVED=${WORK}/repo/bin/scaleset-admin"* ]]
+  # Nothing was built: there was already a binary to use.
+  [[ "${output}" != *"BUILT"* ]]
+}
+
+@test "listener_resolve_admin_bin falls back to one on PATH before building" {
+  mkdir -p "${WORK}/repo" "${WORK}/onpath"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${WORK}/onpath/scaleset-admin"
+  chmod +x "${WORK}/onpath/scaleset-admin"
+  run bash -c "
+    source '${LIB}'
+    unset SCALESET_ADMIN_BIN
+    PATH='${WORK}/onpath':\"\${PATH}\"
+    _just() { echo 'BUILT'; }
+    listener_resolve_admin_bin '${WORK}/repo'
+    echo \"RESOLVED=\${SCALESET_ADMIN_BIN}\"
+  "
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"RESOLVED=${WORK}/onpath/scaleset-admin"* ]]
+  [[ "${output}" != *"BUILT"* ]]
+}
+
+@test "listener_resolve_admin_bin builds the tool when a clean checkout has none" {
+  # The point of the one command: it builds what it needs, the same way the
+  # local half already builds the listener.
+  mkdir -p "${WORK}/repo"
+  run bash -c "
+    source '${LIB}'
+    unset SCALESET_ADMIN_BIN
+    _just() {
+      printf '%s\n' \"\$@\" >> '${WORK}/just.argv'
+      mkdir -p '${WORK}/repo/bin'
+      printf '#!/usr/bin/env bash\nexit 0\n' > '${WORK}/repo/bin/scaleset-admin'
+      chmod +x '${WORK}/repo/bin/scaleset-admin'
+    }
+    listener_resolve_admin_bin '${WORK}/repo'
+    echo \"RESOLVED=\${SCALESET_ADMIN_BIN}\"
+  "
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"RESOLVED=${WORK}/repo/bin/scaleset-admin"* ]]
+  grep -qxF 'build-admin' "${WORK}/just.argv"
+}
+
+@test "listener_resolve_admin_bin builds into an overridden build directory" {
+  # Overridable for the same reason LISTENER_UNIT_DIR is: a test must be able
+  # to send the build output somewhere throwaway.
+  mkdir -p "${WORK}/repo"
+  run bash -c "
+    source '${LIB}'
+    unset SCALESET_ADMIN_BIN
+    LISTENER_BIN_DIR='${WORK}/out'
+    _just() {
+      printf '%s\n' \"\$@\" >> '${WORK}/just.argv'
+      mkdir -p '${WORK}/out'
+      printf '#!/usr/bin/env bash\nexit 0\n' > '${WORK}/out/scaleset-admin'
+      chmod +x '${WORK}/out/scaleset-admin'
+    }
+    listener_resolve_admin_bin '${WORK}/repo'
+    echo \"RESOLVED=\${SCALESET_ADMIN_BIN}\"
+  "
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"RESOLVED=${WORK}/out/scaleset-admin"* ]]
+  grep -qxF "BIN_DIR=${WORK}/out" "${WORK}/just.argv"
+}
+
+@test "listener_resolve_admin_bin fails naming the tool when the build produced nothing" {
+  mkdir -p "${WORK}/repo"
+  run -127 bash -c "
+    source '${LIB}'
+    unset SCALESET_ADMIN_BIN
+    _just() { return 1; }
+    listener_resolve_admin_bin '${WORK}/repo'
+  "
+  [ "${status}" -eq 127 ]
+  [[ "${output}" == *"scaleset-admin"* ]]
+  [[ "${output}" == *"build-admin"* ]]
+}
+
+@test "listener_resolve_admin_bin never second-guesses an explicit SCALESET_ADMIN_BIN" {
+  mkdir -p "${WORK}/repo/bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${WORK}/repo/bin/scaleset-admin"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${WORK}/chosen"
+  chmod +x "${WORK}/repo/bin/scaleset-admin" "${WORK}/chosen"
+  run bash -c "
+    source '${LIB}'
+    SCALESET_ADMIN_BIN='${WORK}/chosen'
+    _just() { echo 'BUILT'; }
+    listener_resolve_admin_bin '${WORK}/repo'
+    echo \"RESOLVED=\${SCALESET_ADMIN_BIN}\"
+  "
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"RESOLVED=${WORK}/chosen"* ]]
+  [[ "${output}" != *"BUILT"* ]]
+  [[ "${output}" != *"command not found"* ]]
+}
+
+@test "listener_resolve_admin_bin reports an explicit SCALESET_ADMIN_BIN that is not there" {
+  # An operator who named a binary gets told that binary is missing, rather
+  # than having a different one silently built and used behind their back.
+  mkdir -p "${WORK}/repo"
+  run -127 bash -c "
+    source '${LIB}'
+    SCALESET_ADMIN_BIN='${WORK}/gone'
+    _just() { echo 'BUILT'; }
+    listener_resolve_admin_bin '${WORK}/repo'
+  "
+  [ "${status}" -eq 127 ]
+  [[ "${output}" == *"${WORK}/gone"* ]]
+  [[ "${output}" != *"BUILT"* ]]
 }
