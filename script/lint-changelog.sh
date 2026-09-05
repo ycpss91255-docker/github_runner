@@ -108,7 +108,8 @@ enforce() {
   fi
 
   echo "FAIL: this change warrants a ${CHANGELOG} entry and has none." >&2
-  echo "      Add a bullet under [Unreleased]. Changed here:" >&2
+  echo "      Add a bullet under [Unreleased] -- and commit it: this reads the" >&2
+  echo "      committed range, not the working tree. Changed here:" >&2
   for path in "${warrants[@]}"; do
     echo "        ${path}" >&2
   done

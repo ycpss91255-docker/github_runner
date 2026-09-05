@@ -21,7 +21,7 @@ TEST_TOOLS_IMAGE := env_var_or_default('TEST_TOOLS_IMAGE', 'ghcr.io/ycpss91255-d
 # recipe below. Override with COVERAGE_IMAGE=... if you want to pin a tag.
 COVERAGE_IMAGE := env_var_or_default('COVERAGE_IMAGE', 'kcov/kcov:latest')
 
-SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh script/fetch-bats.sh script/coverage-gate.sh'
+SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh script/fetch-bats.sh script/coverage-gate.sh script/lint-changelog.sh script/lint-readme-sync.sh script/lint-doc-citations.sh'
 
 # Self-built runner-image Dockerfiles (#120/#121), hadolint-checked. The
 # test-tools image ships hadolint, so this needs no extra dependency.
@@ -53,8 +53,10 @@ pull:
     docker pull {{COVERAGE_IMAGE}}
     bash script/fetch-bats.sh
 
-# ShellCheck + hadolint in the test-tools container, after `lint-adr` (below).
-lint: lint-adr
+# ShellCheck + hadolint in the test-tools container, after the repo lints
+# (below). The repo lints run first because they are pure bash + grep and cost
+# nothing, so a structural failure is reported before a container is started.
+lint: lint-adr lint-changelog lint-readme-sync lint-doc-citations
     {{_docker_run}} shellcheck -x {{SCRIPTS}}
     {{_docker_run}} hadolint {{DOCKERFILES}}
 
@@ -115,19 +117,44 @@ coverage-go:
       > listener/coverage.func
     bash script/coverage-gate.sh go listener/coverage.func
 
+# --- repo structure lints -------------------------------------------------
+# All four are pure bash + grep, so unlike shellcheck / hadolint / bats they
+# need no test-tools container: they run on the host and are the cheapest jobs
+# in the gate. Each also has its own CI job in the ci-rollup needs list, so a
+# structural failure blocks a merge on its own name rather than hiding inside
+# another job's log.
+
 # ADR structure lint (doc/adr/), per PRD.md §0.5: the `> Serves:` back-pointer,
 # the four required sections, the permitted Status values, the filename /
-# numbering rules, and that a `Superseded by` target exists. Pure bash + grep,
-# so unlike shellcheck / hadolint / bats it needs no test-tools container: it
-# runs on the host and is the cheapest job in the gate. Defined here rather than
-# next to `lint` so the `justfile:NN` citations in PRD.md §0.4 keep pointing at
-# the shellcheck / hadolint / bats lines they name.
+# numbering rules, and that a `Superseded by` target exists.
 lint-adr:
     bash script/lint-adr.sh
 
-# ShellCheck on host (requires shellcheck installed locally), plus the ADR
-# structure lint, so the host path covers the same lints as the container one.
-lint-host: lint-adr
+# The ref a branch is judged against. Override when the branch was taken from
+# something other than main.
+BASE := env_var_or_default('BASE', 'origin/main')
+
+# A change an operator can observe must carry a CHANGELOG entry (PRD.md §0.7).
+# Judged against the merge base with BASE, so it asks what this branch changed
+# rather than what main gained meanwhile.
+lint-changelog:
+    bash script/lint-changelog.sh --base {{BASE}}
+
+# README.md and the three translations must not drift apart structurally: a
+# section that exists in one language and not the others leaves the other
+# readers told less.
+lint-readme-sync:
+    bash script/lint-readme-sync.sh
+
+# No `file:line` citations and no hardcoded counts in the project's own
+# documentation -- both are copies of what the tree already states, and both go
+# stale with no signal (invariant 3).
+lint-doc-citations:
+    bash script/lint-doc-citations.sh
+
+# ShellCheck on host (requires shellcheck installed locally), plus the same
+# repo lints, so the host path covers exactly what the container one does.
+lint-host: lint-adr lint-changelog lint-readme-sync lint-doc-citations
     shellcheck -x {{SCRIPTS}}
 
 # The layered bats suite on host (requires bats installed locally).

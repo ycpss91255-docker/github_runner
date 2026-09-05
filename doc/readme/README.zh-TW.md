@@ -141,7 +141,8 @@ self-test 入口是 root `justfile`，對齊 base repo 慣例（base 已把 self
 
 ```bash
 just pull       # 拉 test-tools + kcov image 並快取 bats（首次）
-just lint       # shellcheck（在 docker 內）
+just lint       # shellcheck + hadolint + repo 結構 lint
+                # （ADR 格式、changelog 條目、4 語言 README、文件引用）
 just test       # 整套 bats：unit + integration（在 docker 內）
 just test-unit  # 單一函式／單一檔案
 just test-integration  # 多個 script 或 library 一起

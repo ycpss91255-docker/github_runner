@@ -153,7 +153,8 @@ The self-test entry is a root `justfile`, matching the base repo convention
 
 ```bash
 just pull       # pull test-tools + kcov images and cache bats (once)
-just lint       # shellcheck on all scripts (in docker)
+just lint       # shellcheck + hadolint + the repo structure lints
+                # (ADR format, changelog entry, 4-language README, doc citations)
 just test       # the whole bats suite: unit + integration (in docker)
 just test-unit  # one function / one file in isolation
 just test-integration  # several scripts or libraries together

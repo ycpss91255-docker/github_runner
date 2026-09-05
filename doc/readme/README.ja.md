@@ -149,7 +149,8 @@ self-test のエントリは root `justfile` です。base リポジトリの慣
 
 ```bash
 just pull       # test-tools + kcov イメージを pull し bats をキャッシュ（初回）
-just lint       # shellcheck（docker 内）
+just lint       # shellcheck + hadolint + リポジトリ構造 lint
+                # (ADR 形式 / changelog / 4 言語 README / ドキュメント引用)
 just test       # bats スイート全体: unit + integration（docker 内）
 just test-unit  # 単一の関数 / 単一のファイル
 just test-integration  # 複数の script や library をまとめて

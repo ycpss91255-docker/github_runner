@@ -153,6 +153,25 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Three rules that were enforced only by local hooks are now merge gates.**
+  A hook runs on one machine: a push from anywhere else was never checked, so
+  each of these rules was in practice half enforced -- and a rule whose failure
+  produces no signal has the same effect as no rule at all. Each is now a lint
+  script with an executable spec, on the `lint` path and in the `ci-rollup`
+  `needs:` list, the same way the ADR structure lint is:
+  - `just lint-changelog` (CI `changelog-lint`) fails a branch that changes
+    something an operator can observe without adding a `doc/changelog/
+    CHANGELOG.md` entry. Documentation, tests and repo metadata never warrant
+    one. It judges the branch against its merge base with `BASE` (default
+    `origin/main`), and fails closed when that ref cannot be resolved.
+  - `just lint-readme-sync` (CI `readme-sync-lint`) fails when `README.md` and
+    the three translations drift apart structurally -- a section added to,
+    removed from, or demoted in one language, or a code example present in one
+    only. Heading text is not compared, because it is translated.
+  - `just lint-doc-citations` (CI `doc-citation-lint`) fails a `file.ext:NN`
+    citation or a hardcoded count of something the tree enumerates, in the
+    project's own markdown. Fenced code blocks and URLs are not checked, and a
+    genuine exception carries an inline `<!-- doc-lint-allow -->` marker.
 - **The bash test suite is layered by level.** Every `.bats` file used to sit
   flat in `test/smoke/`, but the contents had long since outgrown the name:
   some cases source one library and call one function, others assemble a whole
