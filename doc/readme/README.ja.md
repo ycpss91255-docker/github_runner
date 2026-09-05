@@ -153,6 +153,8 @@ just lint       # shellcheck（docker 内）
 just test       # bats smoke tests（docker 内）
 just check      # lint + test（coverage を含まない）
 just coverage   # bats + kcov カバレッジ → ./coverage/
+just coverage-gate  # カバレッジ + bash line coverage の下限を検査
+just coverage-go    # listener カバレッジ + Go の下限を検査
 just            # recipe 一覧
 ```
 
@@ -163,10 +165,13 @@ just lint-host
 just test-host
 ```
 
-CI は push / PR ごとに `lint` + `test` を実行し、**main への push 時のみ
-`coverage` を実行** します（kcov はプレーンな bats より 2-5 倍遅いため、
-リリース品質のシグナルとして留保）。Codecov アップロードは
-`CODECOV_TOKEN` の repo secret 経由です。
+CI は push / PR ごとに `lint` + `test` + `coverage-gate` を実行し、Go job で
+`coverage-go` を実行します。**カバレッジは metric ではなく merge gate です**:
+2 つの下限は `script/coverage-gate.sh` に固定され、下限を下回るレポートは
+ビルドを失敗させます。`listener/cmd/` は Go の下限から除外します（wiring 層
+であり、integration / system 層で担保するため。`doc/PRD.md` 参照）。kcov は
+プレーンな bats より 2-5 倍遅く、それが gate の代価です。Codecov
+アップロードは `CODECOV_TOKEN` の repo secret 経由です。
 
 ## セキュリティモデル
 

@@ -75,6 +75,24 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Coverage floors are enforced, and coverage now blocks a merge**
+  (`script/coverage-gate.sh`, `just coverage-gate` / `just coverage-go`):
+  coverage used to be a metric that could not fail anything -- the CI job
+  carried `continue-on-error: true`, ran only on pushes to `main`, and was
+  deliberately left out of the `ci-rollup` `needs:` list, on the stated grounds
+  that the measurement was not reproducible. It is reproducible now, so it holds
+  a line. Two floors, each pinned on one line in the gate script: bash line
+  coverage from the kcov cobertura report, and the Go total from `go tool cover
+  -func` for the `listener` package. `listener/cmd/scaleset-listener` is
+  excluded from the Go measurement -- it reads environment variables and wires
+  the pieces together, and is covered at the integration and system level, per
+  the layered coverage strategy in `doc/PRD.md` §0.4. The gate fails closed: a
+  missing or unparseable report exits non-zero rather than passing on nothing.
+  The `coverage` CI job now runs on every push and PR and has joined the
+  `ci-rollup` `needs:` list, which means PRs pay for kcov instrumentation; that
+  is what a gate costs. The Codecov upload is unchanged and still runs even when
+  a floor is missed.
+
 - **ADR structure lint** (`script/lint-adr.sh`, `just lint-adr`): the structural
   lint `doc/PRD.md` §0.5 requires. Every record in `doc/adr/` is machine-checked
   instead of relying on review discipline: the `NNNN-kebab-case-title.md`

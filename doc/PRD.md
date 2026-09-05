@@ -644,7 +644,9 @@ Every item below is actually executed by the `justfile` or by
 | README self-containment | The four-language READMEs | Negative `grep` | `test/smoke/readme_no_adr_refs.bats` | See invariant 7 |
 | Hardening flags do not regress | Container argv | Negative assertions | `test/smoke/runner_container.bats`, `test/smoke/runner_build.bats` | See invariant 2 |
 | Destructive policy does not regress | Confirmation gate behaviour | Behavioural assertions | `test/smoke/destructive.bats` | See N-5 |
-| Merge gate | The four jobs above: shellcheck / adr-lint / bats / go | `ci-rollup` | The `ci-rollup` job in `ci.yaml` | Branch protection only needs to track **one** stable check name, leaving sub-jobs free to be renamed or split |
+| Bash line-coverage floor | The kcov cobertura report `just coverage` writes | `script/coverage-gate.sh bash` | The `coverage-gate` recipe in the `justfile`; the CI `coverage` job | See "Coverage floors" below |
+| Go coverage floor | The `listener` package, with `listener/cmd/` excluded | `script/coverage-gate.sh go`, over `go tool cover -func` | The `coverage-go` recipe in the `justfile`; the CI `go` job | See "Coverage floors" below and the layered strategy above |
+| Merge gate | The five jobs above: shellcheck / adr-lint / bats / go / coverage | `ci-rollup` | The `ci-rollup` job in `ci.yaml` | Branch protection only needs to track **one** stable check name, leaving sub-jobs free to be renamed or split |
 
 ### Layered coverage strategy (an important division of labour)
 
@@ -672,30 +674,52 @@ signal. This project's layering is explicit:
   argv interface of `script/*.sh` and the environment-variable interface of the
   listener. Covered by end-to-end script-level bats tests.
 
-### Coverage as a metric, not a gate
+The floors below apply this division of labour: what they measure is the layer
+that owes line coverage, and what they exclude is excluded because another layer
+of the strategy already covers it.
 
-`just coverage` produces bash coverage with kcov and uploads it to Codecov. It
-is **not a merge gate**, and deliberately so:
+### Coverage floors
 
-- The CI `coverage` job sets `continue-on-error: true` and its `if:` restricts
-  it to pushes to `main`.
-- The `needs` of `ci-rollup` contains only the gate jobs and **deliberately
-  excludes `coverage`**, as the comment above that job's `needs:` says.
-- The technical reason is written in the comment above the `coverage` job in
-  `ci.yaml`: coverage runs in a Debian-based kcov image, different from the
-  alpine image used by the bats job, and a small group of source-the-script
-  tests is known to misbehave under kcov's ptrace (they pass under `just test`
-  and when run individually). Using a signal with known environmental noise as a
-  gate manufactures false red, and false red trains people to ignore red.
+Coverage is a **merge gate**. There are two floors, both enforced by
+`script/coverage-gate.sh`, which owns the numbers — one line each, so raising a
+floor is a deliberate edit in one file:
+
+- **Bash**, over the line rate of the kcov cobertura report `just coverage`
+  writes. Enforced by the `coverage-gate` recipe and by the CI `coverage` job,
+  which is in the `needs:` list of `ci-rollup`.
+- **The Go core**, over the total from `go tool cover -func` for the `listener`
+  package. Enforced by the `coverage-go` recipe and by the CI `go` job.
+  `listener/cmd/scaleset-listener` is **excluded from the measurement**: it reads
+  environment variables and wires the pieces together, making no decisions of its
+  own, and it is exercised by the integration and system layers instead. This is
+  the layered strategy above applied literally — a wiring layer held to a line
+  floor produces "call it once, assert it was called" tests, which would raise
+  the number and lower the signal.
+
+Two properties make these gates rather than decoration:
+
+- **They fail closed.** A missing or unparseable report exits non-zero instead of
+  passing on nothing, so switching the measurement off cannot look like success
+  (invariant 1). `test/smoke/coverage_gate.bats` asserts each rule from both
+  sides — below the floor fails, at the floor passes — over fixture reports.
+- **The measurement is reproducible.** `just coverage` runs a pinned,
+  sha256-verified bats (`script/fetch-bats.sh`) inside a container started with
+  no network, so the same command yields the same number on a maintainer's
+  machine and in CI. That is the precondition for enforcing anything: a check
+  that cannot be reproduced locally manufactures red that people learn to ignore.
+
+Codecov still receives the bash report; the floor is enforced in the repo rather
+than delegated to it.
 
 ### Recorded facts about the current check surface
 
 - `just check` = `just lint` + `just test`, which covers the bash side and the
-  ADR records, but **not Go**. Go's `go vet` and `go test -race` exist only in
-  the CI `go` job; the only Go-related recipe in the `justfile` is
-  `build-listener`, which only runs `go build` in a container. A local
-  `just check` passing therefore does not mean the CI `go` job will pass.
-- Coverage currently measures bash only (kcov); Go coverage is not measured.
+  ADR records, but **not Go**, and not the coverage floors. Go's `go vet` and
+  `go test -race` exist only in the CI `go` job; the Go-related recipes in the
+  `justfile` are `build-listener` and `coverage-go`. A local `just check` passing
+  therefore does not mean the CI `go` or `coverage` jobs will pass.
+- Coverage is measured for both languages: bash with kcov, the Go core with
+  `go test -coverprofile`.
 - The repo contains no `.shellcheckrc`, no `.golangci.yml` and no `codecov.yml`
   — every check runs on its tool's default configuration.
 

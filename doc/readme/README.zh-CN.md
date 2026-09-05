@@ -145,6 +145,8 @@ just lint       # shellcheck（在 docker 内）
 just test       # bats smoke tests（在 docker 内）
 just check      # lint + test（不含 coverage）
 just coverage   # bats + kcov 覆盖率 → ./coverage/
+just coverage-gate  # 覆盖率 + 检查 bash line coverage 下限
+just coverage-go    # listener 覆盖率 + 检查 Go 下限
 just            # 列 recipes
 ```
 
@@ -155,8 +157,11 @@ just lint-host
 just test-host
 ```
 
-CI 每次 push / PR 跑 `lint` + `test`，**push 到 main 才跑 `coverage`**
-（kcov 比纯 bats 慢 2-5×，留给 release-quality signal 用），Codecov
+CI 每次 push / PR 跑 `lint` + `test` + `coverage-gate`，Go job 另外跑
+`coverage-go`。**覆盖率是 merge gate，不只是 metric**：两个下限都钉在
+`script/coverage-gate.sh`，报告低于下限就让 build 失败；`listener/cmd/` 不
+计入 Go 下限（那层是 wiring，改由 integration / system 层覆盖，见
+`doc/PRD.md`）。kcov 比纯 bats 慢 2-5×，这就是 gate 的代价。Codecov
 上传走 `CODECOV_TOKEN` repo secret。
 
 ## 安全性说明
