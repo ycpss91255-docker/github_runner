@@ -91,6 +91,12 @@ write_files() {
   # The --files-from cases above pin the classification; this one pins that the
   # default path actually derives the same list from git, so the two cannot
   # drift apart.
+  #
+  # The coverage image ships no git, and this is the one case here that needs
+  # a repository. Skipping is honest -- the case still runs in `just test`,
+  # which is where the suite is judged -- whereas failing would make coverage
+  # red for a reason that has nothing to do with the code.
+  command -v git >/dev/null || skip "no git in this image"
   local repo="${BATS_TEST_TMPDIR}/repo"
   mkdir -p "${repo}/script" "${repo}/doc/changelog"
   git -C "${repo}" init -q -b main

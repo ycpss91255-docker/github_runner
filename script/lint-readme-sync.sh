@@ -65,6 +65,12 @@ EOF
 #   fence   a fenced code block
 # Emitted in document order, so a diff of two signatures points at the first
 # place the documents stop having the same shape.
+#
+# The heading test is spelled out rather than written as /^#{1,6}[[:space:]]/
+# because the coverage run uses a different awk, and an interval expression
+# there matches nothing at all -- which would make every signature empty, every
+# file "aligned", and the gate silently useless in exactly the run that is
+# supposed to be the strictest.
 signature() {
   awk '
     /^[[:space:]]*(```|~~~)/ {
@@ -72,9 +78,9 @@ signature() {
       next
     }
     in_fence { next }
-    /^#{1,6}[[:space:]]/ {
+    /^#/ {
       match($0, /^#+/)
-      print "h" RLENGTH
+      if (RLENGTH <= 6 && substr($0, RLENGTH + 1, 1) ~ /[ \t]/) print "h" RLENGTH
     }
   ' "$1"
 }
