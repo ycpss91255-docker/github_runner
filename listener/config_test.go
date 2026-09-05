@@ -19,8 +19,8 @@ func writeConfig(t *testing.T, body string) string {
 }
 
 // A valid config with every documented field loads into a typed []RunnerType,
-// preserving labels, image, devices, runtime, build tool, hardening profile and
-// the scale set, and defaulting concurrency to auto when unset.
+// preserving labels, image, devices, runtime, build tool and the scale set, and
+// defaulting concurrency to auto when unset.
 func TestLoadConfigValid(t *testing.T) {
 	path := writeConfig(t, `
 runner_types:
@@ -31,7 +31,6 @@ runner_types:
     devices: [/dev/nvidia0, /dev/nvidiactl]
     runtime: nvidia
     build_tool: kaniko
-    hardening_profile: device
     concurrency:
       mode: auto
 `)
@@ -63,9 +62,6 @@ runner_types:
 	}
 	if rt.BuildTool != "kaniko" {
 		t.Errorf("BuildTool = %q", rt.BuildTool)
-	}
-	if rt.HardeningProfile != "device" {
-		t.Errorf("HardeningProfile = %q", rt.HardeningProfile)
 	}
 	if !rt.Concurrency.DeviceSized() {
 		t.Errorf("mode: auto should be device-sized")
@@ -217,6 +213,20 @@ func TestLoadConfigErrors(t *testing.T) {
 			name: "unknown field is rejected",
 			body: "runner_types:\n  - name: cpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      reserv: 99\n",
 			want: "reserv",
+		},
+		{
+			// hardening_profile is GONE from the schema. It was pure metadata:
+			// threaded all the way to RUNNER_HARDENING_PROFILE and then never
+			// read by anything, with exactly one hardening baseline in the
+			// container seam, so "device" and "default" differed in nothing. A
+			// knob that promises a posture and changes nothing is the silent
+			// failure this project forbids, so the config must now REJECT it
+			// (strict decoding) and point the operator at a real schema, rather
+			// than keep accepting a field with no behaviour behind it.
+			// Differentiated hardening would come back through an ADR.
+			name: "removed hardening_profile is rejected",
+			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    hardening_profile: device\n",
+			want: "hardening_profile",
 		},
 		{
 			name: "malformed yaml",

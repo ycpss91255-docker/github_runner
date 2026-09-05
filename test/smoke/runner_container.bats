@@ -379,3 +379,28 @@ teardown() { rm -rf "${FAKE_RH}" "${STUB}"; }
   grep -qxF -- '/dev/dri/card0' "${CAP}"
   [ "$(grep -cxF -- '--device' "${CAP}")" -eq 2 ]
 }
+
+# --- the per-type `runtime:` knob must reach the container run as --runtime ---
+# A runner type names a container runtime shim (e.g. nvidia for the GPU stack);
+# declaring it and having nothing happen is exactly the silent-failure the
+# project forbids, so the value has to land on the engine argv.
+
+@test "runner_container_run passes NO --runtime by default" {
+  make_cli docker
+  run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # No runtime declared: the engine default stays in force, no flag added.
+  ! grep -qxF -- '--runtime' "${CAP}"
+}
+
+@test "runner_container_run passes the configured runtime as --runtime" {
+  make_cli docker
+  RUNNER_RUNTIME=nvidia \
+    run runner_container_run "${RUNNER_DIR}" ENC my/image:tag
+  [ "${status}" -eq 0 ]
+  # --runtime and its value land as adjacent argv tokens, exactly once.
+  grep -qxF -- '--runtime' "${CAP}"
+  grep -qxF -- 'nvidia' "${CAP}"
+  [ "$(grep -cxF -- '--runtime' "${CAP}")" -eq 1 ]
+  grep -A1 -xF -- '--runtime' "${CAP}" | grep -qxF -- 'nvidia'
+}

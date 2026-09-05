@@ -125,14 +125,13 @@ func TestContainerProvisionerJITFileIs0600AndRemovedAtTeardown(t *testing.T) {
 	}
 }
 
-// The widened shell-out contract (#117): the per-type precise device list and
-// hardening profile cross the boundary as EXPLICIT environment, not argv (so
-// they are not in the process table), where the bash provisioner reads them
-// (RUNNER_DEVICES -> --device, RUNNER_HARDENING_PROFILE -> posture). A stub
-// script dumps the relevant env to a file for the assertion.
-func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
+// The widened shell-out contract (#117): the per-type precise device list
+// crosses the boundary as EXPLICIT environment, not argv (so it is not in the
+// process table), where the bash provisioner reads it (RUNNER_DEVICES ->
+// --device). A stub script dumps the relevant env to a file for the assertion.
+func TestContainerProvisionerPassesDevicesAsEnv(t *testing.T) {
 	capFile := filepath.Join(t.TempDir(), "env")
-	script := writeScript(t, "#!/usr/bin/env bash\n{ echo \"DEV=$RUNNER_DEVICES\"; echo \"HP=$RUNNER_HARDENING_PROFILE\"; } > '"+capFile+"'\n")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"DEV=$RUNNER_DEVICES\" > '"+capFile+"'\n")
 
 	p := &ContainerProvisioner{Script: script}
 	err := p.Provision(context.Background(), ProvisionRequest{
@@ -140,7 +139,6 @@ func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
 		EncodedJITConfig: "ENC",
 		Image:            "img",
 		Devices:          []string{"/dev/nvidia0", "/dev/nvidiactl"},
-		HardeningProfile: "device",
 	})
 	if err != nil {
 		t.Fatalf("Provision returned error: %v", err)
@@ -155,8 +153,47 @@ func TestContainerProvisionerPassesDevicesAndHardeningAsEnv(t *testing.T) {
 	if !strings.Contains(out, "DEV=/dev/nvidia0") || !strings.Contains(out, "/dev/nvidiactl") {
 		t.Errorf("RUNNER_DEVICES not passed through: %q", out)
 	}
-	if !strings.Contains(out, "HP=device") {
-		t.Errorf("RUNNER_HARDENING_PROFILE not passed through: %q", out)
+}
+
+// The runner type's `runtime:` knob names a container runtime shim (e.g. nvidia
+// for the GPU stack). It crosses the boundary as EXPLICIT environment like the
+// rest of the widened shell-out contract, where the bash provisioner turns it
+// into a `--runtime <value>` argument on the container run.
+func TestContainerProvisionerPassesRuntimeAsEnv(t *testing.T) {
+	capFile := filepath.Join(t.TempDir(), "env")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"RT=[$RUNNER_RUNTIME]\" > '"+capFile+"'\n")
+
+	p := &ContainerProvisioner{Script: script}
+	err := p.Provision(context.Background(), ProvisionRequest{
+		JobID:            "job-rt",
+		EncodedJITConfig: "ENC",
+		Image:            "img",
+		Runtime:          "nvidia",
+	})
+	if err != nil {
+		t.Fatalf("Provision returned error: %v", err)
+	}
+	got, rerr := os.ReadFile(capFile)
+	if rerr != nil {
+		t.Fatalf("read capture: %v", rerr)
+	}
+	if strings.TrimSpace(string(got)) != "RT=[nvidia]" {
+		t.Errorf("RUNNER_RUNTIME not passed through: %q", string(got))
+	}
+}
+
+// A type that declares no runtime exports an EMPTY RUNNER_RUNTIME, so the bash
+// provisioner adds no --runtime and the engine default stays in force.
+func TestContainerProvisionerEmptyRuntimeByDefault(t *testing.T) {
+	capFile := filepath.Join(t.TempDir(), "env")
+	script := writeScript(t, "#!/usr/bin/env bash\necho \"RT=[$RUNNER_RUNTIME]\" > '"+capFile+"'\n")
+	p := &ContainerProvisioner{Script: script}
+	if err := p.Provision(context.Background(), ProvisionRequest{JobID: "j", Image: "img", EncodedJITConfig: "ENC"}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	got, _ := os.ReadFile(capFile)
+	if strings.TrimSpace(string(got)) != "RT=[]" {
+		t.Errorf("expected empty RUNNER_RUNTIME, got %q", string(got))
 	}
 }
 

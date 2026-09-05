@@ -15,7 +15,7 @@ import (
 // homogeneous class of ephemeral runner and maps to exactly one GitHub scale
 // set. Go is the single parser of record (ADR-0003): it reads the whole entry,
 // then passes only the per-job fields a provision needs (image, devices,
-// hardening profile, runtime, build tool) across the shell-out boundary to the
+// runtime, build tool) across the shell-out boundary to the
 // bash provisioner -- bash never parses this config.
 type RunnerType struct {
 	// Name is the operator-facing identifier for this type, unique across the
@@ -42,9 +42,6 @@ type RunnerType struct {
 	// BuildTool is the daemonless image builder this type offers jobs (e.g.
 	// "kaniko", "buildkit"). Empty = none.
 	BuildTool string `yaml:"build_tool"`
-	// HardeningProfile selects the container hardening posture (e.g. "device"
-	// for rootful device runners, "default"). Empty = the provisioner default.
-	HardeningProfile string `yaml:"hardening_profile"`
 	// Concurrency is the worker-pool sizing for this type. Auto by default
 	// (sized from host capacity, e.g. GPU count -- #113).
 	Concurrency Concurrency `yaml:"concurrency"`

@@ -55,6 +55,17 @@
 # pass the type's device list verbatim. Empty (a plain CPU type) = no --device.
 : "${RUNNER_DEVICES:=}"
 
+# Container runtime / hardware shim (the runner type's `runtime:` knob, passed
+# as the listener's shell-out parameter). Names an engine runtime such as
+# "nvidia" (the GPU shim that injects the driver/CUDA stack), or a stronger
+# sandbox like "gvisor"/"kata" later. A non-empty value becomes exactly one
+# `--runtime <value>` on the container run; EMPTY adds no flag, leaving the
+# engine default in force. The value is free text on purpose -- it names a shim
+# registered with the local engine, which we cannot enumerate from here -- so a
+# wrong value makes the engine refuse the run LOUDLY rather than silently
+# dropping a runtime the operator asked for.
+: "${RUNNER_RUNTIME:=}"
+
 # runner_work_root -- the SINGLE source of truth for the per-job work root, the
 # dir provision-job.sh creates each job's runner dir under (mktemp -d
 # "<root>/jit-<id>.XXXXXX") and reap.sh prunes leaked dirs from. BOTH halves MUST
@@ -190,6 +201,14 @@ runner_container_run() {
   for dev in ${RUNNER_DEVICES}; do
     device_args+=(--device "${dev}")
   done
+  # Container runtime shim: the runner type's `runtime:` knob becomes exactly one
+  # `--runtime <value>` pair. Quoted (not word-split) so the value crosses as a
+  # single argv token, and only added when non-empty so a type that declares no
+  # runtime keeps the engine default rather than being handed an empty flag.
+  local -a runtime_args=()
+  if [[ -n "${RUNNER_RUNTIME}" ]]; then
+    runtime_args=(--runtime "${RUNNER_RUNTIME}")
+  fi
   # Deliver the single-use JIT credential to the container OFF the host argv
   # (#136, restores the ADR-0003 invariant). Splicing `--jitconfig "${encoded}"`
   # directly onto the host `<cli> run ...` argv put the credential in the HOST
@@ -270,6 +289,7 @@ runner_container_run() {
     "${hardening_args[@]}" \
     "${socket_args[@]}" \
     "${device_args[@]}" \
+    "${runtime_args[@]}" \
     "${id_args[@]}" \
     --env-file "${env_file}" \
     -v "${dir}:/runner:Z" -w /runner \

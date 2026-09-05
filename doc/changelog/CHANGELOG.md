@@ -20,6 +20,29 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `-y` / `--yes` (skip the prompt; required for non-TTY runs). `uninstall.sh`
   forwards `--yes` to the child, so the aggregate teardown is unchanged.
 
+- **A runner type's `runtime:` is now actually applied**: the value was parsed
+  into the typed config and then dropped -- never carried into the listener
+  config or the per-job provision request, never exported across the shell-out
+  boundary, and never turned into a flag -- so the shipped sample's
+  `runtime: nvidia` on the GPU type promised a runtime shim that was never
+  applied. It now travels `RunnerType.Runtime` -> `RUNNER_RUNTIME` ->
+  `--runtime <value>` on the per-job container run; an empty value adds no flag
+  and leaves the engine default in force. The value is free text (it names a
+  shim registered with the local engine), so a wrong one makes the engine refuse
+  the run loudly instead of being silently ignored.
+
+- **`hardening_profile` is removed from the runner-type config**
+  (**breaking**): it was pure metadata. The field was parsed, carried into the
+  listener config and the provision request and exported as
+  `RUNNER_HARDENING_PROFILE`, but nothing on the bash side ever read it, and the
+  container seam applies exactly ONE hardening baseline to every job container --
+  so `device` and `default` differed in nothing at all. A knob that promises a
+  security posture and changes nothing is a silent failure, so the promise is
+  withdrawn rather than faked. A config that still sets `hardening_profile` now
+  fails the load naming the field (strict decoding) instead of being quietly
+  accepted; remove the line. Differentiated hardening, if wanted, would be
+  reintroduced through an ADR that first defines what the profiles differ in.
+
 - **An unknown key in the runner-type config is now rejected, not silently
   ignored**: the authoritative parser (ADR-0003) decodes with YAML strict field
   checking, so a typo'd knob (`reserv:` for `reserve:`) or a field dropped by a
@@ -86,7 +109,7 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   host needs no Go) provisions one fresh single-use container per job, minting
   the JIT config via the client's `GenerateJitRunnerConfig`. Per-runner-type YAML
   config (one scale set per type: labels, image, devices, runtime, build tool,
-  hardening profile, auto-sized concurrency), starting with GPU. Bounded worker
+  auto-sized concurrency), starting with GPU. Bounded worker
   pool auto-sized from host device count; container + temp-dir reaper; a systemd
   unit supervises the listener as a non-privileged user. (#84-#90, #92, #94)
 - **Job history / audit trail** (ADR-0002): every job's metadata is recorded to

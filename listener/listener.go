@@ -84,9 +84,10 @@ type ProvisionRequest struct {
 	// Devices are the host device nodes this runner type declares for precise
 	// --device passthrough (no --privileged -- #117). Empty for a plain CPU type.
 	Devices []string
-	// HardeningProfile is the container hardening posture this runner type
-	// selected (e.g. "device", "default"). Empty = the provisioner default.
-	HardeningProfile string
+	// Runtime is the container runtime / hardware shim this runner type declares
+	// (e.g. "nvidia" for the GPU stack). Non-empty becomes exactly one
+	// --runtime <value> on the container run; empty leaves the engine default.
+	Runtime string
 	// BuildTool is the daemonless image builder this runner type offers jobs
 	// ("kaniko"/"buildkit"), or empty for none -- routes build jobs to the
 	// daemonless build seam (#119).
@@ -174,9 +175,10 @@ type Config struct {
 	// passthrough (#117); empty for a plain CPU type. Carried into every
 	// ProvisionRequest so the bash provisioner passes exactly these as --device.
 	Devices []string
-	// HardeningProfile is this type's container hardening posture (#114/#115),
-	// carried into every ProvisionRequest. Empty = the provisioner default.
-	HardeningProfile string
+	// Runtime is this type's container runtime / hardware shim (e.g. "nvidia"),
+	// carried into every ProvisionRequest so the bash provisioner adds exactly
+	// one --runtime <value>. Empty = the engine default, no flag.
+	Runtime string
 	// BuildTool is this type's daemonless image builder ("kaniko"/"buildkit"),
 	// carried into every ProvisionRequest to route build jobs to the daemonless
 	// seam (#119). Empty = none.
@@ -405,7 +407,7 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 			EncodedJITConfig: jit,
 			Image:            l.cfg.Image,
 			Devices:          l.cfg.Devices,
-			HardeningProfile: l.cfg.HardeningProfile,
+			Runtime:          l.cfg.Runtime,
 			BuildTool:        l.cfg.BuildTool,
 		})
 	}
