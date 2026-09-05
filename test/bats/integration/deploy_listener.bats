@@ -39,6 +39,9 @@ YAML
   export STUB_USER_EXISTS="${STUB_USER_EXISTS:-0}"
   export STUB_UNIT_ACTIVE="${STUB_UNIT_ACTIVE:-0}"
   export STUB_UNIT_ENABLED="${STUB_UNIT_ENABLED:-0}"
+  # The stubbed journal is deterministic, so the verification retry loop has
+  # nothing to wait for.
+  export LISTENER_VERIFY_TRIES=2 LISTENER_VERIFY_INTERVAL=0
 
   _mkstub() {
     local name=$1 body=$2
@@ -51,10 +54,18 @@ YAML
 
   _mkstub id 'if [ "${STUB_USER_EXISTS}" = 1 ]; then echo 999; exit 0; fi; exit 1'
   _mkstub useradd 'exit 0'
+  # A started unit becomes active, the way a real one does -- otherwise the
+  # verification step could never pass and the test would be asserting against
+  # a systemd that behaves like nothing else.
   _mkstub systemctl '
 case "$1" in
-  is-active)  [ "${STUB_UNIT_ACTIVE}" = 1 ] && { echo active; exit 0; }; echo inactive; exit 3 ;;
+  is-active)
+    { [ "${STUB_UNIT_ACTIVE}" = 1 ] || [ -e "${STUB_STATE}/started" ]; } \
+      && { echo active; exit 0; }
+    echo inactive; exit 3 ;;
   is-enabled) [ "${STUB_UNIT_ENABLED}" = 1 ] && { echo enabled; exit 0; }; echo disabled; exit 1 ;;
+  start|restart) : > "${STUB_STATE}/started"; exit 0 ;;
+  stop) rm -f "${STUB_STATE}/started"; exit 0 ;;
   *) exit 0 ;;
 esac'
   # A journal that shows a listener which came up and is reporting capacity --
@@ -78,6 +89,10 @@ for a in "$@"; do
 done
 exit 0'
   export STUB_PREFIX="${PREFIX}"
+  export STUB_STATE="${WORK}/state"
+  mkdir -p "${STUB_STATE}"
+  # Keep the unit out of the host's real systemd directory.
+  export LISTENER_UNIT_DIR="${WORK}/systemd"
 
   # scaleset-admin: answers `show` from the fixture and records a `create`.
   export SCALESET_ADMIN_BIN="${STUB}/scaleset-admin-cmd"
@@ -133,7 +148,7 @@ _deploy() {
   grep -qxF 'create' "${CAP}"
   # The local half built/installed, made the user, and enabled + started.
   grep -qxF 'install-listener' "${CAP}"
-  grep -qxF 'useradd' "${CAP}"
+  grep -qxF 'name=useradd' "${CAP}"
   grep -qxF 'enable' "${CAP}"
 }
 
@@ -171,7 +186,7 @@ _deploy() {
   run _deploy
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"capacity"* ]]
-  grep -qxF 'journalctl' "${CAP}"
+  grep -qxF 'name=journalctl' "${CAP}"
 }
 
 @test "a listener that is active but never connected fails the run" {
@@ -196,7 +211,7 @@ EOF
   run _deploy
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"already exists"* ]]
-  ! grep -qxF 'useradd' "${CAP}"
+  ! grep -qxF 'name=useradd' "${CAP}"
 }
 
 @test "a second run skips the environment file that is already in place" {
@@ -231,7 +246,7 @@ EOF
   : > "${CAP}"
   run _deploy
   [ "${status}" -eq 0 ]
-  ! grep -qxF 'useradd' "${CAP}"
+  ! grep -qxF 'name=useradd' "${CAP}"
   [[ "${output}" == *"already exists"* ]]
 }
 
@@ -277,7 +292,7 @@ EOF
     --org-url https://github.com/acme --prefix '${PREFIX}' --etc '${ETC}'" </dev/null
   [ "${status}" -eq 1 ]
   ! grep -qxF 'create' "${CAP}"
-  ! grep -qxF 'useradd' "${CAP}"
+  ! grep -qxF 'name=useradd' "${CAP}"
   ! grep -qxF 'install-listener' "${CAP}"
   [ ! -f "${ETC}/scaleset-listener.env" ]
 }
@@ -287,7 +302,7 @@ EOF
     --org-url https://github.com/acme --prefix '${PREFIX}' --etc '${ETC}'" </dev/null
   [ "${status}" -eq 0 ]
   ! grep -qxF 'create' "${CAP}"
-  ! grep -qxF 'useradd' "${CAP}"
+  ! grep -qxF 'name=useradd' "${CAP}"
   ! grep -qxF 'install-listener' "${CAP}"
   [ ! -d "${ETC}" ]
 }

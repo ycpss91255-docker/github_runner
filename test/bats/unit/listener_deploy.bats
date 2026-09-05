@@ -464,17 +464,30 @@ teardown() { rm -rf "${WORK}"; }
   [[ "${output}" != *"CONTINUED"* ]]
 }
 
-@test "listener_prompt_secret reads the token without echoing it" {
+@test "listener_prompt_secret reads the token into the CALLER's shell, not a subshell" {
+  # A here-string, not a pipe: a pipeline would run the function in a subshell
+  # and LISTENER_TOKEN would be lost the moment it returned. The caller relies
+  # on the variable surviving, so that is what is pinned here.
   run bash -c "
     source '${LIB}'
-    printf 'tok-xyz\n' | listener_prompt_secret 'Token: '
+    listener_prompt_secret 'Token: ' <<< 'tok-xyz'
     echo \"LEN=\${#LISTENER_TOKEN}\"
     echo \"VALUE-CHECK=\$([ \"\${LISTENER_TOKEN}\" = tok-xyz ] && echo ok)\"
   "
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"VALUE-CHECK=ok"* ]]
-  # The prompt may be shown; the secret must never be.
-  [[ "${output}" != *"tok-xyz"* ]] || [[ "${output}" == *"LEN=7"* ]]
+  [[ "${output}" == *"LEN=7"* ]]
+}
+
+@test "listener_prompt_secret does not echo the secret it read" {
+  run bash -c "
+    source '${LIB}'
+    listener_prompt_secret 'Token: ' <<< 'tok-xyz'
+    echo DONE
+  "
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"DONE"* ]]
+  [[ "${output}" != *"tok-xyz"* ]]
 }
 
 @test "listener_config_labels reads the labels through the same Go command" {

@@ -41,6 +41,38 @@ prints.
 > on the runner, but that subset case is unverified here -- so have the workflow
 > request exactly what `scaleset-admin` printed.
 
+## The short way: one command
+
+Every numbered section below is a step this command performs. Prefer the
+command: a runbook is a thing people mean to follow, and these steps went
+unfollowed long enough that nothing was ever deployed.
+
+```sh
+sudo ./script/deploy-listener.sh --org-url https://github.com/<org> --dry-run
+sudo ./script/deploy-listener.sh --org-url https://github.com/<org>
+```
+
+It covers both halves and says which is which: the **GitHub side** (create the
+runner type's scale set, if it is not already there -- section 3c) and the
+**local side** (build and install, service user, 0600 environment file, systemd
+unit, enable, start -- sections 1, 2, 3, 4). It then verifies the listener
+actually connected and is reporting capacity, and prints the exact `runs-on:`
+line for your first job.
+
+It is **idempotent**: every step detects what is already in place and skips it,
+so re-running after a partial run or a config change is the normal way to use
+it. On the second and later machines the scale set already exists, so nothing
+outward needs to happen -- pass `--skip-github` and it does the local half only.
+
+The admin token is **prompted for and never a flag**: `/proc/<pid>/cmdline` is
+world-readable, so a token in an argument is a token any local user on the box
+can read, and it would sit in shell history besides.
+
+To take a machine back down: `sudo ./script/teardown-listener.sh`. It reverses
+the local half only, and deliberately does not delete the scale set -- that is
+shared by every machine serving the runner type, so retiring it is a separate
+explicit act (`scaleset-admin delete`).
+
 ## 1. Build & install the binaries (#108)
 
 ```sh

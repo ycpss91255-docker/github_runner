@@ -103,6 +103,65 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`script/deploy-listener.sh`: one interactive command that stands a machine
+  up.** Deployment was a multi-step manual runbook -- build, install, create a
+  service user, write a 0600 environment file, install a systemd unit, enable
+  it, start it -- and a runbook is a thing people mean to follow. Nothing had
+  ever actually been deployed. This is one command that does all of it.
+
+  It covers **both halves and says which is which**: the GitHub side (create
+  the runner type's scale set, if it is not already there) and the local side
+  (build, install under the prefix, service user, environment file, systemd
+  unit, enable, start). The outward action is announced in full -- the scale
+  set, its routing labels, the runner group -- and confirmed before anything is
+  created. An existing scale set is reported as a skip; on the second and later
+  machines nothing outward is needed at all, and `--skip-github` says so up
+  front.
+
+  **Idempotent and re-runnable**: an existing service user, an environment file
+  already in place at 0600, an already-current unit and an already-enabled unit
+  are each detected and skipped rather than failing. An already-running unit is
+  **restarted** rather than left alone, so a re-run after a config change takes
+  effect instead of reporting success over a stale process.
+
+  **The token is prompted for and is not a flag** -- there is no `--token`, and
+  the parser has no case for one. `/proc/<pid>/cmdline` is world-readable, so a
+  token in an argument is a token any local user can read, and it would sit in
+  shell history besides. It goes straight into a root-only file that is
+  *created* at 0600 before anything is written to it, using only shell
+  redirection and the `printf` builtin, so it never becomes an argument to an
+  exec'd process and is never echoed to the terminal.
+
+  **It verifies rather than assumes.** `systemctl is-active` alone is not
+  evidence: a listener that cannot find its scale set exits, is restarted by
+  `Restart=always`, and sits there looking healthy while nothing works. The run
+  requires journal evidence that the listener *connected* and is reporting
+  capacity, and fails the deploy otherwise. It ends by printing the literal
+  `runs-on:` line -- and a whole workflow -- for the first job, with the
+  reminder that the job's REST status stays `queued` even after it has been
+  assigned to the scale set, so the journal is what to watch.
+
+  `--dry-run` previews both halves and changes nothing; `--yes` is required for
+  a non-interactive run, the same contract the destructive scripts carry.
+
+- **`script/teardown-listener.sh`: the matching reversal.** Stops and disables
+  the unit and removes the unit file, the environment file (which holds the
+  token) and the install prefix, with the same preview/confirm contract. It
+  deliberately does **not** delete the scale set, and has no flag that does:
+  the scale set is shared by every machine serving the runner type, so
+  decommissioning one host must not stop serving the rest. Retiring the type is
+  a separate explicit act (`scaleset-admin delete`). The prefix is validated
+  lexically before it is used as an `rm -rf` target.
+
+- **`scaleset-admin show`**: reports what the config says about a runner type
+  as `key=value` lines (`name`, `scale_set`, `labels`, `image`, `runs_on`), and
+  makes no network call. It is how the deploy command learns a type's scale set
+  and routing labels without a second YAML parser written in shell -- ADR-0003
+  keeps the Go loader the only parser, and a shell copy would drift on exactly
+  the field that decides whether any job ever runs. The labels reported are the
+  effective ones, so a type declaring none reports the scale set name it will
+  actually route on rather than an empty field.
+
 - **`scaleset-admin`: a command that creates and deletes a runner scale set**
   (`just build-admin`, installed by `just install-listener`). The repo could
   connect to a scale set but had nothing that made one, so an operator following

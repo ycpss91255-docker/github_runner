@@ -81,9 +81,10 @@ teardown() { rm -rf "${WORK}"; }
   # A token passed as a flag is a token in the host process table and in shell
   # history. It is prompted for instead, so there is deliberately no way to
   # supply it on the command line.
-  run "${SCRIPT}" --help
-  [ "${status}" -eq 0 ]
-  [[ "${output}" != *"--token"* ]]
+  # No option line offers one...
+  run bash -c "'${SCRIPT}' --help | grep -E '^[[:space:]]+--token'"
+  [ "${status}" -ne 0 ]
+  # ...and the parser has no case for one, so it cannot be reached at all.
   run grep -F -- '--token)' "${SCRIPT}"
   [ "${status}" -ne 0 ]
 }
