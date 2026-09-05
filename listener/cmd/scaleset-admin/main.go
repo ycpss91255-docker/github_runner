@@ -31,6 +31,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/actions/scaleset"
 
@@ -139,7 +140,8 @@ func runCreate(ctx context.Context, admin listener.ScaleSetAdmin, rt listener.Ru
 	} else {
 		fmt.Printf("scale set %q (id=%d) already exists for runner type %q; nothing changed\n", res.Name, res.ID, rt.Name)
 		if !res.LabelsMatch {
-			fmt.Fprintf(os.Stderr, "WARNING: its live labels %v do NOT match the configured %v.\n", res.LiveLabels, listener.RoutingLabels(rt))
+			fmt.Fprintf(os.Stderr, "WARNING: its live labels [%s] do NOT match the configured [%s].\n",
+				strings.Join(res.LiveLabels, ", "), strings.Join(listener.RoutingLabels(rt), ", "))
 			fmt.Fprintf(os.Stderr, "         Workflows route on the LIVE labels. Either fix the config to match, or\n")
 			fmt.Fprintf(os.Stderr, "         delete and recreate the scale set.\n")
 		}
@@ -197,21 +199,25 @@ func main() {
 			group = listener.DefaultRunnerGroup
 		}
 		fmt.Printf("Plan (GitHub side):\n")
-		fmt.Printf("  Runner type:   %s\n", rt.Name)
-		fmt.Printf("  Scale set:     %s   (identifier)\n", rt.ScaleSet)
-		fmt.Printf("  Routing labels: %v   (what runs-on matches)\n", labels)
-		fmt.Printf("  Runner group:  %s\n", group)
-		fmt.Println("  Action:        create it if it does not already exist")
+		fmt.Printf("  Runner type:    %s\n", rt.Name)
+		fmt.Printf("  Scale set:      %s   (identifier)\n", rt.ScaleSet)
+		fmt.Printf("  Routing labels: %s   (what runs-on matches)\n", strings.Join(labels, ", "))
+		fmt.Printf("  Runner group:   %s\n", group)
+		fmt.Println("  Action:         create it if it does not already exist")
 	case "delete":
 		fmt.Printf("Plan (GitHub side):\n")
-		fmt.Printf("  Runner type:   %s\n", rt.Name)
-		fmt.Printf("  Scale set:     %s\n", rt.ScaleSet)
-		fmt.Println("  Action:        DELETE it from GitHub")
+		fmt.Printf("  Runner type:    %s\n", rt.Name)
+		fmt.Printf("  Scale set:      %s\n", rt.ScaleSet)
+		fmt.Println("  Action:         DELETE it from GitHub")
+		fmt.Println("  Consequence:    workflows targeting its labels stop being served")
 	}
 	fmt.Println()
 
 	if opts.dryRun {
 		fmt.Println("Dry run; nothing was changed.")
+		if opts.verb == "create" {
+			printRunsOn(labels)
+		}
 		return
 	}
 
