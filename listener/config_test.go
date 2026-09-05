@@ -187,8 +187,11 @@ func TestLoadConfigErrors(t *testing.T) {
 			want: "scale set",
 		},
 		{
+			// A stale "mode: fixed" config also carried a "count", which strict
+			// decoding now rejects first; this case keeps the mode itself under
+			// test, and the unknown-field case below covers the count.
 			name: "removed fixed mode is rejected",
-			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      mode: fixed\n      count: 4\n",
+			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      mode: fixed\n",
 			want: "mode",
 		},
 		{

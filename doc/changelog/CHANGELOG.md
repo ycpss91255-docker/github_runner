@@ -8,6 +8,14 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An unknown key in the runner-type config is now rejected, not silently
+  ignored**: the authoritative parser (ADR-0003) decodes with YAML strict field
+  checking, so a typo'd knob (`reserv:` for `reserve:`) or a field dropped by a
+  schema change fails the load naming the offending field
+  (`field reserv not found in type listener.Concurrency`) instead of decoding
+  into nothing and leaving the real field at its zero value. Configuration
+  fails closed and loudly; it never fails silently.
+
 - **`just build-listener` no longer fails on a host-owned checkout**: the recipe
   now passes `-buildvcs=false`, so the root-in-container build over the bind
   mount is not broken by git's "dubious ownership" VCS-stamp error. CI now also
