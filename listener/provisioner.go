@@ -40,6 +40,7 @@ type ContainerProvisioner struct {
 // stay out of the process table:
 //
 //	RUNNER_DEVICES            space-separated device nodes -> precise --device
+//	RUNNER_RUNTIME            container runtime shim -> --runtime (empty = none)
 //	RUNNER_HARDENING_PROFILE  container hardening posture
 //	RUNNER_BUILD_TOOL         daemonless builder (kaniko/buildkit) or empty
 //
@@ -84,6 +85,7 @@ func (c *ContainerProvisioner) Provision(ctx context.Context, req ProvisionReque
 	// into one --device per node.
 	cmd.Env = append(os.Environ(),
 		"RUNNER_DEVICES="+strings.Join(req.Devices, " "),
+		"RUNNER_RUNTIME="+req.Runtime,
 		"RUNNER_HARDENING_PROFILE="+req.HardeningProfile,
 		"RUNNER_BUILD_TOOL="+req.BuildTool,
 	)

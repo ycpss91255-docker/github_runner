@@ -92,9 +92,11 @@ func main() {
 		image        string
 		reserve      int
 		// Per-type provisioning fields carried across the widened shell-out
-		// (#117/#119): devices for precise --device passthrough, the hardening
-		// posture, and the daemonless build tool. Empty in the discrete-env path.
+		// (#117/#119): devices for precise --device passthrough, the container
+		// runtime shim, the hardening posture, and the daemonless build tool.
+		// Empty in the discrete-env path.
 		devices          []string
+		runtime          string
 		hardeningProfile string
 		buildTool        string
 	)
@@ -106,6 +108,7 @@ func main() {
 		scaleSetName = inst.ScaleSet
 		image = inst.Config.Image
 		devices = inst.Config.Devices
+		runtime = inst.Config.Runtime
 		hardeningProfile = inst.Config.HardeningProfile
 		buildTool = inst.Config.BuildTool
 		reserve = inst.Config.Reserve
@@ -166,6 +169,7 @@ func main() {
 		Reserve:          reserve,
 		Reaper:           reaper,
 		Devices:          devices,
+		Runtime:          runtime,
 		HardeningProfile: hardeningProfile,
 		BuildTool:        buildTool,
 		JobLogger:        listener.NewJournalJobLogger(),

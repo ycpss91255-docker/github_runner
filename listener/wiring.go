@@ -44,6 +44,7 @@ func (rt RunnerType) Instance(deps InstanceDeps) Instance {
 	cfg := Config{
 		Image:            rt.Image,
 		Devices:          rt.Devices,
+		Runtime:          rt.Runtime,
 		HardeningProfile: rt.HardeningProfile,
 		BuildTool:        rt.BuildTool,
 	}

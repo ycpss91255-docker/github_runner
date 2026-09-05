@@ -25,7 +25,11 @@
 #   devices           optional  host device nodes passed through (--device,
 #                               never --privileged). Empty for plain CPU types.
 #   runtime           optional  container runtime / hardware shim (e.g. nvidia;
-#                               gvisor/kata later). Empty = engine default.
+#                               gvisor/kata later), passed to the engine as one
+#                               `--runtime <value>`. Empty = engine default (no
+#                               flag). Free text: it names a shim registered
+#                               with the local engine, so a wrong value makes
+#                               the run fail loudly rather than be ignored.
 #   build_tool        optional  daemonless image builder (kaniko / buildkit).
 #   hardening_profile optional  container hardening posture (device / default).
 #   concurrency       optional  worker-pool sizing. REACTIVE BY DEFAULT:

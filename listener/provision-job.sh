@@ -19,6 +19,8 @@
 # container seam in lib/runner-container.sh:
 #   RUNNER_DEVICES            space-separated host device nodes -> precise
 #                             --device passthrough (never --privileged, #117)
+#   RUNNER_RUNTIME            container runtime / hardware shim (e.g. nvidia)
+#                             -> one --runtime <value>; empty = engine default
 #   RUNNER_HARDENING_PROFILE  container hardening posture (#114/#115)
 #   RUNNER_BUILD_TOOL         daemonless image builder (kaniko/buildkit), #119
 #

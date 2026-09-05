@@ -84,6 +84,10 @@ type ProvisionRequest struct {
 	// Devices are the host device nodes this runner type declares for precise
 	// --device passthrough (no --privileged -- #117). Empty for a plain CPU type.
 	Devices []string
+	// Runtime is the container runtime / hardware shim this runner type declares
+	// (e.g. "nvidia" for the GPU stack). Non-empty becomes exactly one
+	// --runtime <value> on the container run; empty leaves the engine default.
+	Runtime string
 	// HardeningProfile is the container hardening posture this runner type
 	// selected (e.g. "device", "default"). Empty = the provisioner default.
 	HardeningProfile string
@@ -174,6 +178,10 @@ type Config struct {
 	// passthrough (#117); empty for a plain CPU type. Carried into every
 	// ProvisionRequest so the bash provisioner passes exactly these as --device.
 	Devices []string
+	// Runtime is this type's container runtime / hardware shim (e.g. "nvidia"),
+	// carried into every ProvisionRequest so the bash provisioner adds exactly
+	// one --runtime <value>. Empty = the engine default, no flag.
+	Runtime string
 	// HardeningProfile is this type's container hardening posture (#114/#115),
 	// carried into every ProvisionRequest. Empty = the provisioner default.
 	HardeningProfile string
@@ -405,6 +413,7 @@ func (l *Listener) acquire(ctx context.Context, msg *scaleset.RunnerScaleSetMess
 			EncodedJITConfig: jit,
 			Image:            l.cfg.Image,
 			Devices:          l.cfg.Devices,
+			Runtime:          l.cfg.Runtime,
 			HardeningProfile: l.cfg.HardeningProfile,
 			BuildTool:        l.cfg.BuildTool,
 		})
