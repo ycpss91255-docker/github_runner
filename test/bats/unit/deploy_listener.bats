@@ -168,3 +168,34 @@ teardown() { rm -rf "${WORK}"; }
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"runs-on:"* ]]
 }
+
+# --- the admin tool it reads the config through ----------------------------
+
+@test "deploy-listener.sh --dry-run names the admin tool it read the config through" {
+  # Which binary answered for the config is part of the plan: two checkouts on
+  # one host can each have their own, and the plan has to say which one spoke.
+  run "${SCRIPT}" --dry-run --config "${CONFIG}" --type gpu \
+    --org-url https://github.com/acme --prefix "${WORK}/opt" --etc "${WORK}/etc"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"admin tool"* ]]
+  [[ "${output}" == *"${SCALESET_ADMIN_BIN}"* ]]
+}
+
+@test "deploy-listener.sh names the MISSING TOOL, not the config, when it has none" {
+  # From a clean checkout with nothing on PATH and nothing built, the operator
+  # used to be told "could not read <config path>" -- which points at a
+  # perfectly good file and sends them to debug the wrong thing. Here the build
+  # cannot help either (the stubbed `just` produces no binary), so the run must
+  # fail SAYING THE TOOL IS MISSING.
+  mkdir -p "${WORK}/stub"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${WORK}/stub/just"
+  chmod +x "${WORK}/stub/just"
+  run env -u SCALESET_ADMIN_BIN LISTENER_BIN_DIR="${WORK}/nobin" \
+    PATH="${WORK}/stub:/bin:/usr/bin" \
+    "${SCRIPT}" --dry-run --config "${CONFIG}" --type gpu \
+    --org-url https://github.com/acme --prefix "${WORK}/opt" --etc "${WORK}/etc"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"scaleset-admin"* ]]
+  [[ "${output}" == *"build-admin"* ]]
+  [[ "${output}" != *"could not read ${CONFIG}"* ]]
+}
