@@ -187,8 +187,11 @@ func TestLoadConfigErrors(t *testing.T) {
 			want: "scale set",
 		},
 		{
+			// A stale "mode: fixed" config also carried a "count", which strict
+			// decoding now rejects first; this case keeps the mode itself under
+			// test, and the unknown-field case below covers the count.
 			name: "removed fixed mode is rejected",
-			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      mode: fixed\n      count: 4\n",
+			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      mode: fixed\n",
 			want: "mode",
 		},
 		{
@@ -205,6 +208,15 @@ func TestLoadConfigErrors(t *testing.T) {
 			name: "unknown build tool",
 			body: "runner_types:\n  - name: gpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    build_tool: frobnicate\n",
 			want: "build_tool",
+		},
+		{
+			// A typo'd knob must be rejected loudly, not silently dropped:
+			// "reserv" would otherwise decode into nothing, leaving Reserve at
+			// its zero value, so the headroom the operator asked for vanishes
+			// without a word. Configuration never fails silently.
+			name: "unknown field is rejected",
+			body: "runner_types:\n  - name: cpu\n    scale_set: s\n    labels: [a]\n    image: i@sha256:1\n    concurrency:\n      reserv: 99\n",
+			want: "reserv",
 		},
 		{
 			name: "malformed yaml",

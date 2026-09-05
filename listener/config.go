@@ -1,7 +1,10 @@
 package listener
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -91,13 +94,22 @@ type config struct {
 // YAML, or any validation failure (missing required field, empty list,
 // duplicate name/scale set, bad concurrency) yields an error, never a partial
 // or silently-defaulted config.
+//
+// Decoding is strict (KnownFields): an unrecognised key -- a typo'd knob like
+// "reserv" for "reserve", or a field removed by a schema change -- fails the
+// load naming the offending field, rather than decoding into nothing and
+// leaving the real field at its zero value. Configuration never fails silently.
 func LoadConfig(path string) ([]RunnerType, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read runner-type config %s: %w", path, err)
 	}
 	var doc config
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	// io.EOF is an empty document, not a parse failure: leave doc zero and let
+	// validate report the operator-facing "at least one runner type" error.
+	if err := dec.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("parse runner-type config %s: %w", path, err)
 	}
 	if err := validate(doc.RunnerTypes); err != nil {
