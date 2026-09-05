@@ -263,3 +263,27 @@ func SelectType(path, typeName string) (RunnerType, error) {
 	}
 	return RunnerType{}, fmt.Errorf("no runner type named %q in %s", typeName, path)
 }
+
+// DescribeType renders a runner type as machine-readable key=value lines: what
+// the type is called, the scale set it binds to, the EFFECTIVE routing labels,
+// its image, and the literal runs-on line a workflow needs.
+//
+// It exists so the deploy tooling can learn a type's scale set and labels
+// without parsing the runner-type YAML itself. ADR-0003 makes the Go loader the
+// authoritative parser; a second parser in bash would be a copy that drifts,
+// and it would drift on exactly the field (labels) that decides whether any job
+// ever runs. So bash asks, and this is the answer.
+//
+// The labels reported are the effective ones (RoutingLabels), not the raw
+// field: a type declaring none routes on its scale set name, and reporting an
+// empty field would leave the caller to guess the very thing it asked about.
+func DescribeType(rt RunnerType) []string {
+	labels := RoutingLabels(rt)
+	return []string{
+		"name=" + rt.Name,
+		"scale_set=" + rt.ScaleSet,
+		"labels=" + strings.Join(labels, ","),
+		"image=" + rt.Image,
+		"runs_on=" + RunsOn(labels),
+	}
+}

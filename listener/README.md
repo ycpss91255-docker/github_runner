@@ -220,6 +220,14 @@ The host needs **no Go toolchain** — the binary is built inside a golang
 container and only the resulting static binary + its sibling shell scripts are
 installed.
 
+The whole of it is one command -- see
+[`script/deploy-listener.sh`](../script/deploy-listener.sh) and
+[`deploy/README.md`](../deploy/README.md). It does the GitHub side (create the
+runner type's scale set if it is not there) and the local side (build, install,
+service user, 0600 environment file, systemd unit, enable, start), verifies the
+listener connected and is reporting capacity, and prints the `runs-on:` line to
+paste. The steps below are what it performs.
+
 ```sh
 # Build the static binary (containerized; reproducible, CGO off):
 just build-listener            # -> bin/scaleset-listener

@@ -42,10 +42,16 @@ import (
 const usage = `usage:
   scaleset-admin create [--config <path>] [--type <name>] [--group <name>] [--dry-run]
   scaleset-admin delete [--config <path>] [--type <name>] (--yes | --dry-run)
+  scaleset-admin show   [--config <path>] [--type <name>]
 
 Create or delete the GitHub runner scale set a runner type binds to. The scale
 set NAME and its routing LABELS both come from the runner-type config; there is
 deliberately no way to pass either as a flag.
+
+The show verb reports what the config says about a runner type, as key=value
+lines (name, scale_set, labels, image, runs_on), and makes NO network call. It
+is how the deploy tooling learns a type's scale set and routing labels without
+re-implementing a YAML parser in shell -- the Go loader stays the only parser.
 
   --config <path>   runner-type config (default: $RUNNER_TYPES_CONFIG)
   --type <name>     which runner type to act on (default: $RUNNER_TYPE; may be
@@ -75,16 +81,16 @@ type options struct {
 // the surface reads as a verb on a noun, matching the shell scripts.
 func parseArgs(args []string) (options, error) {
 	if len(args) == 0 {
-		return options{}, fmt.Errorf("a subcommand is required (create or delete)")
+		return options{}, fmt.Errorf("a subcommand is required (create, delete or show)")
 	}
 	opts := options{verb: args[0]}
 	switch opts.verb {
-	case "create", "delete":
+	case "create", "delete", "show":
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		os.Exit(0)
 	default:
-		return options{}, fmt.Errorf("unknown subcommand %q (want create or delete)", opts.verb)
+		return options{}, fmt.Errorf("unknown subcommand %q (want create, delete or show)", opts.verb)
 	}
 
 	fs := flag.NewFlagSet("scaleset-admin "+opts.verb, flag.ContinueOnError)
@@ -188,6 +194,16 @@ func main() {
 		os.Exit(1)
 	}
 	labels := listener.RoutingLabels(rt)
+
+	// `show` is a pure read of the config: no plan, no confirmation, no client,
+	// no network. It exists to be consumed by other tooling (the deploy
+	// command), so it prints the report and nothing else.
+	if opts.verb == "show" {
+		for _, line := range listener.DescribeType(rt) {
+			fmt.Println(line)
+		}
+		return
+	}
 
 	// The outward action is announced before it is taken, in both modes: a
 	// dry run stops here, a real run has already said exactly what it is about
