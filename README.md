@@ -17,6 +17,7 @@
 - [Overview](#overview)
 - [Layout](#layout)
 - [Scripts](#scripts)
+- [Operator commands](#operator-commands)
 - [Configuration](#configuration)
 - [Testing](#testing)
 - [Security model](#security-model)
@@ -111,8 +112,31 @@ any script (e.g. `RUNNER_HOME=/var/lib/gh-runners ./script/init.sh ...`).
 | `script/schedule-cleanup.sh` | Install / remove a user-crontab entry that runs `cleanup.sh` on a schedule (daily / weekly / monthly, time and weekday selectable). Interactive prompts by default, or pass `--every` / `--at` / `--day`. `--status` shows the installed entry, `--uninstall` removes it. Output appends to `${RUNNER_HOME}/.cleanup.log`; concurrent runs are guarded by `flock` |
 | `script/deploy-listener.sh` | **Stand a scale-set (ephemeral) listener up on this machine in one interactive command**, replacing the multi-step runbook in [`deploy/`](deploy/README.md). Covers both halves and says which is which: the **GitHub side** (create the runner type's scale set if it is not there yet) and the **local side** (build, install under `--prefix`, service user, 0600 environment file, systemd unit, enable, start). Then it verifies the listener actually connected and is reporting capacity, and prints the literal `runs-on:` line for your first job. Idempotent -- a re-run skips whatever is in place. The admin token is **prompted for, never a flag** (an argument is visible in the process table). `--dry-run` previews; `--yes` is required for non-TTY runs; `--skip-github` makes the second and later machines local-only. It needs no preparation from a clean checkout: the scale-set admin tool it reads the runner-type config through is taken from this checkout's `bin/`, else from `PATH`, and **built** (`just build-admin`) when there is neither -- and when that tool is missing, the failure says so instead of blaming the config file |
 | `script/teardown-listener.sh` | Reversal of the **local** half of `deploy-listener.sh`: stop + disable the unit, remove the unit file, the environment file and the install prefix. Prompts by default; `--yes` skips, `--dry-run` previews. Deliberately does **not** delete the scale set -- that is shared by every machine serving the runner type, so it is a separate explicit act (`scaleset-admin delete`) |
+| `script/check-token.sh` | Report whether the scale-set admin token is in place and still valid: where the environment file is, its mode (flagged when it is not 0600), whether a token is present, absent or still the shipped placeholder, and what scopes GitHub says it carries -- noting when `admin:org` is missing. **Never prints the token**, and passes it to `gh` through the environment rather than a command line (an argument is readable in the host process table). Reading the file needs root; without it the mode and presence answers still hold. `--no-verify` keeps it offline, `--etc` points at another config dir |
 
 All scripts are idempotent.
+
+## Operator commands
+
+`just --list` is the entry point for both halves of this repo. Everything under
+*Testing* below builds and checks the checkout; these act on a **host**.
+
+```bash
+just deploy --org-url https://github.com/<org> --dry-run   # preview the plan
+sudo just deploy --org-url https://github.com/<org>        # stand this host up
+just token                                                 # is the token there and still valid?
+sudo just teardown                                         # take the listener off this host
+./script/remove-runner.sh org <org>                        # deregister one classic runner
+```
+
+They are thin passthroughs: every flag reaches the script unchanged, so the
+preview, the confirmation prompt, `--dry-run` and `--yes` all behave exactly as
+documented above. `sudo` is not baked in -- a `--dry-run` changes nothing and
+should not demand a password -- so write `sudo just ...` when you mean it.
+
+`just token` answers "is the credential in place and still accepted" without
+printing it, and reports when a token is missing `admin:org`, which is what the
+scale-set API needs.
 
 ## Configuration
 

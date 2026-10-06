@@ -21,7 +21,7 @@ TEST_TOOLS_IMAGE := env_var_or_default('TEST_TOOLS_IMAGE', 'ghcr.io/ycpss91255-d
 # recipe below. Override with COVERAGE_IMAGE=... if you want to pin a tag.
 COVERAGE_IMAGE := env_var_or_default('COVERAGE_IMAGE', 'kcov/kcov:latest')
 
-SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh script/fetch-bats.sh script/coverage-gate.sh script/lint-changelog.sh script/lint-readme-sync.sh script/lint-doc-citations.sh script/deploy-listener.sh script/teardown-listener.sh lib/listener-deploy.sh'
+SCRIPTS := 'script/install-deps.sh script/init.sh script/add-runner.sh script/remove-runner.sh script/status.sh script/update.sh script/uninstall.sh script/cleanup.sh script/schedule-cleanup.sh script/configure.sh script/set-labels.sh script/check-token.sh lib/common.sh lib/runner-layout.sh lib/runner-service.sh lib/runner-release.sh lib/runner-config.sh lib/runner-container.sh lib/runner-build.sh lib/runner-reaper.sh lib/runner-history.sh script/history.sh listener/provision-job.sh listener/reap.sh listener/host-probe.sh images/build-runner-image.sh script/lint-adr.sh script/fetch-bats.sh script/coverage-gate.sh script/lint-changelog.sh script/lint-readme-sync.sh script/lint-doc-citations.sh script/deploy-listener.sh script/teardown-listener.sh lib/listener-deploy.sh'
 
 # Self-built runner-image Dockerfiles (#120/#121), hadolint-checked. The
 # test-tools image ships hadolint, so this needs no extra dependency.
@@ -231,3 +231,37 @@ install-listener: build-listener build-admin
 # Remove the built binaries.
 clean-listener:
     rm -rf {{BIN_DIR}}
+
+# --- Operator commands -------------------------------------------------------
+#
+# Everything above builds, tests or lints THIS checkout. The recipes below act on
+# a HOST: they stand a runner up, inspect its credential, take one down. They are
+# here because `just --list` is where an operator looks first, and leaving them
+# out of it meant the three things people actually need were reachable only by
+# knowing a script path.
+#
+# They are deliberately thin. Each forwards its arguments verbatim and adds
+# nothing, so the script keeps owning the behaviour an operator depends on -- the
+# printed plan, the confirmation prompt, `--dry-run`, `--yes`. A wrapper that
+# swallowed a flag would be worse than the path it replaces.
+#
+# `sudo` is NOT baked in. The local half of a deploy and every teardown need
+# root, and the scripts say so when they reach it; a recipe that always escalated
+# would also demand a password for a `--dry-run` that changes nothing. Write
+# `sudo just <recipe> ...` when you mean it.
+
+# Stand a scale-set listener up on this host, GitHub side and local side.
+deploy *ARGS:
+    ./script/deploy-listener.sh {{ARGS}}
+
+# Take the scale-set listener off this host; the scale set on GitHub is untouched.
+teardown *ARGS:
+    ./script/teardown-listener.sh {{ARGS}}
+
+# Deregister one classic runner, uninstall its service and remove its directory.
+remove-runner *ARGS:
+    ./script/remove-runner.sh {{ARGS}}
+
+# Report whether the admin token is present and still valid, never printing it.
+token *ARGS:
+    ./script/check-token.sh {{ARGS}}
