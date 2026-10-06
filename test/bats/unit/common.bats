@@ -115,6 +115,43 @@ setup() {
   [[ "${output}" == *"refusing rm outside RUNNER_HOME: /etc"* ]]
 }
 
+# A symlinked RUNNER_HOME is the DEFAULT shape, not an edge case: the repo ships
+# `src/runners` as a symlink to the sibling state dir, so the derived
+# RUNNER_HOME traverses it. cleanup.sh canonicalizes each prune target with
+# `readlink -f` before asking (#144 rm-safety), so a lexical compare of a
+# RESOLVED child against an UNRESOLVED anchor refuses every path -- cleanup
+# silently pruned nothing. Both sides must be canonicalized.
+
+@test "assert_under_runner_home accepts a resolved child when RUNNER_HOME is a symlink" {
+  local tmp real link child
+  tmp=$(mktemp -d)
+  real="${tmp}/real-runners"
+  link="${tmp}/link-runners"
+  mkdir -p "${real}/myorg/_org"
+  ln -s "${real}" "${link}"
+  # RUNNER_HOME points at the symlink; the caller passes the canonical path,
+  # exactly as cleanup.sh does.
+  child=$(readlink -f "${link}/myorg/_org")
+  run bash -c "RUNNER_HOME='${link}' source '${LIB}'; assert_under_runner_home '${child}'"
+  rm -rf "${tmp}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "assert_under_runner_home still refuses a symlink escaping a symlinked RUNNER_HOME" {
+  local tmp real link escape child
+  tmp=$(mktemp -d)
+  real="${tmp}/real-runners"
+  link="${tmp}/link-runners"
+  escape="${tmp}/outside"
+  mkdir -p "${real}" "${escape}"
+  ln -s "${real}" "${link}"
+  ln -s "${escape}" "${real}/escape"
+  child=$(readlink -f "${link}/escape")
+  run bash -c "RUNNER_HOME='${link}' source '${LIB}'; assert_under_runner_home '${child}'"
+  rm -rf "${tmp}"
+  [ "${status}" -ne 0 ]
+}
+
 @test "resolve_runner_version honours RUNNER_VERSION env override verbatim" {
   # shellcheck disable=SC1090
   source "${LIB}"
