@@ -3,6 +3,12 @@
 # not part of the github_runner tooling and should not be tracked here.
 .claude/
 skills-lock.json
+# Same class, different installer path: `.agents/skills/` is the skills
+# installer's own tree, duplicating much of `.claude/skills/` (both are
+# enumerated in the already-ignored skills-lock.json). Per-user state, not
+# repo tooling -- it was merely never listed, so it sat untracked AND
+# unignored, one `git add -A` away from being committed by accident.
+.agents/
 
 # Runner install state. Default RUNNER_HOME (see lib/common.sh) is
 # <repo_root>/runners/, containing .bin/<runner-tarball> and per-target
