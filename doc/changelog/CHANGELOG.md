@@ -157,6 +157,19 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`doc/arch/overview.html`: a rendered architecture overview.** The repo had
+  ADRs recording individual decisions and a PRD recording principles, but
+  nothing that showed the shape of the system -- no topology, no module
+  dependency map, and no picture of any operator flow. Sixteen numbered sections
+  with inline SVG, following the convention already used in the `base` repo (one
+  self-contained HTML file, light and dark palettes via CSS custom properties,
+  zh-TW captions with English technical terms, an ADR cross-reference table at
+  the end). Two of the sections answer questions the existing docs did not: how
+  to get from a bare host to a first job, and what each way of growing the fleet
+  actually costs -- including that changing a scale set's routing labels has no
+  command yet, and that a second runner type on one host needs its own unit and
+  environment file.
+
 - **`script/deploy-listener.sh`: one interactive command that stands a machine
   up.** Deployment was a multi-step manual runbook -- build, install, create a
   service user, write a 0600 environment file, install a systemd unit, enable

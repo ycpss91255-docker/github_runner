@@ -1,0 +1,1329 @@
+<title>github_runner 架構總覽</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #F5F3EF;
+  --surface: #FFFFFF;
+  --surface-2: #EDEAE4;
+  --text-1: #1C1917;
+  --text-2: #57534E;
+  --text-3: #A8A29E;
+  --border: #D6D3D1;
+  --go: #1B4965;
+  --go-soft: #D4E8F5;
+  --go-fill: #EBF4FA;
+  --bash: #92400E;
+  --bash-soft: #FEF3C7;
+  --bash-fill: #FFFBEB;
+  --container: #166534;
+  --container-soft: #DCFCE7;
+  --container-fill: #F0FDF4;
+  --github: #6D28D9;
+  --github-soft: #EDE9FE;
+  --github-fill: #F5F3FF;
+  --warn: #B91C1C;
+  --warn-soft: #FEE2E2;
+  --code-bg: #F0EDEA;
+  --arrow: #78716C;
+}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg: #1A1D23;
+  --surface: #22262E;
+  --surface-2: #2A2F38;
+  --text-1: #E7E5E4;
+  --text-2: #A8A29E;
+  --text-3: #6B6660;
+  --border: #3A3F48;
+  --go: #7DD3FC;
+  --go-soft: #0C3A5A;
+  --go-fill: #0F2A3E;
+  --bash: #FCD34D;
+  --bash-soft: #452C08;
+  --bash-fill: #2A1D06;
+  --container: #4ADE80;
+  --container-soft: #0A3520;
+  --container-fill: #071F14;
+  --github: #C4B5FD;
+  --github-soft: #2E1A60;
+  --github-fill: #1E1340;
+  --warn: #FCA5A5;
+  --warn-soft: #450A0A;
+  --code-bg: #1E2128;
+  --arrow: #78716C;
+}}
+:root[data-theme="dark"]{
+  --bg: #1A1D23;
+  --surface: #22262E;
+  --surface-2: #2A2F38;
+  --text-1: #E7E5E4;
+  --text-2: #A8A29E;
+  --text-3: #6B6660;
+  --border: #3A3F48;
+  --go: #7DD3FC;
+  --go-soft: #0C3A5A;
+  --go-fill: #0F2A3E;
+  --bash: #FCD34D;
+  --bash-soft: #452C08;
+  --bash-fill: #2A1D06;
+  --container: #4ADE80;
+  --container-soft: #0A3520;
+  --container-fill: #071F14;
+  --github: #C4B5FD;
+  --github-soft: #2E1A60;
+  --github-fill: #1E1340;
+  --warn: #FCA5A5;
+  --warn-soft: #450A0A;
+  --code-bg: #1E2128;
+  --arrow: #78716C;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text-1);
+  background: var(--bg);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 5rem;
+  line-height: 1.7;
+}
+
+h1 {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.65rem;
+  font-weight: 700;
+  margin: 0 0 0.15rem;
+  text-wrap: balance;
+}
+.subtitle {
+  color: var(--text-2);
+  font-size: 0.88rem;
+  margin-bottom: 0.3rem;
+}
+.ref {
+  font-size: 0.78rem;
+  color: var(--text-3);
+  margin-bottom: 2.8rem;
+}
+.ref a { color: var(--text-3); }
+
+h2 {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 3rem 0 0.8rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1.5px solid var(--border);
+  letter-spacing: -0.01em;
+}
+h2 .num {
+  color: var(--text-3);
+  font-weight: 400;
+  margin-right: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+
+h3 {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 1.4rem 0 0.4rem;
+}
+
+p, .desc {
+  margin: 0.55rem 0;
+  font-size: 0.9rem;
+}
+
+code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+figure { margin: 1.4rem 0; }
+figcaption {
+  font-size: 0.8rem;
+  color: var(--text-2);
+  margin-top: 0.5rem;
+  line-height: 1.5;
+}
+
+svg { max-width: 100%; height: auto; display: block; }
+svg text { font-family: 'JetBrains Mono', monospace; }
+
+.tbl-wrap { overflow-x: auto; margin: 1rem 0; }
+table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+th {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 2px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+td {
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.15em 0.55em;
+  border-radius: 3px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.badge-go { background: var(--go-soft); color: var(--go); }
+.badge-bash { background: var(--bash-soft); color: var(--bash); }
+.badge-container { background: var(--container-soft); color: var(--container); }
+.badge-github { background: var(--github-soft); color: var(--github); }
+
+.callout {
+  border-left: 3px solid var(--go);
+  background: var(--go-fill);
+  padding: 0.65rem 0.9rem;
+  margin: 1rem 0;
+  font-size: 0.84rem;
+  border-radius: 0 4px 4px 0;
+}
+.callout-go { border-color: var(--go); background: var(--go-fill); }
+.callout-bash { border-color: var(--bash); background: var(--bash-fill); }
+.callout-container { border-color: var(--container); background: var(--container-fill); }
+.callout-github { border-color: var(--github); background: var(--github-fill); }
+.callout-warn { border-color: var(--warn); background: var(--warn-soft); }
+</style>
+
+<h1>github_runner 架構總覽</h1>
+<p class="subtitle">Ephemeral JIT self-hosted GitHub Actions runner 基礎建設</p>
+<p class="ref">相關 ADR:
+  <a href="../adr/0001-ephemeral-jit-runners.md">ADR-0001</a>,
+  <a href="../adr/0002-job-history-audit-trail.md">ADR-0002</a>,
+  <a href="../adr/0003-go-bash-boundary.md">ADR-0003</a>,
+  <a href="../adr/0004-defer-k8s-with-tripwires.md">ADR-0004</a>,
+  <a href="../adr/0005-reactive-live-admission.md">ADR-0005</a>
+</p>
+
+<!-- ============================================================ -->
+<h2><span class="num">1.</span> 系統拓撲</h2>
+
+<p class="desc">四個邊界層：GitHub Scale Set API、Go listener、Bash shell-out、Container engine。每層有明確的職責分界（ADR-0003）。</p>
+
+<figure>
+<svg viewBox="0 0 880 300" role="img" aria-label="System topology: GitHub, Go listener, Bash shell-outs, Container engine">
+  <!-- GitHub -->
+  <rect x="30" y="30" width="180" height="240" rx="8" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1.5"/>
+  <text x="120" y="58" text-anchor="middle" font-size="11" font-weight="600" fill="var(--github)">GitHub</text>
+  <rect x="50" y="72" width="140" height="30" rx="4" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="120" y="92" text-anchor="middle" font-size="9" fill="var(--text-1)">Scale Set API</text>
+  <rect x="50" y="112" width="140" height="30" rx="4" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="120" y="132" text-anchor="middle" font-size="9" fill="var(--text-1)">JIT Config Mint</text>
+  <rect x="50" y="152" width="140" height="30" rx="4" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="120" y="172" text-anchor="middle" font-size="9" fill="var(--text-1)">Runner REST API</text>
+  <rect x="50" y="192" width="140" height="30" rx="4" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="120" y="212" text-anchor="middle" font-size="9" fill="var(--text-1)">Job Assignment</text>
+
+  <!-- Go Listener -->
+  <rect x="270" y="30" width="200" height="240" rx="8" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.5"/>
+  <text x="370" y="58" text-anchor="middle" font-size="11" font-weight="600" fill="var(--go)">Go Listener</text>
+  <rect x="290" y="72" width="160" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="370" y="90" text-anchor="middle" font-size="9" fill="var(--text-1)">Long-poll Loop</text>
+  <rect x="290" y="106" width="160" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="370" y="124" text-anchor="middle" font-size="9" fill="var(--text-1)">Capacity Report</text>
+  <rect x="290" y="140" width="160" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="370" y="158" text-anchor="middle" font-size="9" fill="var(--text-1)">Reactive Admission</text>
+  <rect x="290" y="174" width="160" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="370" y="192" text-anchor="middle" font-size="9" fill="var(--text-1)">Worker Pool (sem)</text>
+  <rect x="290" y="208" width="160" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="370" y="226" text-anchor="middle" font-size="9" fill="var(--text-1)">Job Logger (journald)</text>
+
+  <!-- Bash Shell-outs -->
+  <rect x="530" y="30" width="160" height="240" rx="8" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.5"/>
+  <text x="610" y="58" text-anchor="middle" font-size="11" font-weight="600" fill="var(--bash)">Bash Shell-outs</text>
+  <rect x="545" y="72" width="130" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="610" y="90" text-anchor="middle" font-size="9" fill="var(--text-1)">provision-job.sh</text>
+  <rect x="545" y="106" width="130" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="610" y="124" text-anchor="middle" font-size="9" fill="var(--text-1)">reap.sh</text>
+  <rect x="545" y="140" width="130" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="610" y="158" text-anchor="middle" font-size="9" fill="var(--text-1)">host-probe.sh</text>
+  <rect x="545" y="180" width="130" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="610" y="198" text-anchor="middle" font-size="9" fill="var(--text-1)">runner-container.sh</text>
+  <rect x="545" y="214" width="130" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="610" y="232" text-anchor="middle" font-size="9" fill="var(--text-1)">runner-reaper.sh</text>
+
+  <!-- Container -->
+  <rect x="750" y="30" width="110" height="240" rx="8" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1.5"/>
+  <text x="805" y="58" text-anchor="middle" font-size="11" font-weight="600" fill="var(--container)">Container</text>
+  <rect x="760" y="72" width="90" height="26" rx="4" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="805" y="90" text-anchor="middle" font-size="9" fill="var(--text-1)">run.sh</text>
+  <rect x="760" y="106" width="90" height="26" rx="4" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="805" y="124" text-anchor="middle" font-size="9" fill="var(--text-1)">--jitconfig</text>
+  <rect x="760" y="140" width="90" height="26" rx="4" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="805" y="158" text-anchor="middle" font-size="9" fill="var(--text-1)">--rm (single-use)</text>
+  <rect x="760" y="180" width="90" height="26" rx="4" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="805" y="198" text-anchor="middle" font-size="9" fill="var(--text-1)">--device</text>
+
+  <!-- Arrows -->
+  <defs><marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="var(--arrow)"/></marker></defs>
+  <line x1="210" y1="87" x2="268" y2="87" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="239" y="82" text-anchor="middle" font-size="7" fill="var(--text-3)">long-poll</text>
+  <line x1="210" y1="127" x2="268" y2="127" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="239" y="122" text-anchor="middle" font-size="7" fill="var(--text-3)">mint</text>
+  <line x1="470" y1="87" x2="543" y2="87" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="506" y="82" text-anchor="middle" font-size="7" fill="var(--text-3)">exec</text>
+  <line x1="470" y1="121" x2="543" y2="121" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <line x1="470" y1="155" x2="543" y2="155" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <line x1="690" y1="87" x2="758" y2="87" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="724" y="82" text-anchor="middle" font-size="7" fill="var(--text-3)">docker run</text>
+</svg>
+<figcaption>系統拓撲。<span class="badge badge-github">GitHub</span> 擁有 scale set session protocol 和 JIT config minting。<span class="badge badge-go">Go</span> 擁有 long-poll loop、capacity reporting、reactive admission 和 worker pool。<span class="badge badge-bash">Bash</span> 擁有 container lifecycle、orphan reaping 和 host inspection（ADR-0003）。<span class="badge badge-container">Container</span> 是 single-use、ephemeral、<code>--rm</code>。</figcaption>
+</figure>
+
+<div class="callout callout-go">
+<strong>ADR-0003 邊界原則</strong>：Go 持有所有 policy 決策（何時准入、pool 大小、capacity 回報）；Bash 持有所有 I/O 操作（container run、/proc 讀取、orphan 掃描）。兩側透過 <code>exec.CommandContext</code> + 明確的 argv/env 契約溝通。
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="num">2.</span> Go/Bash 邊界與模組依賴</h2>
+
+<p class="desc">Go side 與 Bash side 的模組關係。每個 Go interface 對應一個 Bash shell-out 實作（ADR-0003）。</p>
+
+<figure>
+<svg viewBox="0 0 880 420" role="img" aria-label="Module dependency map: Go interfaces paired with Bash implementations">
+  <!-- Go side -->
+  <rect x="20" y="20" width="420" height="380" rx="8" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.5"/>
+  <text x="230" y="48" text-anchor="middle" font-size="12" font-weight="600" fill="var(--go)">Go (listener/)</text>
+
+  <!-- main.go -->
+  <rect x="140" y="62" width="180" height="28" rx="4" fill="var(--surface)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="230" y="81" text-anchor="middle" font-size="9" font-weight="500" fill="var(--text-1)">cmd/scaleset-listener/main.go</text>
+
+  <!-- wiring.go -->
+  <rect x="40" y="110" width="130" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="105" y="129" text-anchor="middle" font-size="9" fill="var(--text-1)">wiring.go</text>
+  <!-- config.go -->
+  <rect x="190" y="110" width="130" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="255" y="129" text-anchor="middle" font-size="9" fill="var(--text-1)">config.go</text>
+  <!-- scalesetadmin.go -->
+  <rect x="290" y="62" width="140" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="360" y="81" text-anchor="middle" font-size="9" fill="var(--text-1)">cmd/scaleset-admin</text>
+
+  <!-- listener.go (core) -->
+  <rect x="100" y="158" width="260" height="34" rx="5" fill="var(--surface)" stroke="var(--go)" stroke-width="1.5"/>
+  <text x="230" y="180" text-anchor="middle" font-size="10" font-weight="600" fill="var(--go)">listener.go (core loop)</text>
+
+  <!-- Interfaces row -->
+  <rect x="40" y="215" width="100" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="90" y="234" text-anchor="middle" font-size="8" fill="var(--text-1)">Provisioner</text>
+  <rect x="155" y="215" width="80" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="195" y="234" text-anchor="middle" font-size="8" fill="var(--text-1)">Reaper</text>
+  <rect x="250" y="215" width="85" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="292" y="234" text-anchor="middle" font-size="8" fill="var(--text-1)">HostProbe</text>
+  <rect x="350" y="215" width="80" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="390" y="234" text-anchor="middle" font-size="8" fill="var(--text-1)">Detector</text>
+
+  <!-- Impl row -->
+  <rect x="30" y="260" width="120" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="90" y="279" text-anchor="middle" font-size="8" fill="var(--text-2)">ContainerProvisioner</text>
+  <rect x="160" y="260" width="80" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="200" y="279" text-anchor="middle" font-size="8" fill="var(--text-2)">ScriptReaper</text>
+  <rect x="250" y="260" width="100" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="300" y="279" text-anchor="middle" font-size="8" fill="var(--text-2)">CommandHostProbe</text>
+  <rect x="360" y="260" width="70" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="395" y="279" text-anchor="middle" font-size="8" fill="var(--text-2)">CommandDev</text>
+
+  <!-- Support modules -->
+  <rect x="40" y="310" width="80" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="80" y="328" text-anchor="middle" font-size="8" fill="var(--text-1)">minter.go</text>
+  <rect x="130" y="310" width="80" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="170" y="328" text-anchor="middle" font-size="8" fill="var(--text-1)">joblog.go</text>
+  <rect x="220" y="310" width="100" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="270" y="328" text-anchor="middle" font-size="8" fill="var(--text-1)">hostprobe.go</text>
+  <rect x="330" y="310" width="90" height="26" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="375" y="328" text-anchor="middle" font-size="8" fill="var(--text-1)">detector.go</text>
+
+  <!-- Go dependency arrows -->
+  <line x1="230" y1="90" x2="230" y2="108" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <line x1="230" y1="138" x2="230" y2="156" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <line x1="230" y1="192" x2="230" y2="213" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <line x1="90" y1="243" x2="90" y2="258" stroke="var(--arrow)" stroke-width="0.8" stroke-dasharray="3,2"/>
+  <line x1="195" y1="243" x2="200" y2="258" stroke="var(--arrow)" stroke-width="0.8" stroke-dasharray="3,2"/>
+  <line x1="292" y1="243" x2="300" y2="258" stroke="var(--arrow)" stroke-width="0.8" stroke-dasharray="3,2"/>
+  <line x1="390" y1="243" x2="395" y2="258" stroke="var(--arrow)" stroke-width="0.8" stroke-dasharray="3,2"/>
+
+  <!-- Bash side -->
+  <rect x="470" y="20" width="390" height="380" rx="8" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.5"/>
+  <text x="665" y="48" text-anchor="middle" font-size="12" font-weight="600" fill="var(--bash)">Bash</text>
+
+  <!-- Shell-out scripts (listener/) -->
+  <text x="565" y="72" text-anchor="middle" font-size="9" font-weight="500" fill="var(--text-2)">listener/ shell-outs</text>
+  <rect x="490" y="80" width="150" height="26" rx="4" fill="var(--surface)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="565" y="98" text-anchor="middle" font-size="9" fill="var(--text-1)">provision-job.sh</text>
+  <rect x="490" y="114" width="150" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="565" y="132" text-anchor="middle" font-size="9" fill="var(--text-1)">reap.sh</text>
+  <rect x="490" y="148" width="150" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="565" y="166" text-anchor="middle" font-size="9" fill="var(--text-1)">host-probe.sh</text>
+
+  <!-- lib/ modules -->
+  <text x="665" y="200" text-anchor="middle" font-size="9" font-weight="500" fill="var(--text-2)">lib/</text>
+  <rect x="490" y="210" width="140" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="560" y="228" text-anchor="middle" font-size="8" fill="var(--text-1)">runner-container.sh</text>
+  <rect x="640" y="210" width="130" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="705" y="228" text-anchor="middle" font-size="8" fill="var(--text-1)">runner-reaper.sh</text>
+  <rect x="490" y="244" width="140" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="560" y="262" text-anchor="middle" font-size="8" fill="var(--text-1)">runner-history.sh</text>
+  <rect x="640" y="244" width="130" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="705" y="262" text-anchor="middle" font-size="8" fill="var(--text-1)">common.sh</text>
+
+  <!-- script/ operator scripts -->
+  <text x="665" y="290" text-anchor="middle" font-size="9" font-weight="500" fill="var(--text-2)">script/ (operator CLI)</text>
+  <rect x="490" y="300" width="110" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="545" y="316" text-anchor="middle" font-size="7.5" fill="var(--text-1)">deploy-listener.sh</text>
+  <rect x="610" y="300" width="110" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="665" y="316" text-anchor="middle" font-size="7.5" fill="var(--text-1)">teardown-listener.sh</text>
+  <rect x="730" y="300" width="80" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="770" y="316" text-anchor="middle" font-size="7.5" fill="var(--text-1)">status.sh</text>
+  <rect x="490" y="332" width="80" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="530" y="348" text-anchor="middle" font-size="7.5" fill="var(--text-1)">cleanup.sh</text>
+  <rect x="580" y="332" width="100" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="630" y="348" text-anchor="middle" font-size="7.5" fill="var(--text-1)">remove-runner.sh</text>
+  <rect x="690" y="332" width="80" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="730" y="348" text-anchor="middle" font-size="7.5" fill="var(--text-1)">update.sh</text>
+  <rect x="490" y="364" width="90" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="535" y="380" text-anchor="middle" font-size="7.5" fill="var(--text-1)">set-labels.sh</text>
+  <rect x="590" y="364" width="120" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="650" y="380" text-anchor="middle" font-size="7.5" fill="var(--text-1)">schedule-cleanup.sh</text>
+
+  <!-- Cross-boundary arrows -->
+  <line x1="440" y1="270" x2="488" y2="93" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <line x1="440" y1="270" x2="488" y2="127" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <line x1="440" y1="270" x2="488" y2="161" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="456" y="180" font-size="7" fill="var(--text-3)" transform="rotate(-60,456,180)">exec.Command</text>
+
+  <!-- provision-job -> lib -->
+  <line x1="565" y1="106" x2="560" y2="208" stroke="var(--arrow)" stroke-width="0.8" stroke-dasharray="3,2"/>
+  <line x1="565" y1="140" x2="705" y2="208" stroke="var(--arrow)" stroke-width="0.8" stroke-dasharray="3,2"/>
+</svg>
+<figcaption>模組依賴圖。虛線 = source/implements 關係。<code>listener.go</code> 透過 interface（Provisioner / Reaper / HostProbe / DeviceDetector）呼叫 shell-out；production impl 在同 package 內（ContainerProvisioner 等），test 注入 stub。<code>listener/</code> 下的 <code>.sh</code> 是 Go 的 shell-out 進入點，各自 source <code>lib/</code> 模組。<code>script/</code> 是 operator 直接執行的 CLI 工具。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">3.</span> 部署拓撲</h2>
+
+<p class="desc">一台 host 上的檔案配置與 systemd 管理。<code>deploy-listener.sh</code> 是唯一入口指令。</p>
+
+<figure>
+<svg viewBox="0 0 880 340" role="img" aria-label="Host filesystem layout: prefix, config, systemd, RUNNER_HOME">
+  <rect x="20" y="20" width="840" height="300" rx="8" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="440" y="46" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text-1)">Host</text>
+
+  <!-- /opt/github-runner-listener (prefix) -->
+  <rect x="40" y="60" width="240" height="120" rx="6" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="160" y="80" text-anchor="middle" font-size="9" font-weight="500" fill="var(--go)">/opt/github-runner-listener/</text>
+  <rect x="55" y="90" width="210" height="22" rx="3" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="160" y="106" text-anchor="middle" font-size="8" fill="var(--text-1)">bin/scaleset-listener</text>
+  <rect x="55" y="116" width="210" height="22" rx="3" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="160" y="132" text-anchor="middle" font-size="8" fill="var(--text-1)">bin/scaleset-admin</text>
+  <rect x="55" y="142" width="210" height="22" rx="3" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="160" y="158" text-anchor="middle" font-size="8" fill="var(--text-1)">provision-job.sh / reap.sh / host-probe.sh</text>
+
+  <!-- /etc/github-runner-listener (config) -->
+  <rect x="310" y="60" width="240" height="120" rx="6" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="430" y="80" text-anchor="middle" font-size="9" font-weight="500" fill="var(--bash)">/etc/github-runner-listener/</text>
+  <rect x="325" y="90" width="210" height="22" rx="3" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="430" y="106" text-anchor="middle" font-size="8" fill="var(--text-1)">runner-types.yaml (config)</text>
+  <rect x="325" y="116" width="210" height="22" rx="3" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="430" y="132" text-anchor="middle" font-size="8" fill="var(--text-1)">scaleset-listener.env (0600, token)</text>
+
+  <!-- systemd -->
+  <rect x="580" y="60" width="260" height="120" rx="6" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1.2"/>
+  <text x="710" y="80" text-anchor="middle" font-size="9" font-weight="500" fill="var(--github)">systemd</text>
+  <rect x="595" y="90" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="710" y="106" text-anchor="middle" font-size="8" fill="var(--text-1)">scaleset-listener.service (enable+start)</text>
+  <rect x="595" y="116" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="710" y="132" text-anchor="middle" font-size="8" fill="var(--text-1)">User=ci-runner (unprivileged)</text>
+  <rect x="595" y="142" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="710" y="158" text-anchor="middle" font-size="8" fill="var(--text-1)">EnvironmentFile=...env (token source)</text>
+
+  <!-- RUNNER_HOME -->
+  <rect x="40" y="200" width="800" height="100" rx="6" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1.2"/>
+  <text x="100" y="222" font-size="9" font-weight="500" fill="var(--container)">RUNNER_HOME (~/runners/)</text>
+  <rect x="55" y="234" width="130" height="22" rx="3" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="120" y="250" text-anchor="middle" font-size="8" fill="var(--text-1)">work/ (per-job dirs)</text>
+  <rect x="200" y="234" width="130" height="22" rx="3" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="265" y="250" text-anchor="middle" font-size="8" fill="var(--text-1)">history/ (ADR-0002)</text>
+  <rect x="345" y="234" width="130" height="22" rx="3" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="410" y="250" text-anchor="middle" font-size="8" fill="var(--text-1)">.cleanup.log / .lock</text>
+  <rect x="490" y="234" width="170" height="22" rx="3" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="575" y="250" text-anchor="middle" font-size="8" fill="var(--text-1)">.bin/ (cached runner tarballs)</text>
+  <rect x="675" y="234" width="150" height="22" rx="3" fill="var(--surface)" stroke="var(--container-soft)" stroke-width="1"/>
+  <text x="750" y="250" text-anchor="middle" font-size="8" fill="var(--text-1)">classic runners (legacy)</text>
+  <text x="440" y="288" text-anchor="middle" font-size="8" fill="var(--text-3)">SEC-3: all rm -rf anchored under this root</text>
+</svg>
+<figcaption>部署拓撲。<code>deploy-listener.sh --org-url ...</code> 一個指令建立以上所有：build + install binary、建 service user、寫 env file（0600，存 token）、安裝 systemd unit、enable + start、驗證。idempotent，re-run 跳過已完成的步驟。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">4.</span> Job 資料流</h2>
+
+<p class="desc">一個 GitHub Actions job 從 assignment 到 container 執行到 history capture 的完整路徑。</p>
+
+<figure>
+<svg viewBox="0 0 880 480" role="img" aria-label="Job data flow: GitHub assignment through container execution to history capture">
+  <!-- Flow steps -->
+  <!-- 1. GitHub assigns -->
+  <rect x="340" y="20" width="200" height="36" rx="18" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1.5"/>
+  <text x="440" y="43" text-anchor="middle" font-size="10" fill="var(--github)">GitHub assigns job</text>
+
+  <line x1="440" y1="56" x2="440" y2="76" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- 2. GetMessage -->
+  <rect x="340" y="78" width="200" height="32" rx="4" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="440" y="99" text-anchor="middle" font-size="9" fill="var(--go)">GetMessage(capacity)</text>
+
+  <line x1="440" y1="110" x2="440" y2="128" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- 3. AcquireJobs -->
+  <rect x="340" y="130" width="200" height="32" rx="4" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="440" y="151" text-anchor="middle" font-size="9" fill="var(--go)">AcquireJobs(requestID)</text>
+
+  <line x1="440" y1="162" x2="440" y2="180" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- 4. Mint JIT -->
+  <rect x="340" y="182" width="200" height="32" rx="4" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="440" y="203" text-anchor="middle" font-size="9" fill="var(--go)">Mint JIT config</text>
+
+  <line x1="440" y1="214" x2="440" y2="232" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- 5. DeleteMessage (ack) -->
+  <rect x="340" y="234" width="200" height="32" rx="4" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="440" y="255" text-anchor="middle" font-size="9" fill="var(--go)">DeleteMessage (ack)</text>
+  <text x="560" y="255" font-size="7" fill="var(--text-3)">before container run</text>
+
+  <line x1="440" y1="266" x2="440" y2="282" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- 6. Reactive gate -->
+  <polygon points="440,284 510,310 440,336 370,310" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="440" y="314" text-anchor="middle" font-size="8" fill="var(--go)">admitOne?</text>
+  <text x="520" y="306" font-size="7" fill="var(--text-3)">ADR-0005</text>
+
+  <line x1="440" y1="336" x2="440" y2="352" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="448" y="348" font-size="7" fill="var(--container)">yes</text>
+
+  <!-- settle loop back -->
+  <line x1="370" y1="310" x2="320" y2="310" stroke="var(--arrow)" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="320" y1="310" x2="320" y2="284" stroke="var(--arrow)" stroke-width="1" stroke-dasharray="3,2"/>
+  <line x1="320" y1="284" x2="368" y2="284" stroke="var(--arrow)" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#ah)"/>
+  <text x="280" y="298" font-size="7" fill="var(--text-3)">settle + re-probe</text>
+
+  <!-- 7. sem acquire + provision -->
+  <rect x="340" y="354" width="200" height="32" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="440" y="375" text-anchor="middle" font-size="9" fill="var(--bash)">provision-job.sh (container)</text>
+
+  <line x1="440" y1="386" x2="440" y2="404" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- 8. History capture -->
+  <rect x="340" y="406" width="200" height="32" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="440" y="427" text-anchor="middle" font-size="9" fill="var(--bash)">history capture (ADR-0002)</text>
+
+  <line x1="440" y1="438" x2="440" y2="456" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- 9. Exit -->
+  <rect x="370" y="458" width="140" height="22" rx="11" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="440" y="473" text-anchor="middle" font-size="8" fill="var(--text-2)">exit status -> JobLogger</text>
+
+  <!-- Side annotations -->
+  <text x="30" y="99" font-size="8" fill="var(--text-3)">long-poll</text>
+  <text x="30" y="151" font-size="8" fill="var(--text-3)">claim work</text>
+  <text x="30" y="203" font-size="8" fill="var(--text-3)">credential</text>
+  <text x="30" y="375" font-size="8" fill="var(--text-3)">docker run --rm</text>
+  <text x="30" y="427" font-size="8" fill="var(--text-3)">trusted ledger only</text>
+
+  <!-- JIT config file annotation -->
+  <rect x="620" y="182" width="220" height="48" rx="4" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="730" y="200" text-anchor="middle" font-size="8" fill="var(--warn)">JIT config: FILE, never argv</text>
+  <text x="730" y="216" text-anchor="middle" font-size="7" fill="var(--text-2)">0600, per-job temp dir, rm on exit</text>
+  <text x="730" y="226" text-anchor="middle" font-size="7" fill="var(--text-2)">ADR-0003 / #133</text>
+  <line x1="540" y1="198" x2="618" y2="200" stroke="var(--warn)" stroke-width="0.8" stroke-dasharray="3,2"/>
+</svg>
+<figcaption>Job 資料流。注意 ack（DeleteMessage）發生在 container run <strong>之前</strong>，所以慢 job 不會阻塞 message session。JIT config 透過檔案傳遞（0600 + per-job temp dir + rm on exit），不走 argv（ADR-0003 / #133）。History capture 只寫 trusted ledger record（#124），不持久化 attacker-controlled stdout。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">5.</span> 從零建置</h2>
+
+<p class="desc">一台什麼都沒有的機器, 到跑完第一個 job。Ephemeral 路徑不經過 <code>init.sh</code> -- <code>deploy-listener.sh</code> 是自足的。</p>
+
+<figure>
+<svg viewBox="0 0 880 590" role="img" aria-label="Zero to first job: host prereqs, image, runner-types.yaml, deploy-listener.sh, first job">
+  <!-- Phase 0 -->
+  <circle cx="62" cy="52" r="14" fill="var(--go)" stroke="none"/>
+  <text x="62" y="56" text-anchor="middle" font-size="11" font-weight="600" fill="var(--bg)">0</text>
+  <rect x="92" y="22" width="758" height="60" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="110" y="42" font-size="10" font-weight="600" fill="var(--text-1)">Host 前置</text>
+  <text x="110" y="60" font-size="8" fill="var(--text-2)">docker · gh (已 auth, admin:org scope) · curl · jq · $USER 屬於 docker group</text>
+  <text x="110" y="75" font-size="8" fill="var(--text-3)">GPU host 另需: nvidia-smi 存在, 且 docker run --gpus all 實測可用</text>
+
+  <line x1="62" y1="66" x2="62" y2="112" stroke="var(--border)" stroke-width="1.5"/>
+
+  <!-- Phase 1 -->
+  <circle cx="62" cy="126" r="14" fill="var(--go)" stroke="none"/>
+  <text x="62" y="130" text-anchor="middle" font-size="11" font-weight="600" fill="var(--bg)">1</text>
+  <rect x="92" y="96" width="758" height="70" rx="6" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1"/>
+  <text x="110" y="116" font-size="10" font-weight="600" fill="var(--container)">準備 runner image</text>
+  <rect x="110" y="126" width="350" height="30" rx="4" fill="var(--surface)" stroke="var(--container)" stroke-width="0.8"/>
+  <text x="285" y="139" text-anchor="middle" font-size="8" fill="var(--text-1)">CPU: 官方 actions-runner</text>
+  <text x="285" y="151" text-anchor="middle" font-size="8" fill="var(--text-2)">用 @sha256 digest pin, 絕不用 :latest</text>
+  <rect x="478" y="126" width="356" height="30" rx="4" fill="var(--surface)" stroke="var(--container)" stroke-width="0.8"/>
+  <text x="656" y="139" text-anchor="middle" font-size="8" fill="var(--text-1)">GPU: build-runner-image.sh (SEC-5 base)</text>
+  <text x="656" y="151" text-anchor="middle" font-size="8" fill="var(--text-2)">→ runner-gpu.Dockerfile → push → pin digest</text>
+
+  <line x1="62" y1="140" x2="62" y2="196" stroke="var(--border)" stroke-width="1.5"/>
+
+  <!-- Phase 2 -->
+  <circle cx="62" cy="210" r="14" fill="var(--go)" stroke="none"/>
+  <text x="62" y="214" text-anchor="middle" font-size="11" font-weight="600" fill="var(--bg)">2</text>
+  <rect x="92" y="180" width="758" height="72" rx="6" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="110" y="200" font-size="10" font-weight="600" fill="var(--bash)">寫 runner-types.yaml</text>
+  <rect x="110" y="210" width="168" height="32" rx="4" fill="var(--surface)" stroke="var(--bash)" stroke-width="0.8"/>
+  <text x="194" y="224" text-anchor="middle" font-size="8" fill="var(--text-1)">scale_set</text>
+  <text x="194" y="236" text-anchor="middle" font-size="7" fill="var(--text-3)">只是識別碼</text>
+  <rect x="288" y="210" width="168" height="32" rx="4" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="372" y="224" text-anchor="middle" font-size="8" font-weight="600" fill="var(--warn)">labels</text>
+  <text x="372" y="236" text-anchor="middle" font-size="7" fill="var(--warn)">← runs-on 比對的路由鍵</text>
+  <rect x="466" y="210" width="168" height="32" rx="4" fill="var(--surface)" stroke="var(--bash)" stroke-width="0.8"/>
+  <text x="550" y="224" text-anchor="middle" font-size="8" fill="var(--text-1)">image</text>
+  <text x="550" y="236" text-anchor="middle" font-size="7" fill="var(--text-3)">Phase 1 的 digest</text>
+  <rect x="644" y="210" width="190" height="32" rx="4" fill="var(--surface)" stroke="var(--bash)" stroke-width="0.8"/>
+  <text x="739" y="224" text-anchor="middle" font-size="8" fill="var(--text-1)">concurrency</text>
+  <text x="739" y="236" text-anchor="middle" font-size="7" fill="var(--text-3)">省略 = reactive (ADR-0005)</text>
+
+  <line x1="62" y1="224" x2="62" y2="282" stroke="var(--border)" stroke-width="1.5"/>
+
+  <!-- Phase 3 -->
+  <circle cx="62" cy="296" r="14" fill="var(--go)" stroke="none"/>
+  <text x="62" y="300" text-anchor="middle" font-size="11" font-weight="600" fill="var(--bg)">3</text>
+  <rect x="92" y="266" width="758" height="166" rx="6" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.5"/>
+  <text x="110" y="286" font-size="10" font-weight="600" fill="var(--go)">sudo ./script/deploy-listener.sh --org-url https://github.com/&lt;org&gt;</text>
+  <text x="110" y="301" font-size="8" fill="var(--text-3)">先跑 --dry-run 看計畫; token 是互動 prompt, 沒有 --token 旗標</text>
+
+  <rect x="110" y="310" width="345" height="112" rx="5" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1"/>
+  <text x="282" y="329" text-anchor="middle" font-size="9" font-weight="600" fill="var(--github)">GitHub side</text>
+  <rect x="124" y="338" width="317" height="26" rx="4" fill="var(--surface)" stroke="var(--github)" stroke-width="0.8"/>
+  <text x="282" y="355" text-anchor="middle" font-size="8" fill="var(--text-1)">scaleset-admin create (建 scale set)</text>
+  <text x="282" y="380" text-anchor="middle" font-size="8" fill="var(--text-2)">冪等: 已存在就回報 id 並跳過</text>
+  <text x="282" y="396" text-anchor="middle" font-size="8" fill="var(--text-2)">labels 在此刻寫死進 scale set</text>
+  <text x="282" y="412" text-anchor="middle" font-size="8" fill="var(--text-3)">第二台機器: --skip-github</text>
+
+  <rect x="472" y="310" width="362" height="112" rx="5" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1"/>
+  <text x="653" y="329" text-anchor="middle" font-size="9" font-weight="600" fill="var(--go)">Local side</text>
+  <text x="653" y="349" text-anchor="middle" font-size="8" fill="var(--text-1)">build + install binary (容器內編譯, host 免 Go)</text>
+  <text x="653" y="365" text-anchor="middle" font-size="8" fill="var(--text-1)">→ 建 service user (ci-runner)</text>
+  <text x="653" y="381" text-anchor="middle" font-size="8" fill="var(--text-1)">→ 寫 env file (0600, 存 token)</text>
+  <text x="653" y="397" text-anchor="middle" font-size="8" fill="var(--text-1)">→ 裝 systemd unit → enable + start</text>
+  <text x="653" y="413" text-anchor="middle" font-size="8" fill="var(--text-2)">→ verify (確認真的連上並回報 capacity)</text>
+
+  <line x1="62" y1="310" x2="62" y2="462" stroke="var(--border)" stroke-width="1.5"/>
+
+  <!-- Phase 4 -->
+  <circle cx="62" cy="476" r="14" fill="var(--container)" stroke="none"/>
+  <text x="62" y="480" text-anchor="middle" font-size="11" font-weight="600" fill="var(--bg)">4</text>
+  <rect x="92" y="446" width="758" height="60" rx="6" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1.5"/>
+  <text x="110" y="466" font-size="10" font-weight="600" fill="var(--container)">跑第一個 job</text>
+  <text x="110" y="484" font-size="8" fill="var(--text-1)">貼上 deploy 印出的那行 runs-on: [...] -- 那是 labels, 不是 scale set 名字</text>
+  <text x="110" y="499" font-size="8" fill="var(--text-3)">job 的 REST status 被指派後仍是 queued, 所以看 journalctl -u scaleset-listener -f 而不是看 queued 欄位</text>
+
+  <!-- Legacy strip -->
+  <rect x="30" y="528" width="820" height="52" rx="5" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1" stroke-dasharray="5,3"/>
+  <text x="48" y="548" font-size="9" font-weight="600" fill="var(--warn)">Classic 路徑 (退場中) -- 與上面五個 phase 完全無關</text>
+  <text x="48" y="565" font-size="8" fill="var(--text-2)">init.sh (prereq check + 快取 tarball) → add-runner.sh --persistent (config.sh + svc.sh install). 新部署一律走上面的 ephemeral 路徑。</text>
+</svg>
+<figcaption>從零到第一個 job 的五個 phase。<strong>Ephemeral 路徑不使用 <code>init.sh</code></strong> -- <code>deploy-listener.sh</code> 自己處理所有前置 (連 admin 工具都會自己 build)。Phase 2 的 <code>labels</code> 是唯一的路由鍵: 寫錯不會報錯, job 只會靜靜卡在 queued。Phase 3 一個指令涵蓋 GitHub 側與本地側, 且每步冪等 -- 中斷後重跑是正常用法。<code>init.sh</code> / <code>add-runner.sh</code> 屬於 classic 路徑, 正在退場。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">6.</span> 擴充路徑</h2>
+
+<p class="desc">已經有一個 runner type 在跑之後, 四種擴充方向 -- 各自的動作與代價不同。</p>
+
+<figure>
+<svg viewBox="0 0 880 372" role="img" aria-label="Four scale-out axes: add host, add runner type, per-host concurrency, change routing labels">
+  <!-- Axis 1: add host -->
+  <rect x="30" y="20" width="180" height="64" rx="5" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1.5"/>
+  <text x="120" y="44" text-anchor="middle" font-size="10" font-weight="600" fill="var(--container)">同 type 加機器</text>
+  <text x="120" y="62" text-anchor="middle" font-size="8" fill="var(--text-2)">水平擴充</text>
+  <text x="120" y="76" text-anchor="middle" font-size="8" fill="var(--text-2)">吞吐量 × N</text>
+  <line x1="210" y1="52" x2="248" y2="52" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <rect x="250" y="20" width="400" height="64" rx="5" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="266" y="42" font-size="8" fill="var(--text-1)">在新機器上: sudo ./script/deploy-listener.sh --skip-github</text>
+  <text x="266" y="58" font-size="8" fill="var(--text-2)">scale set 已存在, GitHub 側完全不需動作</text>
+  <text x="266" y="74" font-size="8" fill="var(--text-3)">多台 listener 同時連同一個 scale set, GitHub 負責分派</text>
+  <rect x="668" y="30" width="182" height="44" rx="5" fill="var(--container-soft)" stroke="var(--container)" stroke-width="1"/>
+  <text x="759" y="48" text-anchor="middle" font-size="9" font-weight="600" fill="var(--container)">最便宜</text>
+  <text x="759" y="64" text-anchor="middle" font-size="8" fill="var(--container)">一個指令, 無 GitHub 變更</text>
+
+  <!-- Axis 2: add runner type -->
+  <rect x="30" y="98" width="180" height="76" rx="5" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.5"/>
+  <text x="120" y="122" text-anchor="middle" font-size="10" font-weight="600" fill="var(--bash)">加新 runner type</text>
+  <text x="120" y="140" text-anchor="middle" font-size="8" fill="var(--text-2)">例如已有 gpu, 要加 cpu</text>
+  <text x="120" y="156" text-anchor="middle" font-size="8" fill="var(--text-2)">新的 labels / image</text>
+  <line x1="210" y1="136" x2="248" y2="136" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <rect x="250" y="98" width="400" height="76" rx="5" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="266" y="118" font-size="8" fill="var(--text-1)">1. runner-types.yaml 新增一筆 entry (不是改程式)</text>
+  <text x="266" y="134" font-size="8" fill="var(--text-1)">2. scaleset-admin create --type &lt;新&gt;</text>
+  <text x="266" y="150" font-size="8" fill="var(--warn)">3. 需要第二個 systemd unit + 第二個 env file</text>
+  <text x="266" y="165" font-size="7" fill="var(--text-3)">一個 listener process 只服務一個 scale set</text>
+  <rect x="668" y="108" width="182" height="56" rx="5" fill="var(--bash-soft)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="759" y="126" text-anchor="middle" font-size="9" font-weight="600" fill="var(--bash)">有手工步驟</text>
+  <text x="759" y="141" text-anchor="middle" font-size="7" fill="var(--bash)">env file 路徑寫死, 同機第二型</text>
+  <text x="759" y="154" text-anchor="middle" font-size="7" fill="var(--bash)">要自訂 --etc + LISTENER_UNIT_NAME</text>
+
+  <!-- Axis 3: per-host concurrency -->
+  <rect x="30" y="188" width="180" height="76" rx="5" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.5"/>
+  <text x="120" y="212" text-anchor="middle" font-size="10" font-weight="600" fill="var(--go)">單機並發</text>
+  <text x="120" y="230" text-anchor="middle" font-size="8" fill="var(--text-2)">同一台跑更多 job</text>
+  <text x="120" y="246" text-anchor="middle" font-size="8" fill="var(--text-2)">垂直擴充</text>
+  <line x1="210" y1="226" x2="248" y2="226" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <rect x="250" y="188" width="400" height="76" rx="5" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="266" y="208" font-size="8" font-weight="600" fill="var(--warn)">沒有 count 旋鈕 -- ADR-0005 已移除</text>
+  <text x="266" y="224" font-size="8" fill="var(--text-1)">並發數由 live headroom 推導, 不是設定出來的</text>
+  <text x="266" y="240" font-size="8" fill="var(--text-1)">能動的只有: 加硬體, 或把 reserve 往 10 調低</text>
+  <text x="266" y="255" font-size="7" fill="var(--text-3)">GPU type (mode: auto): 插一張卡 = 多一個 slot</text>
+  <rect x="668" y="198" width="182" height="56" rx="5" fill="var(--go-soft)" stroke="var(--go)" stroke-width="1"/>
+  <text x="759" y="216" text-anchor="middle" font-size="9" font-weight="600" fill="var(--go)">自動</text>
+  <text x="759" y="231" text-anchor="middle" font-size="7" fill="var(--go)">reserve 只能往上 (最低 10%)</text>
+  <text x="759" y="244" text-anchor="middle" font-size="7" fill="var(--go)">改完重啟 listener 即可</text>
+
+  <!-- Axis 4: change routing labels -->
+  <rect x="30" y="278" width="180" height="80" rx="5" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1.5"/>
+  <text x="120" y="302" text-anchor="middle" font-size="10" font-weight="600" fill="var(--warn)">改路由 labels</text>
+  <text x="120" y="320" text-anchor="middle" font-size="8" fill="var(--text-2)">改變 workflow 怎麼打中</text>
+  <text x="120" y="336" text-anchor="middle" font-size="8" fill="var(--text-2)">這個 runner type</text>
+  <line x1="210" y1="318" x2="248" y2="318" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <rect x="250" y="278" width="400" height="80" rx="5" fill="var(--surface)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="266" y="298" font-size="8" fill="var(--text-1)">labels 在 scale set 建立時固定</text>
+  <text x="266" y="314" font-size="8" fill="var(--warn)">set-labels.sh 對 scale set 無效 (只對 classic runner)</text>
+  <text x="266" y="330" font-size="8" fill="var(--text-2)">標準 REST 看不到 scale set, 只能走 actions-service API</text>
+  <text x="266" y="346" font-size="7" fill="var(--text-3)">UpdateRunnerScaleSet 可就地改, 但目前沒有包成指令</text>
+  <rect x="668" y="288" width="182" height="60" rx="5" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="759" y="306" text-anchor="middle" font-size="9" font-weight="600" fill="var(--warn)">目前缺口</text>
+  <text x="759" y="321" text-anchor="middle" font-size="7" fill="var(--warn)">要改就得刪掉重建 scale set</text>
+  <text x="759" y="334" text-anchor="middle" font-size="7" fill="var(--warn)">或直接改 GitHub UI</text>
+  <text x="759" y="346" text-anchor="middle" font-size="7" fill="var(--text-3)">專用指令待補</text>
+</svg>
+<figcaption>四條擴充軸, 代價由低到高。<strong>加機器</strong>最便宜 (<code>--skip-github</code>, 無 GitHub 變更)。<strong>加 type</strong> 是設定變更不是程式變更, 但同一台機器跑第二型需要第二個 unit + 第二個 env file (<code>LISTENER_ENV_FILE</code> 路徑寫死, 得自訂 <code>--etc</code> 與 <code>LISTENER_UNIT_NAME</code>)。<strong>單機並發</strong>已無 count 旋鈕 (ADR-0005), 只能加硬體或調 <code>reserve</code>。<strong>改 labels</strong> 是目前的缺口: scale set 的 labels 建立後固定, <code>set-labels.sh</code> 只作用於 classic runner。</figcaption>
+</figure>
+
+<div class="callout callout-warn">
+  <strong>最貴的錯誤是 labels 寫錯。</strong> 它不會報錯 -- job 只會靜靜卡在 <code>queued</code>, 而且 job 的 REST status 在被指派給 scale set 之後<em>本來就</em>還是 <code>queued</code>, 所以 <code>queued</code> 本身不構成證據。以 <code>scaleset-admin</code> 印出的那行 <code>runs-on:</code> 為準。
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="num">7.</span> Deploy 流程</h2>
+
+<p class="desc"><code>deploy-listener.sh</code> 的執行路徑 -- 第 5 節 Phase 3 的展開。</p>
+
+<figure>
+<svg viewBox="0 0 880 420" role="img" aria-label="deploy-listener.sh flow: GitHub side + Local side">
+  <!-- Start -->
+  <rect x="340" y="10" width="200" height="30" rx="15" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.5"/>
+  <text x="440" y="30" text-anchor="middle" font-size="9" fill="var(--bash)">deploy-listener.sh --org-url</text>
+
+  <line x1="440" y1="40" x2="440" y2="56" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- resolve config -->
+  <rect x="350" y="58" width="180" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="440" y="76" text-anchor="middle" font-size="8" fill="var(--text-1)">resolve runner-type config</text>
+
+  <line x1="440" y1="84" x2="440" y2="98" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- resolve admin bin -->
+  <rect x="350" y="100" width="180" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="440" y="118" text-anchor="middle" font-size="8" fill="var(--text-1)">resolve/build scaleset-admin</text>
+
+  <line x1="440" y1="126" x2="440" y2="140" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- read config via Go -->
+  <rect x="350" y="142" width="180" height="26" rx="4" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1"/>
+  <text x="440" y="160" text-anchor="middle" font-size="8" fill="var(--go)">config via scaleset-admin (Go parser)</text>
+
+  <line x1="440" y1="168" x2="440" y2="182" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- print plan -->
+  <rect x="350" y="184" width="180" height="26" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="440" y="202" text-anchor="middle" font-size="8" fill="var(--text-1)">print plan + confirm</text>
+
+  <line x1="440" y1="210" x2="440" y2="224" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- prompt token -->
+  <rect x="350" y="226" width="180" height="26" rx="4" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="440" y="244" text-anchor="middle" font-size="8" fill="var(--warn)">prompt token (never argv)</text>
+
+  <line x1="440" y1="252" x2="440" y2="266" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- Fork: GitHub side / Local side -->
+  <!-- GitHub side -->
+  <rect x="160" y="268" width="200" height="28" rx="4" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1.2"/>
+  <text x="260" y="287" text-anchor="middle" font-size="9" fill="var(--github)">GitHub: scaleset-admin create</text>
+  <line x1="440" y1="266" x2="262" y2="266" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <!-- Local side -->
+  <rect x="520" y="268" width="200" height="28" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="620" y="287" text-anchor="middle" font-size="9" fill="var(--bash)">Local: build + install</text>
+  <line x1="440" y1="266" x2="518" y2="268" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <!-- Local steps -->
+  <line x1="620" y1="296" x2="620" y2="310" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <rect x="530" y="312" width="180" height="22" rx="3" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="620" y="328" text-anchor="middle" font-size="8" fill="var(--text-1)">ensure service user (ci-runner)</text>
+  <line x1="620" y1="334" x2="620" y2="346" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <rect x="530" y="348" width="180" height="22" rx="3" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="620" y="364" text-anchor="middle" font-size="8" fill="var(--text-1)">write env file (0600, token)</text>
+  <line x1="620" y1="370" x2="620" y2="382" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <rect x="530" y="384" width="180" height="22" rx="3" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="620" y="400" text-anchor="middle" font-size="8" fill="var(--text-1)">install unit + enable + start + verify</text>
+</svg>
+<figcaption>Deploy 流程。分兩半：GitHub side（create scale set if absent）與 Local side（build、install、service user、env file、systemd unit）。每步 idempotent，re-run 跳過已完成步驟。Token 以互動 prompt 取得，不走 argv。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">8.</span> Teardown 流程</h2>
+
+<p class="desc"><code>teardown-listener.sh</code>：deploy 的反向操作，只影響本機。</p>
+
+<figure>
+<svg viewBox="0 0 880 240" role="img" aria-label="teardown-listener.sh flow: stop, disable, remove unit, remove env, remove prefix">
+  <rect x="340" y="10" width="200" height="30" rx="15" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.5"/>
+  <text x="440" y="30" text-anchor="middle" font-size="9" fill="var(--bash)">teardown-listener.sh</text>
+
+  <line x1="440" y1="40" x2="440" y2="56" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <rect x="350" y="58" width="180" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="440" y="75" text-anchor="middle" font-size="8" fill="var(--text-1)">print plan + confirm</text>
+
+  <line x1="440" y1="82" x2="440" y2="96" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- Steps in a row -->
+  <rect x="60" y="98" width="130" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="125" y="115" text-anchor="middle" font-size="8" fill="var(--text-1)">stop unit</text>
+  <rect x="210" y="98" width="130" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="275" y="115" text-anchor="middle" font-size="8" fill="var(--text-1)">disable unit</text>
+  <rect x="360" y="98" width="130" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="425" y="115" text-anchor="middle" font-size="8" fill="var(--text-1)">remove unit file</text>
+  <rect x="510" y="98" width="130" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="575" y="115" text-anchor="middle" font-size="8" fill="var(--text-1)">remove env file</text>
+  <rect x="660" y="98" width="130" height="24" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="725" y="115" text-anchor="middle" font-size="8" fill="var(--text-1)">remove prefix</text>
+
+  <line x1="190" y1="110" x2="208" y2="110" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <line x1="340" y1="110" x2="358" y2="110" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <line x1="490" y1="110" x2="508" y2="110" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+  <line x1="640" y1="110" x2="658" y2="110" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <rect x="200" y="150" width="480" height="36" rx="4" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1"/>
+  <text x="440" y="168" text-anchor="middle" font-size="8" fill="var(--github)">scale set on GitHub: NOT touched (shared by every machine serving this type)</text>
+  <text x="440" y="180" text-anchor="middle" font-size="7" fill="var(--text-3)">delete separately: scaleset-admin delete --config ... --type ... --yes</text>
+
+  <rect x="350" y="200" width="180" height="24" rx="12" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="440" y="216" text-anchor="middle" font-size="8" fill="var(--text-2)">this machine no longer serves</text>
+</svg>
+<figcaption>Teardown 流程。只拆本機的 local side；scale set 是跨機器共享資源，不刪。每步 idempotent，已 absent 的就跳過。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">9.</span> Status 查詢流程</h2>
+
+<p class="desc"><code>status.sh</code> 列出本機的 runner 並交叉比對 GitHub 狀態。</p>
+
+<figure>
+<svg viewBox="0 0 880 200" role="img" aria-label="status.sh flow: list local runners, query GitHub, render table">
+  <rect x="30" y="30" width="160" height="140" rx="6" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="110" y="52" text-anchor="middle" font-size="9" font-weight="500" fill="var(--bash)">Local</text>
+  <rect x="45" y="60" width="130" height="22" rx="3" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="110" y="76" text-anchor="middle" font-size="8" fill="var(--text-1)">list_runners()</text>
+  <rect x="45" y="90" width="130" height="22" rx="3" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="110" y="106" text-anchor="middle" font-size="8" fill="var(--text-1)">runner_service_running</text>
+  <text x="110" y="140" text-anchor="middle" font-size="8" fill="var(--text-2)">LOCAL-SVC: running/stopped</text>
+
+  <rect x="230" y="30" width="200" height="140" rx="6" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1.2"/>
+  <text x="330" y="52" text-anchor="middle" font-size="9" font-weight="500" fill="var(--github)">GitHub API</text>
+  <rect x="245" y="60" width="170" height="22" rx="3" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="330" y="76" text-anchor="middle" font-size="8" fill="var(--text-1)">github_runner_status</text>
+  <rect x="245" y="90" width="170" height="22" rx="3" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="330" y="106" text-anchor="middle" font-size="8" fill="var(--text-1)">github_public_dispatch_status</text>
+  <rect x="245" y="120" width="170" height="22" rx="3" fill="var(--surface)" stroke="var(--github-soft)" stroke-width="1"/>
+  <text x="330" y="136" text-anchor="middle" font-size="8" fill="var(--text-1)">github_fork_pr_approval_policy</text>
+
+  <rect x="470" y="30" width="200" height="140" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1.2"/>
+  <text x="570" y="52" text-anchor="middle" font-size="9" font-weight="500" fill="var(--text-1)">Output</text>
+  <rect x="485" y="64" width="170" height="20" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="570" y="79" text-anchor="middle" font-size="7" fill="var(--text-1)">NAME SCOPE LOCAL-SVC GITHUB ...</text>
+  <text x="570" y="100" text-anchor="middle" font-size="8" fill="var(--text-2)">--watch: periodic refresh</text>
+  <text x="570" y="116" text-anchor="middle" font-size="8" fill="var(--text-2)">--json: machine-readable</text>
+  <text x="570" y="132" text-anchor="middle" font-size="8" fill="var(--text-2)">--check: exit 1 if unhealthy</text>
+
+  <line x1="190" y1="100" x2="228" y2="100" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <line x1="430" y1="100" x2="468" y2="100" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- Columns legend -->
+  <rect x="700" y="30" width="160" height="140" rx="6" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1"/>
+  <text x="780" y="50" text-anchor="middle" font-size="9" font-weight="500" fill="var(--text-2)">Columns</text>
+  <text x="715" y="68" font-size="7.5" fill="var(--text-1)">NAME</text>
+  <text x="715" y="82" font-size="7.5" fill="var(--text-1)">SCOPE (org/repo)</text>
+  <text x="715" y="96" font-size="7.5" fill="var(--text-1)">LOCAL-SVC</text>
+  <text x="715" y="110" font-size="7.5" fill="var(--text-1)">GITHUB (online/offline)</text>
+  <text x="715" y="124" font-size="7.5" fill="var(--text-1)">PUBLIC-DISPATCH</text>
+  <text x="715" y="138" font-size="7.5" fill="var(--text-1)">APPROVAL-GATE</text>
+  <text x="715" y="152" font-size="7.5" fill="var(--text-1)">LABELS</text>
+</svg>
+<figcaption>Status 查詢。交叉比對本機 systemd 服務狀態與 GitHub REST API 回報的 online/offline，加上 public-repo dispatch flag 和 fork-PR approval gate。<code>--check</code> mode 適合 cron / monitoring。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">10.</span> Cleanup 流程</h2>
+
+<p class="desc"><code>cleanup.sh</code> 清理 runner 殘留。可排程（<code>schedule-cleanup.sh</code>）。</p>
+
+<figure>
+<svg viewBox="0 0 880 220" role="img" aria-label="cleanup.sh categories: stale bins, old tarballs, update remnants, old diag logs, work caches">
+  <rect x="40" y="20" width="800" height="180" rx="8" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/>
+  <text x="440" y="46" text-anchor="middle" font-size="11" font-weight="600" fill="var(--text-1)">cleanup.sh 清理範圍</text>
+
+  <rect x="60" y="60" width="140" height="60" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="130" y="80" text-anchor="middle" font-size="8" font-weight="500" fill="var(--bash)">1. 舊版 bin/ext</text>
+  <text x="130" y="96" text-anchor="middle" font-size="7" fill="var(--text-2)">bin.X / externals.X</text>
+  <text x="130" y="110" text-anchor="middle" font-size="7" fill="var(--text-2)">~600 MB each</text>
+
+  <rect x="220" y="60" width="140" height="60" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="290" y="80" text-anchor="middle" font-size="8" font-weight="500" fill="var(--bash)">2. 舊 tarball</text>
+  <text x="290" y="96" text-anchor="middle" font-size="7" fill="var(--text-2)">.bin/ cached tarballs</text>
+  <text x="290" y="110" text-anchor="middle" font-size="7" fill="var(--text-2)">keep highest only</text>
+
+  <rect x="380" y="60" width="140" height="60" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="450" y="80" text-anchor="middle" font-size="8" font-weight="500" fill="var(--bash)">3. Update remnants</text>
+  <text x="450" y="96" text-anchor="middle" font-size="7" fill="var(--text-2)">_work/_update/</text>
+  <text x="450" y="110" text-anchor="middle" font-size="7" fill="var(--text-2)">_work/_update.sh</text>
+
+  <rect x="540" y="60" width="140" height="60" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="610" y="80" text-anchor="middle" font-size="8" font-weight="500" fill="var(--bash)">4. _diag logs</text>
+  <text x="610" y="96" text-anchor="middle" font-size="7" fill="var(--text-2)">older than 14 days</text>
+  <text x="610" y="110" text-anchor="middle" font-size="7" fill="var(--text-2)">RUNNER_DIAG_KEEP_DAYS</text>
+
+  <rect x="700" y="60" width="120" height="60" rx="4" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1"/>
+  <text x="760" y="80" text-anchor="middle" font-size="8" font-weight="500" fill="var(--container)">5. Work caches</text>
+  <text x="760" y="96" text-anchor="middle" font-size="7" fill="var(--text-2)">--work-caches opt-in</text>
+  <text x="760" y="110" text-anchor="middle" font-size="7" fill="var(--text-2)">idle runners only</text>
+
+  <text x="440" y="148" text-anchor="middle" font-size="8" fill="var(--text-2)">+ history retention (ADR-0002): size cap + age cap, oldest-first eviction</text>
+  <text x="440" y="166" text-anchor="middle" font-size="8" fill="var(--text-2)">+ disk pressure warning at RUNNER_DISK_WARN_PCT (default 90%)</text>
+  <text x="440" y="184" text-anchor="middle" font-size="8" fill="var(--warn)">SEC: every rm -rf canonicalized + anchored under RUNNER_HOME (#144)</text>
+</svg>
+<figcaption>Cleanup 清理 runner 自動更新遺留的過期產物, 加上 job history retention 管控。<code>schedule-cleanup.sh</code> 可安裝 user crontab 條目，以 <code>flock -n</code> 防疊、log 到 <code>.cleanup.log</code>。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">11.</span> Remove / Update / Set-labels 流程</h2>
+
+<p class="desc">互不相干的 runner 生命週期操作。</p>
+
+<figure>
+<svg viewBox="0 0 880 260" role="img" aria-label="Three operator flows: remove-runner, update, set-labels">
+  <!-- remove-runner -->
+  <rect x="20" y="20" width="270" height="220" rx="6" fill="var(--surface)" stroke="var(--warn)" stroke-width="1.2"/>
+  <text x="155" y="44" text-anchor="middle" font-size="10" font-weight="600" fill="var(--warn)">remove-runner.sh</text>
+  <rect x="40" y="56" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="155" y="72" text-anchor="middle" font-size="8" fill="var(--text-1)">1. plan + confirm (destructive)</text>
+  <rect x="40" y="86" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="155" y="102" text-anchor="middle" font-size="8" fill="var(--text-1)">2. require_gh_auth + fetch remove-token</text>
+  <rect x="40" y="116" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="155" y="132" text-anchor="middle" font-size="8" fill="var(--text-1)">3. stop service</text>
+  <rect x="40" y="146" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="155" y="162" text-anchor="middle" font-size="8" fill="var(--text-1)">4. uninstall service</text>
+  <rect x="40" y="176" width="230" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="155" y="192" text-anchor="middle" font-size="8" fill="var(--text-1)">5. deregister from GitHub</text>
+  <rect x="40" y="206" width="230" height="22" rx="3" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="155" y="222" text-anchor="middle" font-size="8" fill="var(--warn)">6. rm -rf runner dir (anchored)</text>
+
+  <!-- update -->
+  <rect x="310" y="20" width="250" height="220" rx="6" fill="var(--surface)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="435" y="44" text-anchor="middle" font-size="10" font-weight="600" fill="var(--go)">update.sh</text>
+  <rect x="325" y="56" width="220" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="435" y="72" text-anchor="middle" font-size="8" fill="var(--text-1)">1. resolve_runner_version</text>
+  <rect x="325" y="86" width="220" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="435" y="102" text-anchor="middle" font-size="8" fill="var(--text-1)">2. download + verify tarball (SEC-5)</text>
+  <rect x="325" y="116" width="220" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="435" y="132" text-anchor="middle" font-size="8" fill="var(--text-1)">3. for each runner: stop</text>
+  <rect x="325" y="146" width="220" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="435" y="162" text-anchor="middle" font-size="8" fill="var(--text-1)">4. tar --skip-old-files</text>
+  <rect x="325" y="176" width="220" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="435" y="192" text-anchor="middle" font-size="8" fill="var(--text-1)">5. start (even if extract failed)</text>
+  <text x="435" y="222" text-anchor="middle" font-size="8" fill="var(--text-2)">independent per runner; summary</text>
+
+  <!-- set-labels -->
+  <rect x="580" y="20" width="280" height="220" rx="6" fill="var(--surface)" stroke="var(--github)" stroke-width="1.2"/>
+  <text x="720" y="44" text-anchor="middle" font-size="10" font-weight="600" fill="var(--github)">set-labels.sh</text>
+  <rect x="600" y="56" width="240" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="720" y="72" text-anchor="middle" font-size="8" fill="var(--text-1)">1. resolve_target (org/repo)</text>
+  <rect x="600" y="86" width="240" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="720" y="102" text-anchor="middle" font-size="8" fill="var(--text-1)">2. validate_labels ([A-Za-z0-9_-])</text>
+  <rect x="600" y="116" width="240" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="720" y="132" text-anchor="middle" font-size="8" fill="var(--text-1)">3. read agentId from .runner</text>
+  <rect x="600" y="146" width="240" height="22" rx="3" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="720" y="162" text-anchor="middle" font-size="8" fill="var(--text-1)">4. require_gh_auth</text>
+  <rect x="600" y="176" width="240" height="22" rx="3" fill="var(--github-fill)" stroke="var(--github)" stroke-width="1"/>
+  <text x="720" y="192" text-anchor="middle" font-size="8" fill="var(--github)">5. github_set_labels (PUT replace)</text>
+  <text x="720" y="222" text-anchor="middle" font-size="8" fill="var(--text-2)">classic runners only (REST API)</text>
+</svg>
+<figcaption>互不相干的操作。<code>remove-runner.sh</code> 在拆服務<strong>前</strong>先取 remove-token（避免 half-removed 狀態）。<code>update.sh</code> 逐 runner 獨立升級，單一失敗不中斷其他。<code>set-labels.sh</code> 透過 GitHub REST PUT replace custom labels（僅 classic runner；scale set labels 用 <code>scaleset-admin</code>）。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">12.</span> Provision 生命週期</h2>
+
+<p class="desc">Go listener 內部的 per-job 生命週期：從 worker pool acquire 到 container teardown。</p>
+
+<figure>
+<svg viewBox="0 0 880 320" role="img" aria-label="Per-job provision lifecycle inside the Go listener">
+  <!-- Semaphore acquire -->
+  <rect x="40" y="30" width="160" height="50" rx="6" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="120" y="52" text-anchor="middle" font-size="9" font-weight="500" fill="var(--go)">sem <- struct{}{}</text>
+  <text x="120" y="68" text-anchor="middle" font-size="7" fill="var(--text-2)">acquire worker slot</text>
+
+  <line x1="200" y1="55" x2="240" y2="55" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- inFlight.Add(1) + track -->
+  <rect x="242" y="30" width="160" height="50" rx="6" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="322" y="52" text-anchor="middle" font-size="9" fill="var(--go)">inFlight.Add(1)</text>
+  <text x="322" y="68" text-anchor="middle" font-size="7" fill="var(--text-2)">track(jobID) refcount</text>
+
+  <line x1="402" y1="55" x2="440" y2="55" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- go func provision -->
+  <rect x="442" y="20" width="200" height="70" rx="6" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.5"/>
+  <text x="542" y="44" text-anchor="middle" font-size="10" font-weight="500" fill="var(--bash)">go func { Provision }</text>
+  <text x="542" y="62" text-anchor="middle" font-size="8" fill="var(--text-2)">provision-job.sh exec</text>
+  <text x="542" y="78" text-anchor="middle" font-size="7" fill="var(--text-3)">stdout/stderr -> /dev/null (#154)</text>
+
+  <line x1="642" y1="55" x2="680" y2="55" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- exit status -->
+  <rect x="682" y="30" width="160" height="50" rx="6" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="762" y="52" text-anchor="middle" font-size="9" fill="var(--go)">logJobCompleted</text>
+  <text x="762" y="68" text-anchor="middle" font-size="7" fill="var(--text-2)">exit code + duration</text>
+
+  <!-- Defers row -->
+  <line x1="762" y1="80" x2="762" y2="120" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <rect x="40" y="120" width="800" height="36" rx="4" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1"/>
+  <text x="440" y="143" text-anchor="middle" font-size="9" fill="var(--text-1)">defer: inFlight.Add(-1)  |  untrack(jobID)  |  &lt;-sem (release slot)  |  wg.Done()</text>
+
+  <!-- Inside provision-job.sh -->
+  <line x1="542" y1="90" x2="542" y2="180" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <rect x="40" y="182" width="800" height="120" rx="8" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="440" y="204" text-anchor="middle" font-size="10" font-weight="600" fill="var(--bash)">provision-job.sh internal</text>
+
+  <rect x="60" y="216" width="170" height="28" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="145" y="235" text-anchor="middle" font-size="8" fill="var(--text-1)">mktemp runner_dir</text>
+
+  <line x1="230" y1="230" x2="256" y2="230" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <rect x="258" y="216" width="180" height="28" rx="4" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1.2"/>
+  <text x="348" y="235" text-anchor="middle" font-size="8" fill="var(--container)">runner_container_run_bounded</text>
+
+  <line x1="438" y1="230" x2="462" y2="230" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <rect x="464" y="216" width="170" height="28" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="549" y="235" text-anchor="middle" font-size="8" fill="var(--text-1)">runner_history_capture</text>
+
+  <line x1="634" y1="230" x2="658" y2="230" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <rect x="660" y="216" width="160" height="28" rx="4" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="740" y="235" text-anchor="middle" font-size="8" fill="var(--warn)">trap: rm -rf runner_dir</text>
+
+  <text x="440" y="280" text-anchor="middle" font-size="8" fill="var(--text-3)">container: single-use, --rm, JIT config consumed once, no state survives</text>
+</svg>
+<figcaption>Per-job provision 生命週期。Go 管理 worker pool（sem + inFlight + tracked refcount）；Bash 管理 container lifecycle（mktemp -> docker run --rm -> history capture -> rm -rf）。Container stdout/stderr 不轉發到 journald（#154 root-cause fix）。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">13.</span> 反應式准入</h2>
+
+<p class="desc">ADR-0005 的 CPU/RAM reactive live-admission。每個 job 准入前以 live host reading 判斷。</p>
+
+<figure>
+<svg viewBox="0 0 880 380" role="img" aria-label="Reactive admission flow: probe, admits(), settle, re-probe loop">
+  <!-- capacityFor (poll-time) -->
+  <rect x="30" y="20" width="380" height="150" rx="8" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="220" y="44" text-anchor="middle" font-size="10" font-weight="600" fill="var(--go)">capacityFor (per poll)</text>
+
+  <rect x="50" y="56" width="140" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="120" y="75" text-anchor="middle" font-size="8" fill="var(--text-1)">probe.Probe(ctx)</text>
+
+  <line x1="190" y1="70" x2="210" y2="70" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <rect x="212" y="56" width="180" height="28" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="302" y="75" text-anchor="middle" font-size="8" fill="var(--text-1)">admitCount(h, inFlight, reserve, bound)</text>
+
+  <text x="220" y="108" text-anchor="middle" font-size="8" fill="var(--text-2)">far from line -> batch > 1</text>
+  <text x="220" y="124" text-anchor="middle" font-size="8" fill="var(--text-2)">near line -> 1 (serialize)</text>
+  <text x="220" y="140" text-anchor="middle" font-size="8" fill="var(--text-2)">over line -> 0 | probe err -> 1 (fail-safe)</text>
+
+  <!-- admitOne (per job) -->
+  <rect x="460" y="20" width="400" height="340" rx="8" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.5"/>
+  <text x="660" y="44" text-anchor="middle" font-size="10" font-weight="600" fill="var(--go)">admitOne (per job, mid-batch brake)</text>
+
+  <!-- Probe -->
+  <rect x="560" y="60" width="200" height="28" rx="4" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="660" y="79" text-anchor="middle" font-size="9" fill="var(--bash)">host-probe.sh -> /proc</text>
+
+  <line x1="660" y1="88" x2="660" y2="108" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- Go computes -->
+  <rect x="530" y="110" width="260" height="44" rx="4" fill="var(--surface)" stroke="var(--go-soft)" stroke-width="1"/>
+  <text x="660" y="130" text-anchor="middle" font-size="8" fill="var(--text-1)">CPU free = 1 - loadavg1/nproc</text>
+  <text x="660" y="146" text-anchor="middle" font-size="8" fill="var(--text-1)">MEM free = mem_available / mem_total</text>
+
+  <line x1="660" y1="154" x2="660" y2="174" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <!-- admits() decision -->
+  <polygon points="660,176 740,206 660,236 580,206" fill="var(--surface)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="660" y="204" text-anchor="middle" font-size="8" fill="var(--go)">admits()?</text>
+  <text x="660" y="216" text-anchor="middle" font-size="7" fill="var(--text-3)">every resource >= reserve</text>
+
+  <!-- Yes path -->
+  <line x1="740" y1="206" x2="790" y2="206" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <rect x="792" y="192" width="60" height="28" rx="14" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1"/>
+  <text x="822" y="210" text-anchor="middle" font-size="8" fill="var(--container)">admit</text>
+  <text x="765" y="200" font-size="7" fill="var(--container)">yes</text>
+
+  <!-- No path: settle + re-probe -->
+  <line x1="660" y1="236" x2="660" y2="260" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+  <text x="670" y="252" font-size="7" fill="var(--warn)">no</text>
+
+  <rect x="580" y="262" width="160" height="28" rx="4" fill="var(--surface)" stroke="var(--bash-soft)" stroke-width="1"/>
+  <text x="660" y="281" text-anchor="middle" font-size="8" fill="var(--text-1)">settle (3s default)</text>
+
+  <line x1="660" y1="290" x2="660" y2="312" stroke="var(--arrow)" stroke-width="1.2" marker-end="url(#ah)"/>
+
+  <text x="660" y="326" text-anchor="middle" font-size="8" fill="var(--text-3)">re-probe (loop)</text>
+  <!-- Loop back arrow -->
+  <line x1="660" y1="332" x2="660" y2="344" stroke="var(--arrow)" stroke-width="1"/>
+  <line x1="660" y1="344" x2="500" y2="344" stroke="var(--arrow)" stroke-width="1"/>
+  <line x1="500" y1="344" x2="500" y2="74" stroke="var(--arrow)" stroke-width="1"/>
+  <line x1="500" y1="74" x2="558" y2="74" stroke="var(--arrow)" stroke-width="1" marker-end="url(#ah)"/>
+
+  <!-- CPU lag prediction annotation -->
+  <rect x="30" y="200" width="380" height="80" rx="4" fill="var(--warn-soft)" stroke="var(--warn)" stroke-width="1"/>
+  <text x="220" y="220" text-anchor="middle" font-size="9" font-weight="500" fill="var(--warn)">CPU lag prediction</text>
+  <text x="220" y="238" text-anchor="middle" font-size="8" fill="var(--text-1)">cpuOK = Free[cpu] - (inFlight+1) * 1/nproc >= reserve</text>
+  <text x="220" y="256" text-anchor="middle" font-size="8" fill="var(--text-2)">loadavg lags a burst; in-flight count predicts unseen load</text>
+  <text x="220" y="270" text-anchor="middle" font-size="8" fill="var(--text-2)">memOK = Free[mem] >= reserve (instantaneous, no prediction)</text>
+
+  <!-- Reserve annotation -->
+  <rect x="30" y="310" width="380" height="46" rx="4" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1"/>
+  <text x="220" y="330" text-anchor="middle" font-size="8" fill="var(--text-1)">reserve: operator knob (default 10%, upward-only, min 10)</text>
+  <text x="220" y="346" text-anchor="middle" font-size="8" fill="var(--text-2)">sem ceiling: internal safety (nproc), not operator-set</text>
+</svg>
+<figcaption>反應式准入（ADR-0005）。准入在兩處發生：<code>capacityFor</code>（per poll，回報給 GitHub batch size）和 <code>admitOne</code>（per job，mid-batch brake）。CPU 使用 in-flight count 預測（loadavg 滯後），memory 直接讀取（即時）。Probe error fail-safe：准入（sem ceiling 是最後防線）。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">14.</span> Runner-type Config Schema</h2>
+
+<p class="desc"><code>deploy/runner-types.sample.yaml</code> 的 schema 與每個欄位的流向。</p>
+
+<div class="tbl-wrap">
+<table>
+<tr>
+  <th>Field</th>
+  <th>Required</th>
+  <th>Consumer</th>
+  <th>Description</th>
+</tr>
+<tr>
+  <td><code>name</code></td>
+  <td>yes</td>
+  <td>Go loader, logs</td>
+  <td>operator-facing id; unique across config</td>
+</tr>
+<tr>
+  <td><code>scale_set</code></td>
+  <td>yes</td>
+  <td>Go loader -> session</td>
+  <td>GitHub scale set identifier; unique. NOT the routing key</td>
+</tr>
+<tr>
+  <td><code>labels</code></td>
+  <td>yes</td>
+  <td>scaleset-admin create</td>
+  <td>THE routing key: what <code>runs-on</code> matches. Fixed at scale set creation</td>
+</tr>
+<tr>
+  <td><code>image</code></td>
+  <td>yes</td>
+  <td>ProvisionRequest</td>
+  <td>container image; pin by digest for supply-chain safety</td>
+</tr>
+<tr>
+  <td><code>devices</code></td>
+  <td>no</td>
+  <td>ProvisionRequest -> env</td>
+  <td>host device nodes for <code>--device</code> passthrough (no <code>--privileged</code>)</td>
+</tr>
+<tr>
+  <td><code>runtime</code></td>
+  <td>no</td>
+  <td>ProvisionRequest -> env</td>
+  <td>container runtime shim (e.g. <code>nvidia</code>); empty = engine default</td>
+</tr>
+<tr>
+  <td><code>build_tool</code></td>
+  <td>no</td>
+  <td>ProvisionRequest -> env</td>
+  <td>daemonless builder (<code>kaniko</code>/<code>buildkit</code>); empty = none</td>
+</tr>
+<tr>
+  <td><code>concurrency.mode</code></td>
+  <td>no</td>
+  <td>wiring.go</td>
+  <td><code>""</code> = reactive (default); <code>"auto"</code> = GPU device sizing</td>
+</tr>
+<tr>
+  <td><code>concurrency.reserve</code></td>
+  <td>no</td>
+  <td>reactive admission</td>
+  <td>percent headroom to keep free; 0 = default 10; upward-only, min 10</td>
+</tr>
+</table>
+</div>
+
+<div class="callout callout-warn">
+<strong>labels vs scale_set</strong>: <code>scale_set</code> 只是 identifier。Workflow 的 <code>runs-on</code> 匹配的是 <code>labels</code>。兩者只在 scale set 建立時 labels 設為 scale set name 的情況下才相同。搞錯的唯一症狀是 job 靜靜卡在 queued，沒有任何 error。
+</div>
+
+<!-- ============================================================ -->
+<h2><span class="num">15.</span> 目錄架構</h2>
+
+<figure>
+<svg viewBox="0 0 880 560" role="img" aria-label="Repository directory structure (2-3 levels)">
+  <text x="30" y="24" font-size="11" font-weight="600" fill="var(--text-1)">github_runner/src/</text>
+
+  <!-- listener/ (Go) -->
+  <rect x="30" y="36" width="400" height="250" rx="6" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1.2"/>
+  <text x="50" y="56" font-size="9" font-weight="500" fill="var(--go)">listener/</text>
+  <text x="70" y="74" font-size="8" fill="var(--text-1)">listener.go .......... core loop (Session, Provisioner, Reaper seams)</text>
+  <text x="70" y="90" font-size="8" fill="var(--text-1)">config.go ............ RunnerType, Concurrency, LoadConfig, validate</text>
+  <text x="70" y="106" font-size="8" fill="var(--text-1)">wiring.go ............ Instance, InstanceDeps, type -> config mapping</text>
+  <text x="70" y="122" font-size="8" fill="var(--text-1)">provisioner.go ....... ContainerProvisioner (shell-out bridge)</text>
+  <text x="70" y="138" font-size="8" fill="var(--text-1)">reaper.go ............ ScriptReaper (shell-out bridge)</text>
+  <text x="70" y="154" font-size="8" fill="var(--text-1)">hostprobe.go ......... HostResources, CommandHostProbe, admits()</text>
+  <text x="70" y="170" font-size="8" fill="var(--text-1)">detector.go .......... CommandDeviceDetector (GPU count)</text>
+  <text x="70" y="186" font-size="8" fill="var(--text-1)">minter.go ............ ClientJITMinter</text>
+  <text x="70" y="202" font-size="8" fill="var(--text-1)">joblog.go ............ JobLogger, JournalJobLogger</text>
+  <text x="70" y="218" font-size="8" fill="var(--text-1)">scalesetadmin.go ..... scale set CRUD + SelectType</text>
+  <text x="70" y="238" font-size="8" fill="var(--bash)">provision-job.sh ..... per-job container entrypoint</text>
+  <text x="70" y="254" font-size="8" fill="var(--bash)">reap.sh .............. orphan sweep entrypoint</text>
+  <text x="70" y="270" font-size="8" fill="var(--bash)">host-probe.sh ........ /proc reader for reactive admission</text>
+
+  <!-- cmd/ -->
+  <rect x="450" y="36" width="400" height="70" rx="6" fill="var(--go-fill)" stroke="var(--go)" stroke-width="1"/>
+  <text x="470" y="56" font-size="9" font-weight="500" fill="var(--go)">listener/cmd/</text>
+  <text x="490" y="74" font-size="8" fill="var(--text-1)">scaleset-listener/main.go ... production entrypoint</text>
+  <text x="490" y="90" font-size="8" fill="var(--text-1)">scaleset-admin/main.go ...... lifecycle CLI (create/delete)</text>
+
+  <!-- lib/ -->
+  <rect x="450" y="116" width="400" height="170" rx="6" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1.2"/>
+  <text x="470" y="136" font-size="9" font-weight="500" fill="var(--bash)">lib/</text>
+  <text x="490" y="154" font-size="8" fill="var(--text-1)">common.sh ............ shared utilities (RUNNER_HOME, auth, validation)</text>
+  <text x="490" y="170" font-size="8" fill="var(--text-1)">listener-deploy.sh ... deploy/teardown helpers</text>
+  <text x="490" y="186" font-size="8" fill="var(--text-1)">runner-container.sh .. container lifecycle (run, bounded-run)</text>
+  <text x="490" y="202" font-size="8" fill="var(--text-1)">runner-reaper.sh ..... orphan container + temp dir sweep</text>
+  <text x="490" y="218" font-size="8" fill="var(--text-1)">runner-history.sh .... job history capture + retention</text>
+  <text x="490" y="234" font-size="8" fill="var(--text-1)">runner-config.sh ..... classic runner registration (legacy)</text>
+  <text x="490" y="250" font-size="8" fill="var(--text-1)">runner-service.sh .... classic systemd service (legacy)</text>
+  <text x="490" y="266" font-size="8" fill="var(--text-1)">runner-release.sh .... tarball download + verify</text>
+  <text x="490" y="276" font-size="8" fill="var(--text-1)">runner-build.sh / runner-layout.sh</text>
+
+  <!-- script/ -->
+  <rect x="30" y="296" width="400" height="140" rx="6" fill="var(--bash-fill)" stroke="var(--bash)" stroke-width="1"/>
+  <text x="50" y="316" font-size="9" font-weight="500" fill="var(--bash)">script/ (operator CLI)</text>
+  <text x="70" y="334" font-size="8" fill="var(--text-1)">deploy-listener.sh ... one-command deploy</text>
+  <text x="70" y="350" font-size="8" fill="var(--text-1)">teardown-listener.sh . reverse of deploy (local only)</text>
+  <text x="70" y="366" font-size="8" fill="var(--text-1)">status.sh ............ cross-reference local + GitHub state</text>
+  <text x="70" y="382" font-size="8" fill="var(--text-1)">cleanup.sh ........... prune stale artifacts + history retention</text>
+  <text x="70" y="398" font-size="8" fill="var(--text-1)">remove-runner.sh / update.sh / set-labels.sh</text>
+  <text x="70" y="414" font-size="8" fill="var(--text-1)">schedule-cleanup.sh / history.sh / configure.sh / init.sh</text>
+
+  <!-- deploy/ -->
+  <rect x="450" y="296" width="400" height="80" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="470" y="316" font-size="9" font-weight="500" fill="var(--text-2)">deploy/</text>
+  <text x="490" y="334" font-size="8" fill="var(--text-1)">runner-types.sample.yaml ... runner-type config template</text>
+  <text x="490" y="350" font-size="8" fill="var(--text-1)">scaleset-listener.env.sample . env file template</text>
+  <text x="490" y="366" font-size="8" fill="var(--text-1)">scaleset-listener.service .. systemd unit</text>
+
+  <!-- doc/ -->
+  <rect x="30" y="446" width="400" height="100" rx="6" fill="var(--surface)" stroke="var(--border)" stroke-width="1"/>
+  <text x="50" y="466" font-size="9" font-weight="500" fill="var(--text-2)">doc/</text>
+  <text x="70" y="484" font-size="8" fill="var(--text-1)">PRD.md ............... principles, invariants, design principles</text>
+  <text x="70" y="500" font-size="8" fill="var(--text-1)">adr/ ................. ADR-0001 ~ 0005</text>
+  <text x="70" y="516" font-size="8" fill="var(--text-1)">arch/ ................ this file (overview.html)</text>
+  <text x="70" y="532" font-size="8" fill="var(--text-1)">prd/ ................. feature-level PRDs</text>
+
+  <!-- images/ -->
+  <rect x="450" y="446" width="400" height="60" rx="6" fill="var(--container-fill)" stroke="var(--container)" stroke-width="1"/>
+  <text x="470" y="466" font-size="9" font-weight="500" fill="var(--container)">images/</text>
+  <text x="490" y="484" font-size="8" fill="var(--text-1)">runner-base.Dockerfile / runner-gpu.Dockerfile</text>
+  <text x="490" y="500" font-size="8" fill="var(--text-1)">build-runner-image.sh</text>
+</svg>
+<figcaption>目錄架構。<span class="badge badge-go">Go</span> = <code>listener/</code>（core loop + interface + shell-out bridge）。<span class="badge badge-bash">Bash</span> = <code>lib/</code>（可複用模組）+ <code>script/</code>（operator CLI）。<code>listener/</code> 下的 <code>.sh</code> 是 Go 的 shell-out 進入點，不是獨立工具。</figcaption>
+</figure>
+
+<!-- ============================================================ -->
+<h2><span class="num">16.</span> ADR 交叉引用</h2>
+
+<div class="tbl-wrap">
+<table>
+<tr>
+  <th>ADR</th>
+  <th>Title</th>
+  <th>Scope</th>
+  <th>Key files</th>
+</tr>
+<tr>
+  <td><a href="../adr/0001-ephemeral-jit-runners.md">0001</a></td>
+  <td>Ephemeral JIT Runners</td>
+  <td>Scale set session, per-job container, JIT config minting</td>
+  <td>listener.go, provisioner.go, provision-job.sh</td>
+</tr>
+<tr>
+  <td><a href="../adr/0002-job-history-audit-trail.md">0002</a></td>
+  <td>Job History Audit Trail</td>
+  <td>Capture-before-teardown, trusted ledger, retention caps</td>
+  <td>provision-job.sh, runner-history.sh, cleanup.sh</td>
+</tr>
+<tr>
+  <td><a href="../adr/0003-go-bash-boundary.md">0003</a></td>
+  <td>Go/Bash Boundary</td>
+  <td>Go holds policy, Bash holds I/O; shell-out contract (argv + env)</td>
+  <td>provisioner.go, reaper.go, hostprobe.go, detector.go</td>
+</tr>
+<tr>
+  <td><a href="../adr/0004-defer-k8s-with-tripwires.md">0004</a></td>
+  <td>Defer k8s (Tripwires)</td>
+  <td>No k8s/ARC now; tripwire conditions for future evaluation</td>
+  <td>doc/adr/0004-defer-k8s-with-tripwires.md</td>
+</tr>
+<tr>
+  <td><a href="../adr/0005-reactive-live-admission.md">0005</a></td>
+  <td>Reactive Live-admission</td>
+  <td>Per-job CPU/RAM admission, reserve headroom, settle window</td>
+  <td>hostprobe.go, host-probe.sh, listener.go (admitOne/capacityFor)</td>
+</tr>
+</table>
+</div>
