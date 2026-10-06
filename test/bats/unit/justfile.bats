@@ -269,3 +269,37 @@ EOF
   run grep -E '^clean-listener( .*)?:' "${JUSTFILE}"
   [ "${status}" -eq 0 ]
 }
+
+# `just --list` is the discovery surface for this file, and `just` takes ONLY the
+# comment line immediately above a recipe as its description. A multi-line
+# explanatory block therefore surfaces its LAST line, which for most recipes here
+# was a mid-sentence fragment:
+#
+#     coverage   # none at all -- the container itself is started with --network none.
+#     lint       # nothing, so a structural failure is reported before a container is started.
+#
+# `install-listener` already showed the fix: keep the block, end it with a bare
+# `#`, then a one-line summary. This holds that shape for every recipe.
+#
+# The check is necessary, not sufficient -- it cannot tell that "CI cannot drift
+# from what a maintainer runs locally." is a fragment, since that starts with a
+# capital and ends with a period. All twenty were read by hand as well.
+@test "every recipe's just --list description reads as a standalone sentence" {
+  local bad=()
+  while IFS= read -r recipe; do
+    # The line directly above the recipe definition is what `just` shows.
+    local above
+    above=$(grep -B1 -E "^${recipe}( [^:]*)?:" "${JUSTFILE}" | head -1)
+    [[ "${above}" == "#"* ]] || { bad+=("${recipe}: no comment above"); continue; }
+    # A sentence: opens with a capital or a backticked identifier, closes with a
+    # period. A fragment carried over from a wrapped block does neither.
+    [[ "${above}" =~ ^\#\ ([A-Z]|\`).*\.$ ]] || bad+=("${recipe}: ${above}")
+  done < <(grep -oE '^[a-z][a-z0-9-]*(?=( [^:]*)?:)' "${JUSTFILE}" 2>/dev/null \
+             || grep -oE '^[a-z][a-z0-9-]*' "${JUSTFILE}" | sort -u)
+
+  if (( ${#bad[@]} )); then
+    printf 'fragment description:\n'
+    printf '  %s\n' "${bad[@]}"
+    return 1
+  fi
+}
