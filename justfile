@@ -48,6 +48,8 @@ default:
 # Pull both test-tools and coverage images, and cache the pinned bats-core
 # release. This is the whole "fetch everything" step: after it, `lint`, `test`
 # and `coverage` all run with no outbound network.
+#
+# Pull the test-tools and coverage images, and cache the pinned bats release.
 pull:
     docker pull {{TEST_TOOLS_IMAGE}}
     docker pull {{COVERAGE_IMAGE}}
@@ -56,6 +58,8 @@ pull:
 # ShellCheck + hadolint in the test-tools container, after the repo lints
 # (below). The repo lints run first because they are pure bash + grep and cost
 # nothing, so a structural failure is reported before a container is started.
+#
+# ShellCheck, hadolint and the four repo structure lints.
 lint: lint-adr lint-changelog lint-readme-sync lint-doc-citations
     {{_docker_run}} shellcheck -x {{SCRIPTS}}
     {{_docker_run}} hadolint {{DOCKERFILES}}
@@ -67,6 +71,8 @@ lint: lint-adr lint-changelog lint-readme-sync lint-doc-citations
 # libraries working together. Both levels are named explicitly rather than
 # handed to `bats --recursive`, so adding a level is a deliberate edit here -- a
 # level nobody wired up would otherwise sit unrun and look green.
+#
+# The whole bats suite: unit then integration, in the test-tools container.
 test: test-unit test-integration
 
 # One function or one file in isolation.
@@ -77,7 +83,7 @@ test-unit:
 test-integration:
     {{_docker_run}} bats test/bats/integration/
 
-# lint + test (no coverage).
+# Lint + test (no coverage).
 check: lint test
 
 # Bats with kcov coverage -> ./coverage/ (slow; CI / release).
@@ -86,6 +92,8 @@ check: lint test
 # downloading and sha256-verifying it only when it is not cached yet. So the
 # first run needs the network for that one tarball and every run after it needs
 # none at all -- the container itself is started with --network none.
+#
+# Run bats under kcov and write the report to ./coverage/.
 coverage:
     rm -rf coverage
     bats_dir="$(bash script/fetch-bats.sh)" \
@@ -97,6 +105,8 @@ coverage:
 # Measure bash coverage, then enforce its floor (PRD.md §0.4). This is the
 # recipe the CI `coverage` job runs: measuring and enforcing in one place means
 # CI cannot drift from what a maintainer runs locally.
+#
+# Measure bash coverage, then enforce its floor.
 coverage-gate: coverage
     bash script/coverage-gate.sh bash coverage
 
@@ -111,6 +121,8 @@ coverage-gate: coverage
 # Everything except the func report stays inside the container (profile in
 # /tmp, module and build caches in the image), so the run leaves no root-owned
 # files on the bind mount; the report is captured through stdout.
+#
+# Measure the listener core's Go coverage, then enforce its floor.
 coverage-go:
     docker run --rm -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} \
       sh -c 'go test -coverprofile=/tmp/cover.out $(go list ./... | grep -v "/cmd/") >&2 && go tool cover -func=/tmp/cover.out' \
@@ -127,6 +139,8 @@ coverage-go:
 # ADR structure lint (doc/adr/), per PRD.md §0.5: the `> Serves:` back-pointer,
 # the four required sections, the permitted Status values, the filename /
 # numbering rules, and that a `Superseded by` target exists.
+#
+# ADR structure lint over doc/adr/.
 lint-adr:
     bash script/lint-adr.sh
 
@@ -137,23 +151,31 @@ BASE := env_var_or_default('BASE', 'origin/main')
 # A change an operator can observe must carry a CHANGELOG entry (PRD.md §0.7).
 # Judged against the merge base with BASE, so it asks what this branch changed
 # rather than what main gained meanwhile.
+#
+# Require a CHANGELOG entry for an operator-visible change.
 lint-changelog:
     bash script/lint-changelog.sh --base {{BASE}}
 
 # README.md and the three translations must not drift apart structurally: a
 # section that exists in one language and not the others leaves the other
 # readers told less.
+#
+# Check the four READMEs are structurally aligned.
 lint-readme-sync:
     bash script/lint-readme-sync.sh
 
 # No `file:line` citations and no hardcoded counts in the project's own
 # documentation -- both are copies of what the tree already states, and both go
 # stale with no signal (invariant 3).
+#
+# Reject file:line citations and hardcoded counts under doc/.
 lint-doc-citations:
     bash script/lint-doc-citations.sh
 
 # ShellCheck on host (requires shellcheck installed locally), plus the same
 # repo lints, so the host path covers exactly what the container one does.
+#
+# The four repo structure lints, on the host, with no container.
 lint-host: lint-adr lint-changelog lint-readme-sync lint-doc-citations
     shellcheck -x {{SCRIPTS}}
 
@@ -197,6 +219,8 @@ DESTDIR := env_var_or_default('DESTDIR', '')
 # git refuses the repo as "dubious ownership" and VCS stamping errors out (exit
 # 128) -- the binary needs no embedded VCS info, so skip the stamp to keep the
 # build robust regardless of the host checkout's ownership.
+#
+# Build the listener binary statically, inside a pinned Go container.
 build-listener:
     @mkdir -p {{BIN_DIR}}
     docker run --rm -e CGO_ENABLED=0 -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} go build -trimpath -buildvcs=false -ldflags='-s -w' -o /repo/{{LISTENER_BIN}} ./cmd/scaleset-listener
@@ -206,6 +230,8 @@ build-listener:
 # with the same static containerized build as the listener. It is a separate
 # binary because it is a separate act: the listener is a supervised long-running
 # service, this is an operator command that changes something on GitHub.
+#
+# Build the scale-set lifecycle command (create / delete a scale set).
 build-admin:
     @mkdir -p {{BIN_DIR}}
     docker run --rm -e CGO_ENABLED=0 -v "$PWD:/repo" -w /repo/listener {{GO_IMAGE}} go build -trimpath -buildvcs=false -ldflags='-s -w' -o /repo/{{ADMIN_BIN}} ./cmd/scaleset-admin
