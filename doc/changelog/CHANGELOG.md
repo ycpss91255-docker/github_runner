@@ -157,6 +157,30 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The operator commands are on `just` now, not only on script paths.**
+  `just --list` is where anyone looks first, and it listed lint, test, coverage
+  and build work exclusively -- so the three things actually needed on a runner
+  host were discoverable only by already knowing which script to run. `just
+  deploy`, `just teardown` and `just remove-runner` are thin passthroughs over
+  the scripts that already did this work: every flag reaches them unchanged, so
+  the printed plan, the confirmation prompt, `--dry-run` and `--yes` behave
+  exactly as before. `sudo` is deliberately not baked in -- a `--dry-run` changes
+  nothing and should not demand a password -- so it stays `sudo just deploy ...`
+  when you mean it.
+
+- **`script/check-token.sh` / `just token`: answer "is the admin token there and
+  still valid" without ever printing it.** There was no way to ask. Checking
+  meant opening a root-only file and pasting the secret into a command, which is
+  how a credential ends up in shell history and in the host process table. It
+  reports where the environment file is, its mode (flagged when it is not 0600),
+  whether a token is present, absent, or still the shipped placeholder -- a
+  distinct and common state, where the deploy ran, the file looks right and
+  nothing works -- and what scopes GitHub says the token carries, noting when
+  `admin:org` is absent, since that is what the scale-set API needs. The token
+  reaches `gh` through the environment, never argv. Reading the file needs root;
+  without it the mode and presence answers still hold, and it says which part it
+  could not read. `--no-verify` keeps the whole thing offline.
+
 - **A dispatch-only smoke workflow that proves a self-hosted runner can
   actually run a job.** `script/status.sh` reporting `online` only proves the
   runner *connected*; it says nothing about whether a job can be assigned,

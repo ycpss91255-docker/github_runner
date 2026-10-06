@@ -68,6 +68,13 @@ setup() {
   [ -x "${TOKEN_SH}" ]
 }
 
+@test "SCRIPTS enumerates script/check-token.sh so shellcheck covers it" {
+  # Adding a script without adding it here ships it unlinted: the recipe would
+  # run it, the gate would never look at it.
+  run bash -c "grep -E '^SCRIPTS :=' '${JUSTFILE}' | grep -F 'script/check-token.sh'"
+  [ "${status}" -eq 0 ]
+}
+
 @test "check-token.sh --help exits 0 and documents that it never prints the token" {
   run "${TOKEN_SH}" --help
   [ "${status}" -eq 0 ]

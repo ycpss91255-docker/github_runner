@@ -17,6 +17,7 @@
 - [概要](#概要)
 - [ディレクトリ構成](#ディレクトリ構成)
 - [スクリプト](#スクリプト)
+- [Operator コマンド](#operator-コマンド)
 - [設定](#設定)
 - [テスト](#テスト)
 - [セキュリティモデル](#セキュリティモデル)
@@ -111,8 +112,30 @@ org）、ハードコードされていません。
 | `script/schedule-cleanup.sh` | user crontab に `cleanup.sh` の定期実行エントリをインストール／削除する（daily / weekly / monthly から選択、時刻と曜日もインタラクティブに指定可）。引数なしでインタラクティブモード、`--every` / `--at` / `--day` を渡せば一発で完了。`--status` で現在のエントリを表示、`--uninstall` で削除。出力は `${RUNNER_HOME}/.cleanup.log` に append、`flock` で重複実行をブロック |
 | `script/deploy-listener.sh` | **対話的な 1 コマンドでこのマシンに scale-set(ephemeral)listener を立ち上げる**。[`deploy/`](../../deploy/README.md) の多段手順書を置き換える。2 つの側面を明示的に扱う:**GitHub 側**(scale set が未作成なら作成)と**ローカル側**(build、`--prefix` へのインストール、サービスユーザー、0600 の環境ファイル、systemd unit、enable、start)。最後に listener が実際に接続し capacity を報告しているか検証し、最初の job にそのまま貼れる `runs-on:` の行を表示する。冪等 —— 再実行済みの手順はスキップされる。Admin token は**必ずプロンプトで入力し、フラグにはしない**(引数は process table から見える)。`--dry-run` はプレビュー、非 TTY 実行には `--yes` が必須、`--skip-github` は 2 台目以降をローカル側のみにする。クリーンな checkout でも事前準備は不要: runner type 設定の読み取りに使う scale-set admin ツールは、この checkout の `bin/`、次に `PATH` の順に探し、どちらも無ければその場で **build** する(`just build-admin`)。ツールが本当に無い場合は、設定ファイルのせいにせず「ツールが無い」と明示して失敗する |
 | `script/teardown-listener.sh` | `deploy-listener.sh` の**ローカル側**の巻き戻し: unit の停止と disable、unit ファイル・環境ファイル・インストール先の削除。既定では確認を求める(`--yes` で省略、`--dry-run` でプレビュー)。scale set は意図的に**削除しない** —— その runner type を提供する全マシンで共有されるため、削除は別の明示的な操作(`scaleset-admin delete`)|
+| `script/check-token.sh` | scale-set admin トークンの状態を報告する: 環境ファイルの場所、パーミッション (0600 でなければ指摘)、トークンが存在するか・無いか・出荷時のプレースホルダのままか、そして GitHub が報告する scope —— `admin:org` が欠けていればそれを指摘する。**トークンを出力することはなく**、コマンドラインではなく環境変数経由で `gh` に渡す (引数はホストの process table から読める)。ファイルの読み取りには root が必要だが、無くてもパーミッションと存在の判定は有効。`--no-verify` はオフラインのまま、`--etc` は別の設定ディレクトリを指す|
 
 すべてのスクリプトは idempotent です。
+
+## Operator コマンド
+
+`just --list` はこの repo の二つの側面への共通の入口です。下の *テスト* 節の
+recipe はこの checkout を扱い、ここの recipe は**ホスト**を扱います。
+
+```bash
+just deploy --org-url https://github.com/<org> --dry-run   # preview the plan
+sudo just deploy --org-url https://github.com/<org>        # stand this host up
+just token                                                 # is the token there and still valid?
+sudo just teardown                                         # take the listener off this host
+./script/remove-runner.sh org <org>                        # deregister one classic runner
+```
+
+いずれも薄いラッパーです。すべてのフラグはそのままスクリプトへ渡るので、
+プレビュー、確認プロンプト、`--dry-run`、`--yes` は上の表のとおりに動作します。
+`sudo` は意図的に埋め込んでいません —— `--dry-run` は何も変更せず、パスワードを
+要求すべきではないからです —— 必要なときに `sudo just ...` と書いてください。
+
+`just token` は「資格情報があり、まだ受理されるか」をトークンを出力せずに答え、
+scale-set API が必要とする `admin:org` が欠けている場合はそれを指摘します。
 
 ## 設定
 

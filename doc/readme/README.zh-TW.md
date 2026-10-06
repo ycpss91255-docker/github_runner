@@ -17,6 +17,7 @@
 - [概述](#概述)
 - [目錄結構](#目錄結構)
 - [Scripts](#scripts)
+- [Operator 指令](#operator-指令)
 - [設定](#設定)
 - [測試](#測試)
 - [安全性說明](#安全性說明)
@@ -105,8 +106,29 @@ binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 cl
 | `script/schedule-cleanup.sh` | 安裝／移除 user crontab 內的排程，定時自動跑 `cleanup.sh`（daily / weekly / monthly 可選；時段、星期幾互動選擇）。沒帶參數會進互動模式，也可用 `--every` / `--at` / `--day` 一行帶完。`--status` 看目前排程，`--uninstall` 移除。輸出 append 到 `${RUNNER_HOME}/.cleanup.log`，`flock` 防併發重跑 |
 | `script/deploy-listener.sh` | **用一個互動式指令在這台機器上把 scale-set(ephemeral)listener 架起來**,取代 [`deploy/`](../../deploy/README.md) 裡的多步驟手冊。涵蓋兩半並明確標示各是哪一半:**GitHub 側**(若 scale set 尚未存在則建立)與**本機側**(build、安裝到 `--prefix`、服務帳號、0600 環境檔、systemd unit、enable、start)。最後驗證 listener 確實連上並回報 capacity,並印出第一個 job 可直接貼上的 `runs-on:` 那一行。冪等 —— 重跑會略過已就緒的步驟。Admin token 一律**用提示輸入,不做成參數**(參數會出現在 process table)。`--dry-run` 預覽;非 TTY 執行必須加 `--yes`;`--skip-github` 讓第二台以後只跑本機側。從全新 checkout 也不需要任何事前準備:讀取 runner type 設定所用的 scale-set admin 工具,會依序找這個 checkout 的 `bin/`、`PATH`,兩者都沒有就直接 **build**(`just build-admin`);而工具真的不存在時,錯誤訊息會指出是工具缺了,而不是怪到設定檔頭上 |
 | `script/teardown-listener.sh` | `deploy-listener.sh` **本機側**的反向操作:停止並 disable unit、移除 unit 檔、環境檔與安裝目錄。預設會先詢問;`--yes` 跳過、`--dry-run` 預覽。刻意**不會**刪除 scale set —— 它由所有服務該 runner type 的機器共用,刪除是另一個明確動作(`scaleset-admin delete`)|
+| `script/check-token.sh` | 報告 scale-set admin token 的狀態:環境檔位置、權限模式(非 0600 會標示)、token 是存在、缺少還是仍為範例預設值,以及 GitHub 回報的 scope —— 缺少 `admin:org` 時會指出。**絕不印出 token**,且透過環境變數而非命令列傳給 `gh`(命令列參數在主機 process table 可讀)。讀取檔案需要 root;沒有 root 時模式與存在性的判斷仍然有效。`--no-verify` 保持離線,`--etc` 指向其他設定目錄|
 
 所有 script 皆為 idempotent。
+
+## Operator 指令
+
+`just --list` 是本 repo 兩個面向的共同入口。下方 *測試* 章節的 recipe 作用於這份
+checkout；這裡的 recipe 作用於**主機**。
+
+```bash
+just deploy --org-url https://github.com/<org> --dry-run   # preview the plan
+sudo just deploy --org-url https://github.com/<org>        # stand this host up
+just token                                                 # is the token there and still valid?
+sudo just teardown                                         # take the listener off this host
+./script/remove-runner.sh org <org>                        # deregister one classic runner
+```
+
+它們都是薄包裝：所有旗標原樣傳給腳本，因此預覽、確認提示、`--dry-run`、`--yes`
+的行為與上表完全一致。`sudo` 刻意不內建 —— `--dry-run` 不改變任何東西,不該要求
+密碼 —— 需要時自行寫 `sudo just ...`。
+
+`just token` 回答「憑證在不在、是否仍被接受」而不印出它,並會在 token 缺少
+`admin:org`(scale-set API 所需)時指出來。
 
 ## 設定
 
