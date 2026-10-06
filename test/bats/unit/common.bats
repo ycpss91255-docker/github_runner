@@ -132,7 +132,10 @@ setup() {
   # RUNNER_HOME points at the symlink; the caller passes the canonical path,
   # exactly as cleanup.sh does.
   child=$(readlink -f "${link}/myorg/_org")
-  run bash -c "RUNNER_HOME='${link}' source '${LIB}'; assert_under_runner_home '${child}'"
+  # export, not a `VAR=x source` prefix: an assignment preceding `source` does
+  # not reach the sourced file, so the prefix form silently tests the default
+  # RUNNER_HOME instead of the symlink.
+  run bash -c "export RUNNER_HOME='${link}'; source '${LIB}'; assert_under_runner_home '${child}'"
   rm -rf "${tmp}"
   [ "${status}" -eq 0 ]
 }
@@ -147,7 +150,7 @@ setup() {
   ln -s "${real}" "${link}"
   ln -s "${escape}" "${real}/escape"
   child=$(readlink -f "${link}/escape")
-  run bash -c "RUNNER_HOME='${link}' source '${LIB}'; assert_under_runner_home '${child}'"
+  run bash -c "export RUNNER_HOME='${link}'; source '${LIB}'; assert_under_runner_home '${child}'"
   rm -rf "${tmp}"
   [ "${status}" -ne 0 ]
 }
