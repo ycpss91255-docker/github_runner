@@ -8,6 +8,24 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`script/cleanup.sh` actually prunes again**: it had been refusing every
+  single deletion while reporting success, so nothing was ever reclaimed and a
+  scheduled cleanup was silently a no-op (on the machine this was found, 2.7 GB
+  of stale `bin.X` / `externals.X` dirs, self-update remnants and old `_diag`
+  logs had accumulated under a weekly cron that looked like it was working).
+  `assert_under_runner_home` compared the two paths at different degrees of
+  resolution: `cleanup.sh` canonicalizes each prune target with `readlink -f`
+  first (the rm-safety hardening that stops a hostile job escaping the tree via
+  a symlinked `_work`), while `RUNNER_HOME` was left exactly as derived -- and
+  it ordinarily traverses a symlink, because the repo ships `src/runners`
+  pointing at the sibling state dir. A resolved child can never be a lexical
+  prefix match for an unresolved anchor, so the guard rejected the very paths it
+  exists to permit. Both sides are now canonicalized before comparing, which
+  also tightens the guard: an escaping symlink is judged on its target rather
+  than its name. The `RUNNER_HOME` validation chokepoint stays lexical on
+  purpose -- it must accept a directory that does not exist yet, and
+  `readlink -f` fails on a missing parent.
+
 - **`script/deploy-listener.sh` is one command from a clean checkout**: it reads
   the runner-type config through `scaleset-admin show`, so it needs that binary
   before every other step -- earlier than the local half that builds and

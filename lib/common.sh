@@ -130,15 +130,29 @@ validate_labels() {
 valid_owner() { [[ "$1" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]]; }
 valid_repo()  { [[ "$1" =~ ^[A-Za-z0-9._-]+$ && "$1" != . && "$1" != .. ]]; }
 
-# H3: anchor an rm target under RUNNER_HOME lexically. A dir is acceptable
-# iff "<dir>/" is prefixed by "${RUNNER_HOME}/", so no future change can turn
-# a destructive rm into an out-of-tree delete. Defense-in-depth on top of the
-# SEC-3 RUNNER_HOME normalization + resolve_target's identifier validation.
+# H3: anchor an rm target under RUNNER_HOME. A dir is acceptable iff "<dir>/"
+# is prefixed by "${RUNNER_HOME}/", so no future change can turn a destructive
+# rm into an out-of-tree delete. Defense-in-depth on top of the SEC-3
+# RUNNER_HOME normalization + resolve_target's identifier validation.
 # Returns 0 (under RUNNER_HOME) or prints a refusal to stderr and returns 1.
+#
+# BOTH sides are canonicalized before comparing, because the prefix test is
+# only meaningful between paths resolved to the same degree. RUNNER_HOME
+# ordinarily traverses a symlink (the repo ships `src/runners` pointing at the
+# sibling state dir), while cleanup.sh resolves each prune target with
+# `readlink -f` first (#144 rm-safety) -- so comparing the two as-written
+# refused every path and cleanup silently pruned nothing. Resolving both also
+# strengthens the guard: a symlink escaping the tree now fails the test on its
+# target rather than passing on its name. The SEC-3 chokepoint deliberately
+# stays lexical (it must accept a RUNNER_HOME whose dir does not exist yet, and
+# `readlink -f` fails on a missing parent); canonicalizing here is safe because
+# an rm target necessarily exists.
 assert_under_runner_home() {
-  local dir=$1
+  local dir=$1 root
+  root=$(readlink -f -- "${RUNNER_HOME}" 2>/dev/null) || root="${RUNNER_HOME}"
+  dir=$(readlink -f -- "${dir}" 2>/dev/null) || dir=$1
   case "${dir}/" in
-    "${RUNNER_HOME}/"*) return 0 ;;
+    "${root}/"*) return 0 ;;
     *) echo "refusing rm outside RUNNER_HOME: ${dir}" >&2; return 1 ;;
   esac
 }
