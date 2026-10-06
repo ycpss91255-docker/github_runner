@@ -157,6 +157,26 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A dispatch-only smoke workflow that proves a self-hosted runner can
+  actually run a job.** `script/status.sh` reporting `online` only proves the
+  runner *connected*; it says nothing about whether a job can be assigned,
+  checked out and executed. There was no way to establish that short of waiting
+  for real work to land, so standing a machine up (or relocating one) ended on
+  an unverified claim. `.github/workflows/selfhosted-smoke.yaml` fills that gap:
+  it identifies the host, prints the PATH the runner actually replays from its
+  `.path` snapshot and names any dead entries in it, checks the repo out, proves
+  the work tree is writable, and reports container-engine and GPU visibility
+  without failing when either is absent. The `runs-on` labels come from a
+  dispatch input, so one workflow smoke-tests any runner type.
+
+  It is **manual only, and that is a security boundary rather than a
+  preference**: `pull_request` fires for forks, so a wider trigger would let a
+  stranger's push execute on the runner host, where docker-group membership is
+  root-equivalent. `test/bats/unit/selfhosted_smoke_workflow.bats` holds that
+  shut -- a tripwire per property (dispatch-only, actions pinned by commit sha,
+  read-only token, bounded runtime), each verified by mutation to fail when its
+  property is removed.
+
 - **`doc/arch/overview.html`: a rendered architecture overview.** The repo had
   ADRs recording individual decisions and a PRD recording principles, but
   nothing that showed the shape of the system -- no topology, no module

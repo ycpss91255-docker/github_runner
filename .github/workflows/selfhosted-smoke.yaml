@@ -1,0 +1,98 @@
+name: self-hosted smoke
+
+# Manual only, deliberately. This is the one workflow that lands on a
+# self-hosted runner, so it must never fire on push / pull_request: a PR from a
+# fork would otherwise execute on the runner host. Dispatch it after standing a
+# machine up, moving one, or changing its labels, to prove the runner can really
+# run a job -- `script/status.sh` reporting `online` proves the runner
+# CONNECTED, which is not the same as being able to execute anything.
+on:
+  workflow_dispatch:
+    inputs:
+      runs_on:
+        description: 'runs-on labels as a JSON array -- must match the runner type''s labels exactly'
+        required: false
+        default: '["self-hosted","Linux","X64","gpu"]'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    # A workflow's runs-on is matched against the runner's LABELS; the scale set
+    # name (or runner name) is only an identifier. Taken from the dispatch input
+    # so one workflow can smoke-test any runner type without an edit -- a JSON
+    # array because expressions have fromJSON but no string-split.
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    timeout-minutes: 10
+    steps:
+      - name: Identify the host
+        run: |
+          echo "hostname : $(hostname)"
+          echo "user     : $(id -un) (uid $(id -u))"
+          echo "cwd      : ${PWD}"
+          echo "runner   : ${RUNNER_NAME:-<unset>}"
+          echo "workspace: ${GITHUB_WORKSPACE}"
+
+      - name: Report the PATH the runner actually replays
+        # The runner snapshots PATH at registration time into its `.path` file
+        # and replays that per job, so a job's PATH is NOT a login shell's. fnm
+        # entries under /run/user/<uid>/ are per-shell and tmpfs-backed, so they
+        # die at every reboot -- harmless while a later entry still provides the
+        # tool, which is what this prints rather than leaves assumed.
+        run: |
+          echo "PATH=${PATH}"
+          echo
+          for t in git node docker; do
+            if command -v "$t" >/dev/null 2>&1; then
+              printf '%-7s %s\n' "$t" "$(command -v "$t")"
+            else
+              printf '%-7s NOT FOUND\n' "$t"
+            fi
+          done
+          echo
+          dead=0
+          IFS=:
+          for p in ${PATH}; do
+            [ -d "$p" ] || { dead=$((dead+1)); echo "dead PATH entry: $p"; }
+          done
+          unset IFS
+          echo "dead PATH entries: ${dead}"
+
+      - name: Check out the repo
+        # Proves the runner can reach GitHub and write its work tree -- the two
+        # capabilities a relocated runner is most likely to have lost.
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Prove the work tree is writable
+        run: |
+          f="${RUNNER_TEMP}/smoke-$$"
+          echo ok > "${f}"
+          test "$(cat "${f}")" = ok
+          rm -f "${f}"
+          echo "RUNNER_TEMP is writable"
+          echo "checkout landed $(git rev-parse --short HEAD)"
+
+      - name: Report container-engine access
+        # Informational, never fatal: docker-group membership is how these hosts
+        # reach the engine, and that membership is root-equivalent (#81). A job
+        # that cannot reach the engine is still a working runner.
+        continue-on-error: true
+        run: |
+          if command -v docker >/dev/null 2>&1; then
+            docker info --format 'engine {{.ServerVersion}}, {{.Driver}} driver' 2>&1 | head -1
+          else
+            echo "no docker on PATH"
+          fi
+
+      - name: Report GPU visibility
+        # Also informational. These runners carry a `gpu` label, so whether the
+        # host can actually see a GPU is worth printing -- but "can this runner
+        # run a job" must not fail because a driver is absent.
+        continue-on-error: true
+        run: |
+          if command -v nvidia-smi >/dev/null 2>&1; then
+            nvidia-smi --query-gpu=index,name --format=csv,noheader
+          else
+            echo "nvidia-smi absent -- non-GPU host, or driver not installed"
+          fi
