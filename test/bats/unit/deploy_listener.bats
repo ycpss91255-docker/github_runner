@@ -199,3 +199,62 @@ teardown() { rm -rf "${WORK}"; }
   [[ "${output}" == *"build-admin"* ]]
   [[ "${output}" != *"could not read ${CONFIG}"* ]]
 }
+
+# A config holding more than one runner type and no --type is the state a
+# newcomer reaches first: the shipped sample configures two. The admin tool
+# diagnoses it correctly ("name a runner type: <config> configures 2 of them"),
+# but the wrapper then overwrote that verdict with "could not read <config>",
+# which asserts the file is bad when the file is fine and the INVOCATION is
+# underspecified. #184 fixed this same wrong-fault shape for a missing tool; the
+# message survived for this cause because the tool exits 1 here, not 127, so the
+# helpful "name one with --type" line sat on an unreachable branch.
+@test "deploy-listener.sh omitting --type on a multi-type config points at --type, not at the config" {
+  local multi="${WORK}/multi.yaml"
+  cat > "${multi}" <<'YAML'
+runner_types:
+  - name: gpu
+    scale_set: gpu-runners
+    labels: [self-hosted, linux, gpu]
+    image: ghcr.io/acme/r@sha256:abc
+  - name: cpu
+    scale_set: cpu-runners
+    labels: [self-hosted, linux, cpu]
+    image: ghcr.io/acme/c@sha256:def
+YAML
+  # Behave as the real tool does: refuse with exit 1 and say why, when the
+  # config holds several types and none was named.
+  cat > "${SCALESET_ADMIN_BIN}" <<'STUB'
+#!/usr/bin/env bash
+[ "${1:-}" = show ] || { echo "stub: unexpected verb ${1:-}" >&2; exit 64; }
+named=0
+for a in "$@"; do
+  case "${prev:-}" in --config) cfg=$a ;; --type) named=1 ;; esac
+  prev=$a
+done
+if [ "${named}" -eq 0 ]; then
+  echo "scaleset-admin: name a runner type: ${cfg} configures 2 of them" >&2
+  exit 1
+fi
+echo 'name=gpu'
+echo 'scale_set=gpu-runners'
+echo 'labels=self-hosted,linux,gpu'
+echo 'image=ghcr.io/acme/r@sha256:abc'
+echo 'runs_on=runs-on: [self-hosted, linux, gpu]'
+STUB
+  chmod +x "${SCALESET_ADMIN_BIN}"
+
+  run "${SCRIPT}" --dry-run --config "${multi}" --org-url https://github.com/acme
+  [ "${status}" -ne 0 ]
+  # It must name the fix.
+  [[ "${output}" == *"--type"* ]]
+  # And must NOT claim the config could not be read -- it was read fine.
+  [[ "${output}" != *"could not read ${multi}"* ]]
+}
+
+@test "deploy-listener.sh still blames the config when the config really is unreadable" {
+  # The counterpart: a genuinely bad config must keep saying so, so the fix
+  # above does not simply delete a correct message.
+  run "${SCRIPT}" --dry-run --config "${WORK}/absent.yaml" --type gpu --org-url https://github.com/acme
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"absent.yaml"* ]]
+}

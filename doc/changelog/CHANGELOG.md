@@ -8,6 +8,21 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Omitting `--type` is reported as a missing flag, not as an unreadable
+  config**: the shipped sample configures two runner types, so a first run
+  without `--type` is the newcomer's path, and it ended at `FAIL: could not read
+  <config>` -- a message that sends the operator to debug a file which is
+  perfectly fine, when the invocation was short one flag. The admin tool had
+  already diagnosed it correctly on the line above; the wrapper then overwrote
+  that verdict with a worse one. It now names the flag instead, and leaves the
+  tool's own message to say what it found rather than restating the count.
+  `--dry-run` on the shipped sample is therefore usable without already knowing
+  the answer. #184 fixed this same wrong-fault shape for a *missing tool*; it
+  survived for this cause because the tool exits 1 here rather than 127, which
+  left the existing "name one with `--type`" line on a branch that could never
+  be reached. A genuinely unreadable config still says so, and a test holds both
+  arms apart.
+
 - **`script/cleanup.sh` actually prunes again**: it had been refusing every
   single deletion while reporting success, so nothing was ever reclaimed and a
   scheduled cleanup was silently a no-op (on the machine this was found, 2.7 GB

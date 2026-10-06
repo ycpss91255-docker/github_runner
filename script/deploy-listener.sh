@@ -157,11 +157,30 @@ main() {
   local read_rc=0
   scale_set=$(listener_config_scaleset "${TYPES_CONFIG}" "${TYPE_NAME}") || read_rc=$?
   if (( read_rc != 0 )); then
-    # A tool that could not be RUN has already named itself; adding "could not
-    # read <config>" on top of that would point at a file that is perfectly
-    # fine, which is exactly the wrong-fault message this replaces.
-    (( read_rc == LISTENER_ADMIN_NOT_FOUND )) \
-      || echo "FAIL: could not read ${TYPES_CONFIG} (${SCALESET_ADMIN_BIN} rejected it)" >&2
+    # Three different faults reach here, and saying "could not read <config>" for
+    # all of them sends the operator to debug the wrong thing.
+    #
+    #   * the tool could not be RUN -- it has already named itself, so adding
+    #     anything about the config points at a file that is perfectly fine;
+    #   * no type was named and the config holds several -- the file is fine and
+    #     the INVOCATION is short one flag. This is a newcomer's first run,
+    #     because the shipped sample configures two types;
+    #   * the config really is bad -- the only case that message fits.
+    # Which of the last two it is cannot be settled here without parsing the
+    # config, and the Go loader is its only parser (ADR-0003). It does not need
+    # to be: the tool has already printed what it found, so the wrapper's job is
+    # to name the flag that fixes the common case and not to contradict it. The
+    # count is deliberately NOT restated -- that would be a second copy of
+    # something the tool already said (invariant 3).
+    if (( read_rc == LISTENER_ADMIN_NOT_FOUND )); then
+      : # already reported by listener_resolve_admin_bin
+    elif [[ -z ${TYPE_NAME} ]]; then
+      echo "FAIL: ${SCALESET_ADMIN_BIN} rejected the request above." >&2
+      echo "      No runner type was named: pass --type <name> when the config" >&2
+      echo "      holds more than one, since then there is no default." >&2
+    else
+      echo "FAIL: could not read ${TYPES_CONFIG} (${SCALESET_ADMIN_BIN} rejected it)" >&2
+    fi
     exit 1
   fi
   if [[ -z ${scale_set} ]]; then
