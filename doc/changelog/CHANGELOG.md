@@ -8,6 +8,18 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`just --list` describes the recipes instead of trailing off mid-sentence**:
+  `just` takes only the comment line immediately above a recipe, and most
+  recipes here carry a multi-line explanatory block -- so what surfaced was each
+  block's last line. The discovery surface for the whole file read as thirteen
+  fragments (`coverage # none at all -- the container itself is started with
+  --network none.`, `pull # and \`coverage\` all run with no outbound network.`),
+  which is close to no information at the one place everybody looks first.
+  `install-listener` already carried the fix -- keep the block, close it with a
+  bare `#`, then one summary line -- so that existing shape is now applied to
+  the rest. Additive: no explanatory prose was removed, since those blocks carry
+  the reasoning for the flags they describe.
+
 - **Omitting `--type` is reported as a missing flag, not as an unreadable
   config**: the shipped sample configures two runner types, so a first run
   without `--type` is the newcomer's path, and it ended at `FAIL: could not read
