@@ -83,15 +83,19 @@ doc_files() {
   for rel in README.md SECURITY.md CONTEXT.md listener/README.md; do
     [[ -f "${root}/${rel}" ]] && printf '%s\n' "${root}/${rel}"
   done
-  [[ -d "${root}/doc" ]] && find "${root}/doc" -type f -name '*.md' | sort
+  # doc/arch/ is HTML by convention (one self-contained file with inline SVG),
+  # and an architecture overview is the document most prone to the very defects
+  # this lint exists for: it describes module layouts, flow steps and category
+  # lists, every one of which drifts as the code changes.
+  [[ -d "${root}/doc" ]] && find "${root}/doc" -type f \( -name '*.md' -o -name '*.html' \) | sort
   return 0
 }
 
 # Scan one file. Prints one line per violation and exits 1 if there were any.
 scan_file() {
-  local file=$1 label=$2 counts_apply=$3
+  local file=$1 label=$2 counts_apply=$3 kind=${4:-md}
   awk -v FILE="${label}" -v MARKER="${MARKER}" -v COUNTS="${counts_apply}" \
-      -v CITE_RE="${CITATION_RE}" -v COUNT_RE="${COUNT_RE}" '
+      -v CITE_RE="${CITATION_RE}" -v COUNT_RE="${COUNT_RE}" -v KIND="${kind}" '
     function excerpt(line, s) {
       s = substr(line, RSTART, RLENGTH)
       gsub(/^[^A-Za-z0-9]+/, "", s)
@@ -103,11 +107,31 @@ scan_file() {
     }
     /^[[:space:]]*(```|~~~)/ { in_fence = !in_fence; prev = $0; next }
     in_fence { prev = $0; next }
+    # The HTML analogue of a fenced block. <svg> matters most: its coordinate
+    # attributes are nothing but digits, and a count heuristic would drown in
+    # them. <style>, <script> and <pre> are skipped for the same reason a fenced
+    # block is -- none of it is prose anyone reads as a claim.
+    KIND == "html" {
+      if (!in_el && match(tolower($0), /<(style|script|svg|pre)[ >]/)) {
+        el = substr(tolower($0), RSTART + 1, RLENGTH - 2)
+        sub(/[ >]$/, "", el)
+        in_el = el
+      }
+      if (in_el) {
+        if (index(tolower($0), "</" in_el ">") > 0) in_el = ""
+        prev = $0
+        next
+      }
+    }
     {
       line = $0
       # URLs are not citations. Strip them before looking for one.
       probe = line
       gsub(/[A-Za-z][A-Za-z0-9+.-]*:\/\/[^[:space:])"]*/, " ", probe)
+      # An inline code span is quoted material, not a claim about a location --
+      # the same reason a fenced block is skipped. Stripped rather than skipping
+      # the whole line, so a citation sitting BESIDE a code span still counts.
+      if (KIND == "html") gsub(/<code>[^<]*<\/code>/, " ", probe)
 
       if (!exempted(line) && match(probe, CITE_RE)) {
         printf "%s:%d: file:line citation: %s\n", FILE, NR, excerpt(probe)
@@ -150,7 +174,9 @@ main() {
     label="${file#"${root}"/}"
     counts_apply=1
     [[ "${label}" == "${COUNT_EXEMPT_PATH}" ]] && counts_apply=0
-    scan_file "${file}" "${label}" "${counts_apply}" >&2 || failures=$((failures + 1))
+    local kind=md
+    [[ "${file}" == *.html ]] && kind=html
+    scan_file "${file}" "${label}" "${counts_apply}" "${kind}" >&2 || failures=$((failures + 1))
   done
 
   if (( failures > 0 )); then

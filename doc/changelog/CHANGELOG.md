@@ -8,6 +8,29 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`script/lint-doc-citations.sh` now reads the `.html` documents under `doc/`.**
+  It collected `doc/**/*.md` only, so `doc/arch/` -- an HTML directory by
+  convention -- was unchecked, and its `0 violations` said nothing about the one
+  document class most prone to the defect the lint exists for: an architecture
+  overview describes module layouts, flow steps and category lists, every one of
+  which drifts as the code changes, silently, because prose does not fail a
+  build. The HTML analogue of a fenced block is skipped the same way --
+  `<style>`, `<script>`, `<svg>` (whose coordinate attributes are nothing but
+  digits) and `<pre>` -- while an inline `<code>` span is stripped from the line
+  rather than excusing it, so a citation beside a code span still counts.
+
+  **What this does and does not buy.** The citation half is now mechanical, and
+  it was proved against the real file rather than assumed: a `file:line`
+  reference planted in one of `overview.html`'s figcaptions is caught. The count
+  half barely reaches that file, and deliberately so -- `COUNT_RE` matches a
+  number before a short fixed list of English plural nouns, which fires on "four
+  jobs" but not on "23 hooks" and on no zh-TW counting phrase, and `doc/arch/`
+  prose is zh-TW. Widening it was considered and rejected: no mechanical rule
+  tells "four boundary layers", which describes the figure directly above it and
+  changes with that figure, from "five categories of leftovers", which restates a
+  list the code owns. That judgement stays with the reviewer, and two tests
+  record the boundary so the next reader does not assume otherwise.
+
 - **A scale set can bind to a single repository, which is how a personal repo
   gets a runner.** `--config-url` on `script/deploy-listener.sh` now takes either
   shape -- `https://github.com/<org>` for an organisation, or
