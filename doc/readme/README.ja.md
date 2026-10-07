@@ -122,12 +122,19 @@ org）、ハードコードされていません。
 recipe はこの checkout を扱い、ここの recipe は**ホスト**を扱います。
 
 ```bash
-just deploy --org-url https://github.com/<org> --dry-run   # preview the plan
-sudo just deploy --org-url https://github.com/<org>        # stand this host up
+just deploy --config-url https://github.com/<org> --dry-run    # preview the plan
+sudo just deploy --config-url https://github.com/<org>         # an org: every repo in it
+sudo just deploy --config-url https://github.com/<owner>/<repo> # one repo, incl. a personal one
 just token                                                 # is the token there and still valid?
 sudo just teardown                                         # take the listener off this host
 ./script/remove-runner.sh org <org>                        # deregister one classic runner
 ```
+
+scale set は**組織**または**単一リポジトリ**に紐づきます。リポジトリ scope は個人リポジトリが
+runner を得る方法です: GitHub にアカウント単位の scope は無いため、個人リポジトリでは
+1 runner が 1 repo を担当し、複数で共有するには同じ組織に置く必要があります。リポジトリ
+scope で弱くなる点は [`deploy/`](../../deploy/README.md) を参照。`--org-url` は
+`--config-url` の旧名として引き続き使えます。
 
 いずれも薄いラッパーです。すべてのフラグはそのままスクリプトへ渡るので、
 プレビュー、確認プロンプト、`--dry-run`、`--yes` は上の表のとおりに動作します。

@@ -122,12 +122,19 @@ All scripts are idempotent.
 *Testing* below builds and checks the checkout; these act on a **host**.
 
 ```bash
-just deploy --org-url https://github.com/<org> --dry-run   # preview the plan
-sudo just deploy --org-url https://github.com/<org>        # stand this host up
+just deploy --config-url https://github.com/<org> --dry-run    # preview the plan
+sudo just deploy --config-url https://github.com/<org>         # an org: every repo in it
+sudo just deploy --config-url https://github.com/<owner>/<repo> # one repo, incl. a personal one
 just token                                                 # is the token there and still valid?
 sudo just teardown                                         # take the listener off this host
 ./script/remove-runner.sh org <org>                        # deregister one classic runner
 ```
+
+A scale set binds to an **organisation** or to a **single repository**. Repository
+scope is how a personal repo gets a runner: GitHub has no user-account scope, so
+one runner serves one repo there, and sharing one between repos means putting them
+in the same organisation. See [`deploy/`](deploy/README.md) for what is weaker at
+repository scope. `--org-url` still works as the former name of `--config-url`.
 
 They are thin passthroughs: every flag reaches the script unchanged, so the
 preview, the confirmation prompt, `--dry-run` and `--yes` all behave exactly as

@@ -27,7 +27,8 @@
 # in the operator's shell history besides. There is deliberately no --token.
 #
 # Usage:
-#   sudo ./script/deploy-listener.sh --org-url https://github.com/<org>
+#   sudo ./script/deploy-listener.sh --config-url https://github.com/<org>
+#   sudo ./script/deploy-listener.sh --config-url https://github.com/<owner>/<repo>
 #   sudo ./script/deploy-listener.sh --dry-run ...        # print the plan
 #   sudo ./script/deploy-listener.sh --yes ...            # unattended
 #   ./script/deploy-listener.sh -h | --help
@@ -41,7 +42,7 @@ source "${SCRIPT_DIR}/../lib/listener-deploy.sh"
 LISTENER_YES=0
 DRY_RUN=0
 SKIP_GITHUB=0
-ORG_URL=""
+CONFIG_URL=""
 TYPE_NAME="${RUNNER_TYPE:-}"
 TYPES_CONFIG="${RUNNER_TYPES_CONFIG:-}"
 LABELS_OPT=""
@@ -63,8 +64,14 @@ when there is neither -- so a clean checkout needs no preparation. Set
 SCALESET_ADMIN_BIN to name a particular binary instead.
 
 Options:
-  --org-url <url>     https://github.com/<org> (required unless --skip-github
-                      and an environment file already exists)
+  --config-url <url>  what the scale set binds to (required unless --skip-github
+                      and an environment file already exists):
+                        https://github.com/<org>           an organisation
+                        https://github.com/<owner>/<repo>  a single repository
+                      A repository target is how a personal repo gets a runner:
+                      GitHub has no user-account scope, so one runner serves one
+                      repo there. Accepted as --org-url too, which this used to
+                      be called.
   --config <path>     runner-type config (default: the installed one, else
                       deploy/runner-types.sample.yaml)
   --type <name>       which runner type to deploy (may be omitted when the
@@ -100,7 +107,10 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case $1 in
-      --org-url)   ORG_URL=${2:?--org-url needs a value}; shift 2 ;;
+      --config-url|--org-url)
+                   # --org-url is the former name, kept working: it is in the
+                   # README, the changelog and people's shell history.
+                   CONFIG_URL=${2:?$1 needs a value}; shift 2 ;;
       --config)    TYPES_CONFIG=${2:?--config needs a value}; shift 2 ;;
       --type)      TYPE_NAME=${2:?--type needs a value}; shift 2 ;;
       --labels)    LABELS_OPT=${2:?--labels needs a value}; shift 2 ;;
@@ -210,6 +220,11 @@ main() {
     echo "  GitHub side:      skipped (--skip-github); the scale set is assumed to exist"
   else
     echo "  GitHub side:"
+    # Which org or repository the scale set lands in. A preview of "what happens
+    # on GitHub" that omits the target cannot be checked -- and now that the
+    # target may be a single repository, naming the wrong one is a real mistake
+    # to be able to catch here.
+    echo "    Target:         ${CONFIG_URL}   ($(listener_config_url_scope "${CONFIG_URL}"))"
     echo "    Scale set:      ${scale_set}   (an identifier)"
     echo "    Routing labels: ${chosen_labels}   (what a workflow's runs-on matches)"
     echo "    Runner group:   ${GROUP_OPT:-Default}"
@@ -291,7 +306,7 @@ main() {
     [[ -n ${TYPE_NAME} ]] && admin_args+=(--type "${TYPE_NAME}")
     [[ -n ${GROUP_OPT} ]] && admin_args+=(--group "${GROUP_OPT}")
     # The token reaches the child through the ENVIRONMENT, never its argv.
-    GITHUB_CONFIG_URL="${ORG_URL}" GITHUB_TOKEN="${LISTENER_TOKEN:-}" \
+    GITHUB_CONFIG_URL="${CONFIG_URL}" GITHUB_TOKEN="${LISTENER_TOKEN:-}" \
       _scaleset_admin "${admin_args[@]}"
   fi
   echo
@@ -307,7 +322,7 @@ main() {
   if listener_env_file_ready "${LISTENER_ENV_FILE}"; then
     echo "  environment file: ${LISTENER_ENV_FILE} already in place (0600), skipped"
   else
-    listener_write_env_file "${LISTENER_ENV_FILE}" "${ORG_URL}" \
+    listener_write_env_file "${LISTENER_ENV_FILE}" "${CONFIG_URL}" \
       "${TYPES_CONFIG}" "${TYPE_NAME}"
   fi
 

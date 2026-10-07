@@ -684,3 +684,40 @@ teardown() { rm -rf "${WORK}"; }
   [[ "${output}" == *"${WORK}/gone"* ]]
   [[ "${output}" != *"BUILT"* ]]
 }
+
+# listener_config_url_scope names what a config URL binds to, so the deploy plan
+# can say WHERE the scale set lands. It must agree with the client's own rule,
+# which is purely about path segments: one is an organisation, two is a
+# repository, and `enterprises/<name>` is the exception that is also two.
+# Getting this wrong would mislabel the preview of a destructive-ish act.
+
+@test "listener_config_url_scope: one path segment is an organisation" {
+  run bash -c "source '${LIB}'; listener_config_url_scope https://github.com/acme"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"organisation"* ]]
+}
+
+@test "listener_config_url_scope: two path segments is a repository" {
+  run bash -c "source '${LIB}'; listener_config_url_scope https://github.com/someone/their-repo"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"repository"* ]]
+}
+
+@test "listener_config_url_scope: enterprises/<name> is an enterprise, not a repository" {
+  run bash -c "source '${LIB}'; listener_config_url_scope https://github.com/enterprises/acme-inc"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"enterprise"* ]]
+  [[ "${output}" != *"repository"* ]]
+}
+
+@test "listener_config_url_scope: a trailing slash does not change the scope" {
+  run bash -c "source '${LIB}'; listener_config_url_scope https://github.com/acme/"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"organisation"* ]]
+}
+
+@test "listener_config_url_scope: too many segments is reported, not guessed" {
+  run bash -c "source '${LIB}'; listener_config_url_scope https://github.com/a/b/c"
+  [[ "${output}" != *"organisation"* ]]
+  [[ "${output}" != *"repository"* ]]
+}

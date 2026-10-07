@@ -364,6 +364,35 @@ listener_verify() {
 # implicit fallback further down the stack. The scale-set client fills labels
 # from the name only when the field arrives empty, and relying on that is what
 # leaves the routing key recorded nowhere.
+# Name what a config URL binds to, for the deploy plan's "Target:" line.
+#
+# This mirrors the scale-set client's own rule, which is purely about how many
+# path segments the URL has: one is an organisation, two is a repository, and
+# `enterprises/<name>` is the exception that is also two. Keeping the wording
+# here in step with that parser is what lets the preview say WHERE a scale set
+# will land -- and that matters most for a repository target, where naming the
+# wrong one is an easy and consequential slip.
+#
+# It describes, it does not validate: an unexpected shape is reported as unknown
+# and left for the client to reject, rather than second-guessed here.
+listener_config_url_scope() {
+  local path parts
+  path=${1#*://}        # strip scheme
+  path=${path#*/}       # strip host
+  path=${path%/}        # strip a trailing slash
+  [[ ${path} == "${1#*://}" ]] && path=""   # no path at all
+  IFS='/' read -r -a parts <<<"${path}"
+  case ${#parts[@]} in
+    1) [[ -n ${parts[0]} ]] && printf 'organisation\n' || printf 'unknown scope\n' ;;
+    2) if [[ ${parts[0],,} == enterprises ]]; then
+         printf 'enterprise\n'
+       else
+         printf 'repository\n'
+       fi ;;
+    *) printf 'unknown scope\n' ;;
+  esac
+}
+
 listener_default_labels() {
   local labels=$1 scale_set=$2
   printf '%s\n' "${labels:-${scale_set}}"
