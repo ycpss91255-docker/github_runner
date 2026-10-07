@@ -62,7 +62,12 @@ re-implementing a YAML parser in shell -- the Go loader stays the only parser.
                     from here (the scale set has to be created again)
 
 Environment (never flags -- a token in a flag is a token in the process table):
-  GITHUB_CONFIG_URL   https://github.com/<org>
+  GITHUB_CONFIG_URL   what the scale set binds to:
+                        https://github.com/<org>           an organisation
+                        https://github.com/<owner>/<repo>  a single repository
+                      Repository scope is how a personal repo gets a runner:
+                      GitHub has no user-account scope, so one runner serves
+                      one repo there.
   GITHUB_TOKEN        a token with scale-set admin scope
 `
 

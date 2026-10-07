@@ -48,9 +48,32 @@ command: a runbook is a thing people mean to follow, and these steps went
 unfollowed long enough that nothing was ever deployed.
 
 ```sh
-sudo ./script/deploy-listener.sh --org-url https://github.com/<org> --dry-run
-sudo ./script/deploy-listener.sh --org-url https://github.com/<org>
+sudo ./script/deploy-listener.sh --config-url https://github.com/<org> --dry-run
+sudo ./script/deploy-listener.sh --config-url https://github.com/<org>
 ```
+
+**What the scale set binds to.** `--config-url` takes either shape, and the
+client tells them apart by path segments alone:
+
+| URL | Scope |
+| --- | --- |
+| `https://github.com/<org>` | the organisation -- every repo in it can use the runner |
+| `https://github.com/<owner>/<repo>` | that **one repository** |
+| `https://github.com/enterprises/<name>` | the enterprise |
+
+Repository scope is how a **personal repo** gets a self-hosted runner. GitHub has
+no user-account scope -- there is no way to serve all of one account's repos with
+a single runner -- so a personal repo gets its own, serving only itself. To share
+one runner between several repos they have to live in the same organisation,
+which is the only level where "many repos, one runner" exists.
+
+Two things are weaker at repository scope, and they are worth knowing before
+pointing a GPU host at a repo: there are no runner groups, so the per-repo and
+per-workflow allowlists an organisation can impose do not exist, and there is no
+organisation-level fork-PR approval gate. The host's exposure is otherwise
+identical -- `docker` group membership is root-equivalent either way.
+
+`--org-url` is still accepted as the former name of the same flag.
 
 It covers both halves and says which is which: the **GitHub side** (create the
 runner type's scale set, if it is not already there -- section 3c) and the

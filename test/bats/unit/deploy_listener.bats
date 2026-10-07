@@ -258,3 +258,45 @@ STUB
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"absent.yaml"* ]]
 }
+
+# A scale set can bind to a REPOSITORY as well as an organisation. The client
+# decides from the config URL's shape -- one path segment is an org, two is a
+# repository (`enterprises/<name>` being the exception) -- and a repository-scoped
+# URL was verified end to end against the live service: the handshake completes,
+# reads are served, and the `Default` runner group resolves there too (id=1).
+#
+# So this worked already, by omission rather than by design: nothing validated
+# the shape, every document said `https://github.com/<org>`, no test covered it,
+# and the flag was named `--org-url`. These tests make the repository case a
+# supported path instead of an accident, and keep `--org-url` working because it
+# is already in the README, the changelog and people's shell history.
+
+@test "deploy-listener.sh accepts --config-url" {
+  run "${SCRIPT}" --dry-run --config "${CONFIG}" --type gpu \
+    --config-url https://github.com/acme
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"https://github.com/acme"* ]]
+}
+
+@test "deploy-listener.sh still accepts --org-url as an alias" {
+  run "${SCRIPT}" --dry-run --config "${CONFIG}" --type gpu \
+    --org-url https://github.com/acme
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"https://github.com/acme"* ]]
+}
+
+@test "deploy-listener.sh accepts a repository-scoped config URL" {
+  # Two path segments: the client reads this as repository scope.
+  run "${SCRIPT}" --dry-run --config "${CONFIG}" --type gpu \
+    --config-url https://github.com/someone/their-repo
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"someone/their-repo"* ]]
+}
+
+@test "deploy-listener.sh --help documents that a repository URL is allowed" {
+  run "${SCRIPT}" --help
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"--config-url"* ]]
+  # It must say a repository is a valid target, not only an org.
+  [[ "${output}" == *"owner>/<repo"* ]]
+}

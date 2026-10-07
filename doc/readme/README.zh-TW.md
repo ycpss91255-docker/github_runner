@@ -116,12 +116,18 @@ binary、回報本地與 GitHub 端狀態、清理自動升級殘料。一份 cl
 checkout；這裡的 recipe 作用於**主機**。
 
 ```bash
-just deploy --org-url https://github.com/<org> --dry-run   # preview the plan
-sudo just deploy --org-url https://github.com/<org>        # stand this host up
+just deploy --config-url https://github.com/<org> --dry-run    # preview the plan
+sudo just deploy --config-url https://github.com/<org>         # an org: every repo in it
+sudo just deploy --config-url https://github.com/<owner>/<repo> # one repo, incl. a personal one
 just token                                                 # is the token there and still valid?
 sudo just teardown                                         # take the listener off this host
 ./script/remove-runner.sh org <org>                        # deregister one classic runner
 ```
+
+一個 scale set 可以綁到**組織**或**單一 repo**。repo scope 正是個人 repo 取得 runner 的方式:
+GitHub 沒有帳號層級的 scope,所以個人 repo 只能一個 runner 服務一個 repo;要多個 repo 共用
+就得把它們放進同一個組織。repo scope 少了哪些保護見 [`deploy/`](../../deploy/README.md)。
+`--org-url` 仍可用,它是 `--config-url` 的舊名。
 
 它們都是薄包裝：所有旗標原樣傳給腳本，因此預覽、確認提示、`--dry-run`、`--yes`
 的行為與上表完全一致。`sudo` 刻意不內建 —— `--dry-run` 不改變任何東西,不該要求

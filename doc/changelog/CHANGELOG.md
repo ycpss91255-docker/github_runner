@@ -6,6 +6,37 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A scale set can bind to a single repository, which is how a personal repo
+  gets a runner.** `--config-url` on `script/deploy-listener.sh` now takes either
+  shape -- `https://github.com/<org>` for an organisation, or
+  `https://github.com/<owner>/<repo>` for one repository -- and the deploy plan
+  names which it resolved to. This worked already and nobody could tell: the
+  scale-set client decides scope from path segments alone, nothing in the tooling
+  validated the shape, so a repository URL went through by omission. It was also
+  undocumented, untested, and the flag was called `--org-url`, which said the
+  opposite. Verified against the live service before being claimed: at repository
+  scope the handshake completes, reads are served, and the `Default` runner group
+  resolves exactly as it does for an organisation. `--org-url` keeps working as
+  the former name.
+
+  Worth knowing before pointing a GPU host at a repository: GitHub has **no
+  user-account scope**, so one runner serves one personal repo and sharing one
+  between several means putting them in the same organisation -- that is the only
+  level where "many repos, one runner" exists. Repository scope also has no
+  runner groups, so an organisation's per-repo and per-workflow allowlists are
+  unavailable, and there is no organisation-level fork-PR approval gate. Host
+  exposure is otherwise identical, `docker` group membership being
+  root-equivalent either way.
+
+- **The deploy plan says where the scale set will land.** It listed the scale
+  set, the labels, the group and the action, but never the organisation or
+  repository being acted on -- so a preview of "what happens on GitHub" could not
+  be checked against the one thing most worth checking. It now prints a `Target:`
+  line with the resolved scope beside it, which matters most for a repository
+  target, where naming the wrong one is an easy slip.
+
 ### Fixed
 
 - **`just --list` describes the recipes instead of trailing off mid-sentence**:
