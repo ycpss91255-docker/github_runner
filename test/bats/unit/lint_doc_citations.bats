@@ -174,7 +174,7 @@ setup() {
   [[ "${output}" == *"2 document"* ]]
 }
 
-@test "digits inside an inline SVG are not read as citations or counts" {
+@test "digits inside an inline SVG are not read as citations" {
   cat >"${FAKE}/doc/arch.html" <<'HTML'
 <figure>
 <svg viewBox="0 0 880 320">
@@ -230,4 +230,27 @@ HTML
   # The bare citation outside the code span must still be caught.
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"common.sh:138"* ]]
+}
+
+# The COUNT rule's reach over HTML is narrow, and saying so here keeps the next
+# reader from assuming this lint guards more than it does. COUNT_RE matches a
+# number before a short, deliberately fixed list of English plural nouns, so it
+# fires on "four jobs" but not on "23 hooks" and not on any zh-TW counting
+# phrase -- and doc/arch/ prose is zh-TW. Widening it was considered and
+# rejected: a rule cannot tell "four boundary layers", which describes the
+# figure directly above it and changes with that figure, from "five categories
+# of leftovers", which restates a list the code owns. That judgement stays with
+# the reviewer; extending the collector buys the CITATION half mechanically.
+@test "the count rule does not reach zh-TW counting phrases, by design" {
+  printf '<p>Cleanup 清理五類殘留。</p>\n' >"${FAKE}/doc/arch.html"
+  printf 'Nothing wrong here.\n' >"${DOC}"
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "the count rule still fires on the English nouns it names" {
+  printf '<p>There are four jobs in the gate.</p>\n' >"${FAKE}/doc/arch.html"
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"hardcoded count"* ]]
 }
