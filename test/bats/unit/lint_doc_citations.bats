@@ -145,3 +145,89 @@ setup() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"usage"* || "${output}" == *"unknown"* ]]
 }
+
+# doc/arch/ is an HTML directory by convention (it mirrors the base repo's
+# `overview.html`), and the collector took `doc/**/*.md` only -- so the one
+# document class most prone to this defect was the class the rule did not see.
+# An architecture overview describes module layouts, flow steps and category
+# lists, all of which drift as code changes, silently, because prose does not
+# fail a build.
+#
+# The HTML analogue of a fenced block is the non-prose element: <style>,
+# <script>, <svg> (full of coordinate digits), and <pre>. Inline <code> is
+# stripped the way URLs already are, rather than skipping the whole line.
+
+@test "an HTML document under doc/ is scanned at all" {
+  printf '<p>See the guard in lib/common.sh:142 for the detail.</p>\n' \
+    >"${FAKE}/doc/arch.html"
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"doc/arch.html"* ]]
+  [[ "${output}" == *"lib/common.sh:142"* ]]
+}
+
+@test "the HTML document count is reported, not silently zero" {
+  printf '<p>Nothing wrong here.</p>\n' >"${FAKE}/doc/arch.html"
+  printf 'Nothing wrong here either.\n' >"${DOC}"
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"2 document"* ]]
+}
+
+@test "digits inside an inline SVG are not read as citations or counts" {
+  cat >"${FAKE}/doc/arch.html" <<'HTML'
+<figure>
+<svg viewBox="0 0 880 320">
+  <rect x="20" y="8" width="840" height="68"/>
+  <text x="50" y="30">four layers</text>
+</svg>
+<figcaption>The topology.</figcaption>
+</figure>
+HTML
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "a <style> block is not scanned" {
+  cat >"${FAKE}/doc/arch.html" <<'HTML'
+<style>
+body { margin: 0 0 0 0; }
+.x { padding: 0.45rem 0.7rem; }
+</style>
+<p>Plain prose.</p>
+HTML
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "a <pre> block is not scanned, the way a fenced block is not" {
+  cat >"${FAKE}/doc/arch.html" <<'HTML'
+<pre>
+  go tool cover reports listener/listener.go:374
+</pre>
+<p>Plain prose.</p>
+HTML
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -eq 0 ]
+}
+
+@test "a citation in a figcaption still fails -- that is prose" {
+  cat >"${FAKE}/doc/arch.html" <<'HTML'
+<figure>
+<svg viewBox="0 0 880 100"><rect x="1" y="2"/></svg>
+<figcaption>The gate lives in lib/common.sh:138.</figcaption>
+</figure>
+HTML
+  run bash "${LINT}" "${FAKE}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"lib/common.sh:138"* ]]
+}
+
+@test "inline <code> is stripped, so a path inside it is not a citation" {
+  printf '<p>The gate is <code>assert_under_runner_home</code> in common.sh:138.</p>\n' \
+    >"${FAKE}/doc/arch.html"
+  run bash "${LINT}" "${FAKE}"
+  # The bare citation outside the code span must still be caught.
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"common.sh:138"* ]]
+}
